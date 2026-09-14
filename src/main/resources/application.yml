@@ -87,3 +87,10 @@ ai:
   service:
     # The Python FastAPI service hosting the LangGraph agents and the RL policy.
     base-url: ${AI_SERVICE_BASE_URL:http://localhost:8000}
+
+callverse:
+  # Substituted at build time from the POM's <version> by Maven resource filtering:
+  # spring-boot-starter-parent configures @...@ as the delimiter for application*.yml,
+  # which keeps the version reported by the API in lockstep with the artifact.
+  # The quotes are required: a bare @ starts a reserved indicator in YAML.
+  version: "@project.version@"
