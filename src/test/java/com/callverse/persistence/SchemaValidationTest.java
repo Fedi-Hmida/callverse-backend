@@ -2,6 +2,24 @@ package com.callverse.persistence;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.callverse.core.domain.entities.AgentDecision;
+import com.callverse.core.domain.entities.ControlStrategy;
+import com.callverse.core.domain.entities.KbArticle;
+import com.callverse.core.domain.entities.KbChunk;
+import com.callverse.core.domain.entities.MetricSample;
+import com.callverse.core.domain.entities.MetricSampleId;
+import com.callverse.core.domain.entities.NetworkIncident;
+import com.callverse.core.domain.entities.QualityEvaluation;
+import com.callverse.core.domain.entities.RoutingRule;
+import com.callverse.core.domain.entities.RunKpi;
+import com.callverse.core.domain.entities.Scenario;
+import com.callverse.core.domain.entities.SimulationRun;
+import com.callverse.core.domain.enums.AgentType;
+import com.callverse.core.domain.enums.EvaluatorType;
+import com.callverse.core.domain.enums.LoadProfile;
+import com.callverse.core.domain.enums.RunStatus;
+import com.callverse.core.domain.enums.StrategyKind;
+import java.time.Instant;
 import com.callverse.core.domain.entities.Advisor;
 import com.callverse.core.domain.entities.AdvisorSkill;
 import com.callverse.core.domain.entities.AdvisorSkillId;
@@ -344,6 +362,242 @@ class SchemaValidationTest extends AbstractPersistenceTest {
             assertThat(loaded.getConversation()).isNull();
             assertThat(loaded.getSeverity()).isEqualTo((short) 2);
             assertThat(loaded.getStatus()).isEqualTo(TicketStatus.OPEN);
+        }
+    }
+
+    @Nested
+    @DisplayName("Block 5-8 — knowledge base, control, experimentation and quality")
+    class KnowledgeControlAndExperiments {
+
+        private SimulationRun persistRun(long seed) throws Exception {
+            Scenario scenario = new Scenario();
+            scenario.setName("Scenario " + unique("s"));
+            scenario.setLoadProfile(LoadProfile.SATURATED);
+            scenario.setDurationMinutes(60);
+            scenario.setAdvisorCount(12);
+            scenario.setSkillDistribution(
+                    objectMapper.readTree("{\"TECHNICAL\":0.5,\"BILLING\":0.3,\"COMMERCIAL\":0.2}"));
+            scenario.setCustomerProfileMix(
+                    objectMapper.readTree("{\"LOW\":0.7,\"MEDIUM\":0.2,\"HIGH\":0.1}"));
+            scenario.setInjectedEvents(
+                    objectMapper.readTree("[{\"at\":900,\"type\":\"OUTAGE\",\"zone\":\"north\"}]"));
+            em.persist(scenario);
+
+            ControlStrategy strategy = new ControlStrategy();
+            strategy.setCode(unique("STRAT"));
+            strategy.setName("Probe strategy");
+            strategy.setKind(StrategyKind.RL);
+            strategy.setParams(objectMapper.readTree("{\"algorithm\":\"PPO\"}"));
+            em.persist(strategy);
+
+            SimulationRun run = new SimulationRun();
+            run.setScenario(scenario);
+            run.setStrategy(strategy);
+            run.setSeed(seed);
+            run.setStatus(RunStatus.COMPLETED);
+            em.persist(run);
+            return run;
+        }
+
+        @Test
+        @DisplayName("a KB article with TEXT[] tags and its chunks round-trip")
+        void knowledgeBaseRoundTrips() {
+            KbArticle article = new KbArticle();
+            article.setCategory("BILLING");
+            article.setTitle("Comprendre votre facture");
+            article.setContent("Le detail de votre facture...");
+            article.setTags(new String[] {"facture", "prelevement", "litige"});
+            article.setPublished(true);
+            em.persist(article);
+
+            KbChunk chunk = new KbChunk();
+            chunk.setArticle(article);
+            chunk.setChunkIndex(0);
+            chunk.setContent("Le detail de votre facture...");
+            em.persist(chunk);
+
+            em.flush();
+            em.clear();
+
+            KbArticle loaded = em.find(KbArticle.class, article.getId());
+            assertThat(loaded.getTags()).containsExactly("facture", "prelevement", "litige");
+            assertThat(loaded.getUpdatedAt()).as("@UpdateTimestamp populated").isNotNull();
+
+            List<KbChunk> chunks = em.createQuery(
+                            "select c from KbChunk c where c.article.id = :id", KbChunk.class)
+                    .setParameter("id", article.getId())
+                    .getResultList();
+            // embedding is unmapped by design; the column exists and validate does not care.
+            assertThat(chunks).hasSize(1);
+            assertThat(chunks.get(0).getArticle().getTitle()).isEqualTo("Comprendre votre facture");
+        }
+
+        @Test
+        @DisplayName("operational control entities round-trip, including a JSONB rule condition")
+        void operationalControlRoundTrips() throws Exception {
+            Skill billing = em.createQuery("select s from Skill s where s.code = 'BILLING'", Skill.class)
+                    .getSingleResult();
+
+            RoutingRule rule = new RoutingRule();
+            rule.setName("Billing disputes to BILLING");
+            rule.setIntent(Intent.BILLING);
+            rule.setSkill(billing);
+            rule.setPriority(10);
+            rule.setConditions(objectMapper.readTree("{\"invoiceStatus\":\"DISPUTED\"}"));
+            em.persist(rule);
+
+            NetworkIncident incident = new NetworkIncident();
+            incident.setZone("north");
+            incident.setType("FIBER_CUT");
+            incident.setSeverity((short) 1);
+            incident.setStartedAt(Instant.now());
+            incident.setAffectedCount(4200);
+            em.persist(incident);
+
+            em.flush();
+            em.clear();
+
+            RoutingRule loadedRule = em.find(RoutingRule.class, rule.getId());
+            assertThat(loadedRule.getConditions().get("invoiceStatus").asText()).isEqualTo("DISPUTED");
+            assertThat(loadedRule.getSkill().getCode()).isEqualTo("BILLING");
+
+            // Matches idx_incident_zone_active, partial on resolved_at IS NULL.
+            List<NetworkIncident> active = em.createQuery(
+                            "select i from NetworkIncident i where i.zone = :z and i.resolvedAt is null",
+                            NetworkIncident.class)
+                    .setParameter("z", "north")
+                    .getResultList();
+            assertThat(active).isNotEmpty();
+        }
+
+        @Test
+        @DisplayName("a run and its KPI share one primary key through @MapsId")
+        void runKpiSharesPrimaryKey() throws Exception {
+            SimulationRun run = persistRun(1001L);
+
+            RunKpi kpi = new RunKpi();
+            kpi.setRun(run); // @MapsId takes the id from the run; runId is never set directly
+            kpi.setTotalConversations(1840);
+            kpi.setSlaRatio(new BigDecimal("0.8241"));
+            kpi.setAbandonRatio(new BigDecimal("0.0612"));
+            kpi.setP95WaitSeconds(new BigDecimal("143.50"));
+            kpi.setFairnessRatio(new BigDecimal("0.912"));
+            em.persist(kpi);
+
+            em.flush();
+            em.clear();
+
+            RunKpi loaded = em.find(RunKpi.class, run.getId());
+            // The shared key is the assertion: the KPI's id IS the run's id, not a separate value.
+            assertThat(loaded.getRunId()).isEqualTo(run.getId());
+            assertThat(loaded.getRun().getSeed()).isEqualTo(1001L);
+            assertThat(loaded.getSlaRatio()).isEqualByComparingTo("0.8241");
+
+            SimulationRun reloaded = em.find(SimulationRun.class, run.getId());
+            assertThat(reloaded.getKpi().getTotalConversations()).isEqualTo(1840);
+        }
+
+        @Test
+        @DisplayName("metric samples round-trip through their composite key")
+        void metricSampleRoundTrips() throws Exception {
+            SimulationRun run = persistRun(1002L);
+            Skill technical = em.createQuery(
+                            "select s from Skill s where s.code = 'TECHNICAL'", Skill.class)
+                    .getSingleResult();
+
+            // Written natively, mirroring the batch JDBC path the entity is deliberately unable to
+            // take: MetricSample is @Immutable and its repository has no save method.
+            em.createNativeQuery(
+                            """
+                            insert into metric_sample (run_id, sim_time, skill_id, queue_length, avg_wait, available_count, busy_count)
+                            values (:rid, 10, :sid, 14, 62.50, 3, 9)
+                            """)
+                    .setParameter("rid", run.getId())
+                    .setParameter("sid", technical.getId())
+                    .executeUpdate();
+            em.flush();
+            em.clear();
+
+            MetricSample sample = em.find(
+                    MetricSample.class, new MetricSampleId(run.getId(), 10, technical.getId()));
+            assertThat(sample.getQueueLength()).isEqualTo(14);
+            assertThat(sample.getAvgWait()).isEqualByComparingTo("62.50");
+            assertThat(sample.getSkill().getCode()).isEqualTo("TECHNICAL");
+        }
+
+        @Test
+        @DisplayName("an agent decision stores the observation, the action and the approval")
+        void agentDecisionRoundTrips() throws Exception {
+            SimulationRun run = persistRun(1003L);
+
+            AgentDecision decision = new AgentDecision();
+            decision.setRun(run);
+            decision.setAgentType(AgentType.WORKFORCE_MANAGER);
+            decision.setSimTime(120);
+            decision.setObservation(objectMapper.readTree(
+                    "{\"queue\":{\"TECHNICAL\":14,\"BILLING\":3},\"available\":2}"));
+            decision.setAction(objectMapper.readTree(
+                    "{\"type\":\"REASSIGN\",\"from\":\"BILLING\",\"to\":\"TECHNICAL\",\"count\":1}"));
+            decision.setReason("Technical queue above threshold while billing is idle");
+            em.persist(decision);
+
+            em.flush();
+            em.clear();
+
+            AgentDecision loaded = em.find(AgentDecision.class, decision.getId());
+            // The XAI contract: what it saw and what it did are both replayable.
+            assertThat(loaded.getObservation().get("queue").get("TECHNICAL").asInt()).isEqualTo(14);
+            assertThat(loaded.getAction().get("type").asText()).isEqualTo("REASSIGN");
+            assertThat(loaded.getAgentType()).isEqualTo(AgentType.WORKFORCE_MANAGER);
+            assertThat(loaded.getApprovedBy()).as("acted unsupervised").isNull();
+        }
+
+        @Test
+        @DisplayName("AI and human evaluations of one conversation coexist, which is what kappa needs")
+        void qualityEvaluationsCoexist() throws Exception {
+            Customer customer = new Customer();
+            customer.setExternalRef(unique("QC"));
+            customer.setFirstName("Quality");
+            customer.setLastName("Subject");
+            customer.setZone("north");
+            em.persist(customer);
+
+            Conversation conversation = new Conversation();
+            conversation.setCustomer(customer);
+            conversation.setStatus(ConversationStatus.RESOLVED);
+            em.persist(conversation);
+
+            QualityEvaluation byAi = new QualityEvaluation();
+            byAi.setConversation(conversation);
+            byAi.setGlobalScore(new BigDecimal("8.40"));
+            byAi.setScores(objectMapper.readTree("{\"RELEVANCE\":9,\"ACCURACY\":8,\"EMPATHY\":8}"));
+            byAi.setFlags(objectMapper.readTree("{\"unsourced_claims\":2}"));
+            byAi.setEvaluator(EvaluatorType.AI);
+            em.persist(byAi);
+
+            QualityEvaluation byHuman = new QualityEvaluation();
+            byHuman.setConversation(conversation);
+            byHuman.setGlobalScore(new BigDecimal("7.90"));
+            byHuman.setScores(objectMapper.readTree("{\"RELEVANCE\":8,\"ACCURACY\":8,\"EMPATHY\":7}"));
+            byHuman.setEvaluator(EvaluatorType.HUMAN);
+            em.persist(byHuman);
+
+            em.flush();
+            em.clear();
+
+            List<QualityEvaluation> both = em.createQuery(
+                            "select q from QualityEvaluation q where q.conversation.id = :id",
+                            QualityEvaluation.class)
+                    .setParameter("id", conversation.getId())
+                    .getResultList();
+            // One table, two evaluators: the agreement study is a self-join, not a reconciliation.
+            assertThat(both).hasSize(2);
+            assertThat(both).extracting(QualityEvaluation::getEvaluator)
+                    .containsExactlyInAnyOrder(EvaluatorType.AI, EvaluatorType.HUMAN);
+            assertThat(both.stream().filter(q -> q.getEvaluator() == EvaluatorType.AI).findFirst())
+                    .get()
+                    .extracting(q -> q.getFlags().get("unsourced_claims").asInt())
+                    .isEqualTo(2);
         }
     }
 
