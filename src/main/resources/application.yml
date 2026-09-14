@@ -1,0 +1,89 @@
+spring:
+  application:
+    name: callverse-backend
+
+  datasource:
+    # The application talks to Neon's POOLED endpoint (its host contains "-pooler").
+    # DB_SSLMODE defaults to "require" because Neon refuses plaintext connections; it is
+    # overridable only so that a throwaway local container can be used for smoke tests.
+    url: jdbc:postgresql://${DB_HOST}:${DB_PORT:5432}/${DB_NAME}?sslmode=${DB_SSLMODE:require}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+
+    hikari:
+      # Deliberately small, and not a value to raise casually.
+      #
+      # Neon is serverless: a project has a low ceiling on concurrent connections, and that
+      # ceiling is shared by every instance of this service, every developer laptop, the Python
+      # AI service and any open SQL console. HikariCP's default of 10 per instance exhausts it
+      # as soon as a second instance starts, and the failure looks like random connection
+      # timeouts rather than like a pool that is too large.
+      #
+      # If throughput needs to rise, raise Neon's ceiling or batch harder before touching this.
+      maximum-pool-size: 8
+      # Neon suspends idle compute. Keeping a small floor of warm connections absorbs the
+      # cold-start latency that would otherwise land on the first user request after a lull.
+      minimum-idle: 2
+      # 30s tolerates a Neon cold start; below roughly 10s, a resuming compute looks like an outage.
+      connection-timeout: 30000
+
+  jpa:
+    hibernate:
+      # Flyway is the only authority on the schema. "validate" makes a drift between the code
+      # and the migrations fail loudly at startup instead of silently at the first query.
+      # Never set this to "update": it works for one developer and destroys a team's database.
+      ddl-auto: validate
+    # Keeping a connection open for the whole request would pin a scarce Neon connection to a
+    # slow HTTP response, and it hides lazy-loading mistakes until they reach production.
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          # Simulation runs write metrics in bulk: thousands of synthetic conversations each
+          # produce KPI rows at the end of a run. Row-by-row inserts over a network hop to Neon
+          # are dominated by round-trip latency, so a large batch is the difference between
+          # seconds and minutes. It is harmless for ordinary request-sized writes.
+          batch_size: 500
+        # Batching only actually groups statements if same-table rows are adjacent, so sorting
+        # inserts and updates is what makes batch_size above do anything at all.
+        order_inserts: true
+        order_updates: true
+
+  flyway:
+    enabled: true
+    # Migrations run against Neon's DIRECT endpoint (the same host WITHOUT "-pooler"), while
+    # the application above uses the pooled one. The pooler multiplexes many client connections
+    # onto few server connections and does not guarantee that consecutive statements land on the
+    # same backend session. Flyway needs one stable session: it takes an advisory lock, runs DDL
+    # and releases the lock. Through a pooler that lock can be taken on one backend and released
+    # on another, which leaves the schema-history table locked and every later deploy hanging.
+    # DB_DIRECT_HOST falls back to DB_HOST so a non-Neon Postgres, which has no such split,
+    # needs no extra configuration.
+    url: jdbc:postgresql://${DB_DIRECT_HOST:${DB_HOST}}:${DB_PORT:5432}/${DB_NAME}?sslmode=${DB_SSLMODE:require}
+    user: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    locations: classpath:db/migration
+    # The Neon database may already exist when this service is first deployed against it.
+    baseline-on-migrate: true
+
+server:
+  port: ${SERVER_PORT:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # Minimal by default; application-dev.yml opens this up for local work.
+        include: health,info
+
+jwt:
+  # No default, on purpose: the application must refuse to start rather than run on a
+  # well-known signing key. Generate one with: openssl rand -base64 48
+  secret: ${JWT_SECRET}
+  expiration-ms: ${JWT_EXPIRATION_MS:3600000}
+
+ai:
+  service:
+    # The Python FastAPI service hosting the LangGraph agents and the RL policy.
+    base-url: ${AI_SERVICE_BASE_URL:http://localhost:8000}

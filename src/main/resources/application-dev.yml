@@ -1,0 +1,41 @@
+# Local development profile. Activate with SPRING_PROFILES_ACTIVE=dev.
+# Never enable this profile in a deployed environment: it logs SQL including bound
+# parameters, exposes every actuator endpoint and serves Swagger UI unauthenticated.
+
+spring:
+  jpa:
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        highlight_sql: true
+
+logging:
+  level:
+    org.hibernate.SQL: DEBUG
+    # Bound parameter values, which is what makes a logged statement actually reproducible.
+    org.hibernate.orm.jdbc.bind: TRACE
+    org.flywaydb: DEBUG
+    com.callverse: DEBUG
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "*"
+  endpoint:
+    health:
+      show-details: always
+
+springdoc:
+  api-docs:
+    enabled: true
+    # The Angular team generates its TypeScript client from this document.
+    path: /v3/api-docs
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+    # Group endpoints by controller rather than by tag ordering, so the growing
+    # /api/v1 surface stays navigable as controllers are added.
+    operations-sorter: method
+    tags-sorter: alpha
