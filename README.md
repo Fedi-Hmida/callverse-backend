@@ -24,7 +24,7 @@ wants to grant a commercial credit asks this service, and this service decides.
 | JDK | **21** (LTS) | Tested on Temurin 21.0.12. Java 22+ will not work: Lombok and Hibernate's Byte Buddy on Boot 3.3.4 do not support newer class-file versions. |
 | Maven | none needed | Use the bundled wrapper (`./mvnw`), which fetches Maven 3.9.16 on first run. |
 | PostgreSQL | **Neon**, remote | No local install. See *Database* below. |
-| Docker | 24+ | Only for `docker compose` and for building the runtime image. Not needed to run tests. |
+| Docker | 24+ | **Required to run the test suite.** The persistence tests start a real PostgreSQL via Testcontainers; `./mvnw clean install` fails without a running Docker daemon. Also used by `docker compose` and for building the runtime image. |
 | Node.js | 20+ | Only for the frontend's type generation. Not needed for the backend. |
 
 Check your JDK before anything else — a wrong `JAVA_HOME` is the most common first-day failure:
@@ -209,6 +209,86 @@ breaking change for the frontend.
 
 ---
 
+## The persistence layer
+
+The schema's source of truth is **[`docs/CALLVERSE_DB_SCHEMA.md`](docs/CALLVERSE_DB_SCHEMA.md)**,
+shared with whoever provisions the Neon database. `V1__init.sql` and every entity match it exactly.
+If you believe something in it is wrong, raise it there — do not fix it in one place only, because a
+divergence between the migration and the provisioned database is silent and expensive.
+
+The rest of `docs/` is deliberately untracked (see `.gitignore`); only the schema reference is
+versioned, so that schema changes show up in diffs.
+
+### Entity map — 26 tables, 26 entities, 23 repositories
+
+| Block | Entities | Aggregate roots (have a repository) |
+|---|---|---|
+| 1 Identity | `AppUser` | `AppUser` |
+| 2 Customer | `Customer`, `Plan`, `Contract`, `Invoice` | `Customer`, `Plan`, `Invoice` |
+| 3 Resources | `Skill`, `Advisor`, `AdvisorSkill` | `Skill`, `Advisor` |
+| 4 Interaction | `Conversation`, `Message`, `Ticket`, `CommercialCredit`, `Escalation` | all five |
+| 5 Knowledge | `KbArticle`, `KbChunk` | both |
+| 6 Control | `SlaPolicy`, `RoutingRule`, `NetworkIncident` | all three |
+| 7 Experiment | `ControlStrategy`, `Scenario`, `SimulationRun`, `RunKpi`, `MetricSample`, `AgentDecision` | all but `RunKpi` |
+| 8 Quality | `QualityCriterion`, `QualityEvaluation` | both |
+
+Three entities deliberately have **no** repository, because they live inside another aggregate and
+are reached through its root: `Contract` (via `Customer.getContracts()`), `AdvisorSkill` (via
+`Advisor.getSkills()`), and `RunKpi` (via `SimulationRun.getKpi()`, sharing its primary key).
+
+`MetricSampleRepository` is the odd one out: it extends Spring Data's bare `Repository`, **not**
+`JpaRepository`, so `save` and `saveAll` do not exist on the type. Writes to `metric_sample` go
+through the `MetricSampleBatchWriter` port and batched JDBC — roughly 650,000 rows across the full
+experimental matrix, which JPA row-by-row would turn into that many round trips to Neon. The guard
+is a compile error rather than a comment on purpose.
+
+### Mapping conventions
+
+Decided once and applied to all 26 entities. Inconsistency across that many classes is worse than a
+uniform but imperfect choice.
+
+| Decision | Choice | Why |
+|---|---|---|
+| UUID primary keys | `@GeneratedValue(strategy = GenerationType.UUID)` | Hibernate-side generation needs no read-back; a DB-generated default forces a `RETURNING` fetch per row, defeating batching and costing a Neon round trip. The SQL `DEFAULT gen_random_uuid()` stays for direct SQL such as the seed. |
+| `BIGSERIAL` keys | `GenerationType.IDENTITY` | `message`, `kb_chunk`, `agent_decision` |
+| `TIMESTAMPTZ` | `java.time.Instant` | The column stores a UTC instant and discards the offset, so `OffsetDateTime` would advertise information it does not carry. |
+| `DATE` | `java.time.LocalDate` | Calendar dates, not instants — a contract starts on an agreed day, not at a moment. |
+| `NUMERIC` | `BigDecimal` with explicit `precision`/`scale` | Never `double`. These are money and ratios that get compared and summed. |
+| JSONB | `@JdbcTypeCode(SqlTypes.JSON)` on `JsonNode` | Handles object- *and* array-shaped columns uniformly with no POJO per column. Proven to round-trip before 11 columns depended on it. |
+| `TEXT[]` | `String[]` + `SqlTypes.ARRAY` + `columnDefinition` | Tags are read with their article, never queried across articles, so a join table would buy nothing. |
+| `vector(384)` | **field omitted entirely** | Hibernate has no pgvector type. Validation is directional — it checks mapped attributes exist, not that every column is mapped — so the column is simply invisible to JPA. A field that existed but silently ignored writes would be a trap. Retrieval will use native SQL. |
+| `equals`/`hashCode` | **None on entities**; present on the two `@Embeddable` id classes | Associations are unidirectional by default, so entities never enter a Hibernate-managed hash collection, and an id-based `equals` becomes a trap the first time a detached instance meets a managed one. Composite id classes have no choice: JPA uses them as map keys. |
+| Lombok | `@Getter @Setter @NoArgsConstructor`, `@Setter(AccessLevel.NONE)` on ids | Never `@Data`, never `@EqualsAndHashCode` on an entity. |
+| Fetching | `FetchType.LAZY` on every association | Including `@ManyToOne`, whose JPA default is EAGER. Stated explicitly on each one, because the default is the trap. |
+| `conversation.run_id` | Plain `UUID`, no association, no FK | Matches the schema document literally, and keeps the business universe from traversing into the experiment universe. |
+
+### Running the persistence tests
+
+```bash
+./mvnw test -Dtest=SchemaValidationTest       # 18 tests, all eight blocks
+./mvnw test -Dtest=ConstraintEnforcementTest  # 7 tests, constraints actually rejecting
+```
+
+Both need Docker and nothing else — a `pgvector/pgvector:pg16` container is started automatically,
+Flyway applies `V1` and `V2` into it, and `@DynamicPropertySource` supplies the datasource and the
+`jwt.secret` that `application.yml` deliberately leaves without a default. **No Neon credentials and
+no `.env` are involved.**
+
+The stock `postgres:16` image will not work: `V1__init.sql` runs `CREATE EXTENSION vector` and builds
+an HNSW index, so the image is part of the contract.
+
+### Seeded development accounts
+
+`V2__seed_reference.sql` creates one account per role. All four share the development password:
+
+```
+CallVerse!Dev2026
+```
+
+Emails are `customer@`, `advisor@`, `supervisor@` and `admin@callverse.local`. Only BCrypt hashes are
+committed; the plaintext lives here rather than in a SQL comment, because a password in a comment is
+a password in the repository. **These accounts are for local development and demonstration only.**
+
 ## Database migrations
 
 Flyway is the **only** authority on the schema. `spring.jpa.hibernate.ddl-auto` is `validate` and must
@@ -245,14 +325,23 @@ read the failure message, which names the class, the line, and the reason the ru
 
 ## Project status
 
-Scaffold with a walking skeleton. What exists: the layer structure, the build, configuration
-profiles, the error envelope, the enforced dependency rule, and one thin vertical slice
-(`GET /api/v1/health/status`) that crosses every layer to prove the wiring.
+Scaffold, walking skeleton, and the complete persistence layer.
 
-What does not exist yet, and is deliberately out of scope for this pass: entities and the database
-schema (`V1__init.sql`), the routing and SLA engines, the JWT implementation
-(`SecurityConfiguration` is a documented skeleton with a permissive **dev-only** chain and a
-deny-by-default chain everywhere else), and the `/internal` tool endpoints.
+**Exists:** the layer structure and its ArchUnit enforcement; configuration profiles; the error
+envelope; one walking-skeleton endpoint (`GET /api/v1/health/status`); 19 domain enums including the
+conversation state machine; `V1__init.sql` with all 26 tables and `V2__seed_reference.sql`; 26
+entities, 23 repositories, and the `MetricSampleBatchWriter` port; and a Testcontainers suite proving
+migration and entities agree.
+
+**Does not exist yet:** routing, SLA and priority-scoring logic (the state machine is declared on
+`ConversationStatus` but nothing enforces it); the JWT implementation (`SecurityConfiguration` is a
+documented skeleton with a permissive dev-only chain and deny-by-default elsewhere); the `/internal`
+tool endpoints; the `MetricSampleBatchWriter` implementation; and the RAG embedding pipeline.
+
+**Never verified against Neon.** Everything above was tested against a local container. The
+pooled/direct endpoint split, `sslmode=require`, serverless cold starts, and whether the Hikari cap
+of 8 suits the real connection ceiling all remain unproven until someone runs it with real
+credentials.
 
 The health slice is temporary and should be deleted once real features land — it is one directory per
 layer.
