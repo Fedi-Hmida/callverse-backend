@@ -1,0 +1,45 @@
+# --- Build output ---------------------------------------------------------
+target/
+!**/src/main/**/target/
+!**/src/test/**/target/
+build/
+
+# --- Maven wrapper --------------------------------------------------------
+# The wrapper is configured as distributionType=only-script, so no jar is
+# committed; mvnw downloads the Maven distribution on first use.
+.mvn/wrapper/maven-wrapper.jar
+
+# --- Secrets --------------------------------------------------------------
+# Never commit a real Neon connection string or a JWT secret. Only the
+# template below is tracked; every concrete .env variant stays local.
+.env
+.env.*
+!.env.example
+
+# --- IDE ------------------------------------------------------------------
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+# --- Logs and OS cruft ----------------------------------------------------
+*.log
+logs/
+.DS_Store
+Thumbs.db
+
+# --- Spring Initializr leftover ------------------------------------------
+HELP.md
