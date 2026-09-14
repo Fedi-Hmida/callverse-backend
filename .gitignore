@@ -9,6 +9,12 @@ build/
 # committed; mvnw downloads the Maven distribution on first use.
 .mvn/wrapper/maven-wrapper.jar
 
+# --- Local tooling configuration -------------------------------------------
+# Assistant instruction files are local guidance, not part of the deliverable.
+# The project's engineering rules live in CONTRIBUTING.md, which IS tracked.
+CLAUDE.md
+.claude/
+
 # --- Working documents ----------------------------------------------------
 # docs/ is scratch space and stays local, with one exception: the database
 # schema reference is the agreed source of truth shared with whoever provisions

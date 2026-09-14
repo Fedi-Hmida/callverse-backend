@@ -305,6 +305,11 @@ Never edit a migration that has been merged. Add a new one.
 
 ## Contributing
 
+**Read [`CONTRIBUTING.md`](CONTRIBUTING.md) before your first change.** It carries the rules that
+are not obvious from the code: the schema document is the single source of truth, Flyway owns the
+schema, the dependency rule is changed deliberately rather than excluded, and no secret enters the
+repository.
+
 **Commits** follow [Conventional Commits](https://www.conventionalcommits.org/): `feat:`, `fix:`,
 `chore:`, `docs:`, `test:`, `refactor:`. Commit in logical increments — the build history is
 documentation, and one lump "initial commit" throws it away.
