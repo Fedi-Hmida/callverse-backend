@@ -2,6 +2,25 @@ package com.callverse.persistence;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.callverse.core.domain.entities.Advisor;
+import com.callverse.core.domain.entities.AdvisorSkill;
+import com.callverse.core.domain.entities.AdvisorSkillId;
+import com.callverse.core.domain.entities.CommercialCredit;
+import com.callverse.core.domain.entities.Conversation;
+import com.callverse.core.domain.entities.Escalation;
+import com.callverse.core.domain.entities.Message;
+import com.callverse.core.domain.entities.Skill;
+import com.callverse.core.domain.entities.Ticket;
+import com.callverse.core.domain.enums.AdvisorStatus;
+import com.callverse.core.domain.enums.Channel;
+import com.callverse.core.domain.enums.ConversationStatus;
+import com.callverse.core.domain.enums.EscalationRaisedBy;
+import com.callverse.core.domain.enums.EscalationStatus;
+import com.callverse.core.domain.enums.Intent;
+import com.callverse.core.domain.enums.MessageSender;
+import com.callverse.core.domain.enums.TicketStatus;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.List;
 import com.callverse.core.domain.entities.AppUser;
 import com.callverse.core.domain.entities.Contract;
 import com.callverse.core.domain.entities.Customer;
@@ -39,6 +58,7 @@ import org.springframework.transaction.annotation.Transactional;
 class SchemaValidationTest extends AbstractPersistenceTest {
 
     @Autowired EntityManager em;
+    @Autowired ObjectMapper objectMapper;
 
     private static String unique(String prefix) {
         return prefix + "-" + UUID.randomUUID().toString().substring(0, 8);
@@ -141,6 +161,189 @@ class SchemaValidationTest extends AbstractPersistenceTest {
             // NUMERIC(8,2): the value must come back as stored, not as a binary-float approximation.
             assertThat(plan.getMonthlyPrice()).isEqualByComparingTo("19.99");
             assertThat(plan.getMonthlyPrice().scale()).isEqualTo(2);
+        }
+    }
+
+    @Nested
+    @DisplayName("Block 3-4 — center resources and the interaction core")
+    class ResourcesAndInteraction {
+
+        private Skill skill(String code) {
+            return em.createQuery("select s from Skill s where s.code = :c", Skill.class)
+                    .setParameter("c", code)
+                    .getSingleResult();
+        }
+
+        private Customer persistCustomer() {
+            Customer c = new Customer();
+            c.setExternalRef(unique("CUST"));
+            c.setFirstName("Block");
+            c.setLastName("Four");
+            c.setZone("east");
+            em.persist(c);
+            return c;
+        }
+
+        @Test
+        @DisplayName("advisor_skill is an entity with a composite key, carrying its level payload")
+        void advisorSkillCompositeKeyRoundTrips() {
+            Advisor advisor = new Advisor();
+            advisor.setDisplayName("Test Advisor");
+            advisor.setStatus(AdvisorStatus.AVAILABLE);
+            advisor.setMaxConcurrent(3);
+            advisor.setSimulated(true);
+            em.persist(advisor);
+
+            Skill technical = skill("TECHNICAL");
+            AdvisorSkill link = new AdvisorSkill();
+            link.setAdvisor(advisor);
+            link.setSkill(technical);
+            link.setLevel((short) 3);
+            em.persist(link);
+
+            em.flush();
+            em.clear();
+
+            // The payload is what forces this to be an entity rather than a @ManyToMany.
+            AdvisorSkill loaded = em.find(
+                    AdvisorSkill.class, new AdvisorSkillId(advisor.getId(), technical.getId()));
+            assertThat(loaded.getLevel()).isEqualTo((short) 3);
+            assertThat(loaded.getSkill().getCode()).isEqualTo("TECHNICAL");
+
+            // And the routing engine's direction: advisor -> skills.
+            Advisor reloaded = em.find(Advisor.class, advisor.getId());
+            assertThat(reloaded.getSkills()).hasSize(1);
+            assertThat(reloaded.getCreditLimit()).isEqualByComparingTo("15.00");
+        }
+
+        @Test
+        @DisplayName("a conversation with messages round-trips, including its JSONB columns")
+        void conversationWithMessagesRoundTrips() throws Exception {
+            Conversation conversation = new Conversation();
+            conversation.setCustomer(persistCustomer());
+            conversation.setSkill(skill("BILLING"));
+            conversation.setStatus(ConversationStatus.ACTIVE);
+            conversation.setIntent(Intent.BILLING);
+            conversation.setPriorityScore(new BigDecimal("42.50"));
+            em.persist(conversation);
+
+            Message customerTurn = new Message();
+            customerTurn.setConversation(conversation);
+            customerTurn.setSender(MessageSender.CUSTOMER);
+            customerTurn.setContent("Ma facture est incorrecte.");
+            em.persist(customerTurn);
+
+            Message agentTurn = new Message();
+            agentTurn.setConversation(conversation);
+            agentTurn.setSender(MessageSender.ADVISOR);
+            agentTurn.setContent("Je regarde cela tout de suite.");
+            agentTurn.setAiGenerated(true);
+            // Top-level arrays: the shape a Map<String,Object> mapping could not have held.
+            agentTurn.setSources(objectMapper.readTree("[{\"article\":\"KB-114\",\"score\":0.91}]"));
+            agentTurn.setToolCalls(objectMapper.readTree(
+                    "[{\"tool\":\"get_invoice\",\"args\":{\"period\":\"2025-01\"}}]"));
+            em.persist(agentTurn);
+
+            em.flush();
+            em.clear();
+
+            Conversation loaded = em.find(Conversation.class, conversation.getId());
+            assertThat(loaded.getRunId()).as("live mode conversation").isNull();
+            assertThat(loaded.getChannel()).isEqualTo(Channel.CHAT);
+            assertThat(loaded.getPriorityScore()).isEqualByComparingTo("42.50");
+            assertThat(loaded.getSkill().getCode()).isEqualTo("BILLING");
+
+            // No collection on Conversation by design; messages are queried, not traversed.
+            List<Message> transcript = em.createQuery(
+                            "select m from Message m where m.conversation.id = :id order by m.sentAt",
+                            Message.class)
+                    .setParameter("id", conversation.getId())
+                    .getResultList();
+            assertThat(transcript).hasSize(2);
+            assertThat(transcript.get(1).getSources().get(0).get("article").asText())
+                    .isEqualTo("KB-114");
+            assertThat(transcript.get(1).getToolCalls().get(0).get("tool").asText())
+                    .isEqualTo("get_invoice");
+            assertThat(transcript.get(1).getId()).isNotNull(); // BIGSERIAL identity assigned
+        }
+
+        @Test
+        @DisplayName("a commercial credit records both who granted it and who approved the excess")
+        void commercialCreditRecordsApprovalChain() {
+            Customer customer = persistCustomer();
+
+            Advisor advisor = new Advisor();
+            advisor.setDisplayName("Granting Advisor");
+            em.persist(advisor);
+
+            AppUser supervisor = new AppUser();
+            supervisor.setEmail(unique("sup") + "@callverse.local");
+            supervisor.setPasswordHash("$2a$10$notarealhashjustfortestingpurposesonly000000000000000000");
+            supervisor.setFirstName("Super");
+            supervisor.setLastName("Visor");
+            supervisor.setRole(UserRole.SUPERVISOR);
+            em.persist(supervisor);
+
+            CommercialCredit credit = new CommercialCredit();
+            credit.setCustomer(customer);
+            credit.setAmount(new BigDecimal("25.00")); // above the 15.00 default ceiling
+            credit.setReason("Panne prolongee zone est");
+            credit.setGrantedBy(advisor);
+            credit.setApprovedBy(supervisor);
+            em.persist(credit);
+
+            em.flush();
+            em.clear();
+
+            CommercialCredit loaded = em.find(CommercialCredit.class, credit.getId());
+            // A non-null approvedBy is exactly the audit signal: this exceeded a ceiling.
+            assertThat(loaded.getAmount()).isEqualByComparingTo("25.00");
+            assertThat(loaded.getAmount()).isGreaterThan(loaded.getGrantedBy().getCreditLimit());
+            assertThat(loaded.getApprovedBy().getRole()).isEqualTo(UserRole.SUPERVISOR);
+        }
+
+        @Test
+        @DisplayName("an escalation round-trips and defaults to PENDING")
+        void escalationRoundTrips() {
+            Conversation conversation = new Conversation();
+            conversation.setCustomer(persistCustomer());
+            conversation.setStatus(ConversationStatus.ESCALATED);
+            em.persist(conversation);
+
+            Escalation escalation = new Escalation();
+            escalation.setConversation(conversation);
+            escalation.setReason("Agent hors perimetre");
+            escalation.setRaisedBy(EscalationRaisedBy.AI);
+            em.persist(escalation);
+
+            em.flush();
+            em.clear();
+
+            Escalation loaded = em.find(Escalation.class, escalation.getId());
+            assertThat(loaded.getStatus()).isEqualTo(EscalationStatus.PENDING);
+            assertThat(loaded.getRaisedBy()).isEqualTo(EscalationRaisedBy.AI);
+            assertThat(loaded.getResolvedBy()).isNull();
+        }
+
+        @Test
+        @DisplayName("a ticket survives its conversation, which is why it is its own aggregate")
+        void ticketRoundTrips() {
+            Customer customer = persistCustomer();
+            Ticket ticket = new Ticket();
+            ticket.setCustomer(customer);
+            ticket.setCategory("NETWORK");
+            ticket.setTitle("Perte de connexion recurrente");
+            ticket.setStatus(TicketStatus.OPEN);
+            ticket.setSeverity((short) 2);
+            em.persist(ticket);
+
+            em.flush();
+            em.clear();
+
+            Ticket loaded = em.find(Ticket.class, ticket.getId());
+            assertThat(loaded.getConversation()).isNull();
+            assertThat(loaded.getSeverity()).isEqualTo((short) 2);
+            assertThat(loaded.getStatus()).isEqualTo(TicketStatus.OPEN);
         }
     }
 
