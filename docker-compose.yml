@@ -1,0 +1,82 @@
+name: callverse
+
+# =============================================================================
+# WHY THERE IS NO POSTGRES SERVICE HERE
+#
+# You will look for one. There isn't one, and that is deliberate.
+#
+# CallVerse's database is Neon, a hosted serverless PostgreSQL, and it is remote
+# in every environment including local development. Adding a postgres service to
+# this file would give each developer a private database that drifts from the
+# real one: different extensions (pgvector is coming for the RAG knowledge base),
+# different connection semantics (Neon's pooled vs direct endpoints, which the
+# Flyway configuration depends on), and no cold starts, which are the single
+# behaviour most likely to surprise us in production.
+#
+# Connect to Neon instead. Copy .env.example to .env and fill in the endpoints;
+# Neon gives every developer their own branch of the database for free, which is
+# the isolation a local container was going to provide anyway.
+#
+# The one exception is a throwaway container for a smoke test, which is a
+# `docker run`, not a service anyone depends on.
+# =============================================================================
+
+services:
+
+  backend:
+    # Built by Cloud Native Buildpacks, which spring-boot-maven-plugin already
+    # supports, so the repository needs no Dockerfile:
+    #     ./mvnw spring-boot:build-image
+    image: callverse-backend:${CALLVERSE_VERSION:-0.1.0-SNAPSHOT}
+    container_name: callverse-backend
+    restart: unless-stopped
+
+    # Every value comes from .env, which is git-ignored. No credential is written
+    # in this file, and none should ever be.
+    env_file:
+      - .env
+
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
+      # Inside the compose network the AI service is reachable by service name,
+      # which overrides the localhost default meant for running outside Docker.
+      AI_SERVICE_BASE_URL: ${AI_SERVICE_BASE_URL:-http://ai-service:8000}
+
+    ports:
+      - "${SERVER_PORT:-8080}:8080"
+
+    networks:
+      - callverse
+
+    # No container HEALTHCHECK is declared on purpose: the buildpack base image
+    # does not ship curl or wget, so the usual one-liner would report unhealthy
+    # for the wrong reason. /actuator/health is exposed for the orchestrator to
+    # probe from outside, which is where that check belongs.
+
+  ai-service:
+    # Placeholder for the Python/FastAPI service running the LangGraph agents and
+    # the reinforcement-learning policy. It lives in its own repository and is not
+    # built from here.
+    #
+    # Behind a compose profile so that `docker compose up` works today, before the
+    # image exists. Once it does:  docker compose --profile ai up
+    profiles:
+      - ai
+    image: callverse-ai:${CALLVERSE_AI_VERSION:-local}
+    container_name: callverse-ai
+    restart: unless-stopped
+    environment:
+      # The agents' tools are REST endpoints of the backend. The backend, never the
+      # agent, is the authority on business rules such as the commercial-credit
+      # ceiling, so this URL points the agents back at the /internal tool API.
+      CALLVERSE_BACKEND_BASE_URL: http://backend:8080
+    ports:
+      - "${AI_SERVICE_PORT:-8000}:8000"
+    depends_on:
+      - backend
+    networks:
+      - callverse
+
+networks:
+  callverse:
+    driver: bridge
