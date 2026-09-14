@@ -1,6 +1,5 @@
 package com.callverse.core.application.features.health.queries;
 
-import com.callverse.core.application.dto.result.HealthStatusResult;
 import com.callverse.core.application.interfaces.PlatformMetadataProvider;
 import com.callverse.core.domain.enums.ServiceStatus;
 import com.callverse.core.domain.services.HeartbeatEvaluator;

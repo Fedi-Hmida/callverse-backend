@@ -1,6 +1,6 @@
 package com.callverse.host.api.dto.response;
 
-import com.callverse.core.application.dto.result.HealthStatusResult;
+import com.callverse.core.application.features.health.queries.HealthStatusResult;
 import org.mapstruct.Mapper;
 import org.mapstruct.MappingConstants;
 

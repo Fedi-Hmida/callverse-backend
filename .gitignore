@@ -9,6 +9,17 @@ build/
 # committed; mvnw downloads the Maven distribution on first use.
 .mvn/wrapper/maven-wrapper.jar
 
+# --- Working documents ----------------------------------------------------
+# docs/ is scratch space and stays local, with one exception: the database
+# schema reference is the agreed source of truth shared with whoever provisions
+# the Neon database, so it must be versioned and diffable.
+# NOTE the trailing /* rather than a bare docs/. Excluding the directory itself
+# stops git descending into it, and a negation can never re-include a file whose
+# parent directory is excluded — the schema reference would silently never be
+# committed. Excluding the contents instead leaves the directory walkable.
+docs/*
+!docs/CALLVERSE_DB_SCHEMA.md
+
 # --- Secrets --------------------------------------------------------------
 # Never commit a real Neon connection string or a JWT secret. Only the
 # template below is tracked; every concrete .env variant stays local.
