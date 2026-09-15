@@ -25,6 +25,11 @@ CLAUDE.md
 # committed. Excluding the contents instead leaves the directory walkable.
 docs/*
 !docs/CALLVERSE_DB_SCHEMA.md
+# docs/user/ holds project deliverables rather than scratch: the identity
+# taxonomy, the auth audits, the ownership-rule catalogue and the Phase 2 plan.
+# They are versioned so findings appear in diffs and the team can read them.
+!docs/user/
+!docs/user/**
 
 # --- Secrets --------------------------------------------------------------
 # Never commit a real Neon connection string or a JWT secret. Only the
