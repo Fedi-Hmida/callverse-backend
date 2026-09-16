@@ -1,0 +1,21 @@
+[project]
+name = "callverse-ai-service"
+version = "0.1.0"
+description = "Service IA CallVerse — Customer Advisor, Client Simulator, Workforce Manager, Quality Analyst"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "pydantic",
+    "pydantic-settings",
+    "langgraph",
+    "langchain-core",
+    "gymnasium",
+    "stable-baselines3",
+    "sqlalchemy",
+    "pgvector",
+    "httpx",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-asyncio"]
