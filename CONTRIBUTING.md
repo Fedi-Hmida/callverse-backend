@@ -88,8 +88,13 @@ This is coursework assessed by a jury, and the commit history is read.
 - **Conventional commits**: `feat:`, `fix:`, `chore:`, `docs:`, `test:`, `refactor:`.
 - **Commit in logical increments.** One lump "initial commit" throws away the build history an
   examiner will look at.
-- **Write messages about what changed and why.** The *what* is visible in the diff; the *why* is not,
-  and it is the part that is expensive to reconstruct later.
+- **One line. No body.** A message is a single sentence naming what changed, under about 72
+  characters: `fix(security): fail closed on the profile default`. Not a paragraph, not a
+  bulleted summary of the diff.
+- **Reasoning goes in the code, not the message.** A commit body is read once, by whoever runs
+  `git log` that week, and never found again. The same explanation as a comment next to the
+  surprising line, or in `docs/`, is read by everyone who touches it afterwards. If a change
+  genuinely needs a paragraph to justify it, that paragraph belongs where the change is.
 - **No automated tooling credits** in commit messages, pull request descriptions or tags. Authorship
   of this work is the student's, and generated attribution in the history misrepresents the
   submission.
