@@ -30,6 +30,11 @@ docs/*
 # They are versioned so findings appear in diffs and the team can read them.
 !docs/user/
 !docs/user/**
+# docs/frontend/ holds the Next.js pivot audit and the scaffold prompt handed to the
+# frontend repository. Same reasoning as docs/user/: they are deliverables the team
+# reads and diffs, not scratch.
+!docs/frontend/
+!docs/frontend/**
 
 # --- Secrets --------------------------------------------------------------
 # Never commit a real Neon connection string or a JWT secret. Only the
