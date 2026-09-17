@@ -3,6 +3,9 @@ package com.callverse.host.api.errorhandling;
 import com.callverse.core.application.exceptions.ApplicationException;
 import com.callverse.core.application.exceptions.ResourceNotFoundException;
 import com.callverse.core.domain.exceptions.DomainException;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Clock;
 import java.util.stream.Collectors;
@@ -29,6 +32,20 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
  * stack trace, and the client is told nothing beyond a correlation-free generic message, because an
  * exception message from an unexpected failure is exactly where connection strings and internal
  * hostnames leak into a response body.
+ *
+ * <p><strong>The {@code @ApiResponse} annotations below are what publish this envelope.</strong>
+ * springdoc reads them from the advice and attaches them to <em>every</em> operation in the
+ * document, so a new controller inherits the documented failure modes without annotating anything.
+ * They are declared here rather than on the controllers for the same reason the mapping itself is:
+ * this class is the single authority on what a failure looks like, and a copy on each controller
+ * would drift from it. Keep an annotation and its handler in step — the annotation is the contract
+ * the Angular client is generated from, so a status documented here and not returned is a lie the
+ * compiler cannot catch.
+ *
+ * <p><strong>401 and 403 are deliberately absent.</strong> They never reach this class: Spring
+ * Security rejects at the filter chain, before the dispatcher, and returns an empty body rather
+ * than this envelope. Documenting them here would advertise a shape the API does not produce. Once
+ * Phase 2 adds an {@code AuthenticationEntryPoint} that writes an {@link ErrorResponse}, add them.
  */
 @RestControllerAdvice
 @RequiredArgsConstructor
@@ -38,6 +55,13 @@ public class GlobalExceptionHandler {
     private final Clock clock;
 
     /** A use case referenced something that does not exist. */
+    @ApiResponse(
+            responseCode = "404",
+            description = "No such route, or a referenced resource does not exist.",
+            content =
+                    @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ErrorResponse.class)))
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleResourceNotFound(
             ResourceNotFoundException exception, HttpServletRequest request) {
@@ -60,6 +84,15 @@ public class GlobalExceptionHandler {
     }
 
     /** Any other application-layer failure: a precondition of the use case was unmet. */
+    @ApiResponse(
+            responseCode = "400",
+            description =
+                    "Rejected before any business rule ran: Bean Validation failed"
+                            + " (code VALIDATION_FAILED) or a use-case precondition was unmet.",
+            content =
+                    @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ErrorResponse.class)))
     @ExceptionHandler(ApplicationException.class)
     public ResponseEntity<ErrorResponse> handleApplication(
             ApplicationException exception, HttpServletRequest request) {
@@ -70,6 +103,15 @@ public class GlobalExceptionHandler {
      * A business rule refused the operation. 409 rather than 400: the request was well-formed and
      * the caller did nothing wrong syntactically, but the current state of the business forbids it.
      */
+    @ApiResponse(
+            responseCode = "409",
+            description =
+                    "A business rule refused the operation. The request was well-formed; the"
+                            + " current state of the business forbids it.",
+            content =
+                    @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ErrorResponse.class)))
     @ExceptionHandler(DomainException.class)
     public ResponseEntity<ErrorResponse> handleDomain(
             DomainException exception, HttpServletRequest request) {
@@ -88,6 +130,15 @@ public class GlobalExceptionHandler {
     }
 
     /** Anything not anticipated above. */
+    @ApiResponse(
+            responseCode = "500",
+            description =
+                    "Unexpected failure. message is deliberately generic and carries no internal"
+                            + " detail; see the server log for the stack trace.",
+            content =
+                    @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ErrorResponse.class)))
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleUnexpected(
             Exception exception, HttpServletRequest request) {

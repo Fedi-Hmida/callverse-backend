@@ -7,6 +7,7 @@ import com.callverse.host.api.dto.response.HealthStatusResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -25,7 +26,10 @@ import org.springframework.web.bind.annotation.RestController;
  * deployment platform; this answers "can the relation center do its job" for the product.
  */
 @RestController
-@RequestMapping("/api/v1/health")
+// produces is pinned so the published contract says application/json rather than the
+// */* springdoc infers when a controller stays silent. The Angular client is generated
+// from that document, so the media type is part of the contract, not a detail.
+@RequestMapping(path = "/api/v1/health", produces = MediaType.APPLICATION_JSON_VALUE)
 @RequiredArgsConstructor
 @Tag(name = "Health", description = "Platform status (walking skeleton)")
 public class HealthController {
