@@ -37,7 +37,10 @@ services:
       - .env
 
     environment:
-      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
+      # Fails CLOSED. The dev chain is anyRequest().permitAll(), so defaulting to it
+      # meant any host running this file served an unauthenticated API. Set
+      # SPRING_PROFILES_ACTIVE=dev explicitly for local work.
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
       # Inside the compose network the AI service is reachable by service name,
       # which overrides the localhost default meant for running outside Docker.
       AI_SERVICE_BASE_URL: ${AI_SERVICE_BASE_URL:-http://ai-service:8000}

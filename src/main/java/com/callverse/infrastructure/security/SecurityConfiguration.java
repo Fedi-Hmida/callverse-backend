@@ -4,6 +4,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
@@ -31,6 +32,11 @@ import org.springframework.security.web.SecurityFilterChain;
  */
 @Configuration
 @EnableWebSecurity
+// Registers the interceptor that makes @PreAuthorize execute. Without it those
+// annotations are inert metadata: they compile, they pass review, and they enforce
+// nothing, with no warning and no failing test. Added while zero @PreAuthorize exist
+// so it is a no-op today and a working guard the moment the first one is written.
+@EnableMethodSecurity
 public class SecurityConfiguration {
 
     /**
@@ -57,10 +63,18 @@ public class SecurityConfiguration {
      * Default chain for every profile other than {@code dev}: deny by default.
      *
      * <p>This is deliberately not an implementation of authentication. It is the absence of one,
-     * made explicit. Without this bean, a deployment that simply forgets to set the profile would
-     * fall back to Boot's auto-configured chain and come up with a generated password printed to
-     * the log, which is a far worse failure mode than a uniform 401. Only the health probe is open,
-     * because the platform needs it to decide whether the instance is alive.
+     * made explicit: a deployment that forgets to set a profile gets a uniform denial rather than
+     * Boot's auto-configured chain. Only the health probe is open, because the platform needs it
+     * to decide whether the instance is alive.
+     *
+     * <p>Two corrections to an earlier version of this comment, both established by running the
+     * application rather than by reading it. First, Boot's generated security password IS still
+     * logged on every boot today: UserDetailsServiceAutoConfiguration backs off on an
+     * AuthenticationManager, AuthenticationProvider or UserDetailsService bean, not on a
+     * SecurityFilterChain, and this class declares none of those. Declaring a UserDetailsService
+     * in Phase 2 will silence it. Second, this chain returns 403, not 401: with no
+     * AuthenticationEntryPoint registered, Spring Security falls back to
+     * Http403ForbiddenEntryPoint.
      */
     @Bean
     @Profile("!dev")
