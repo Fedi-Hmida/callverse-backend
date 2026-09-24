@@ -12,29 +12,23 @@ build/
 # --- Local tooling configuration -------------------------------------------
 # Assistant instruction files are local guidance, not part of the deliverable.
 # The project's engineering rules live in CONTRIBUTING.md, which IS tracked.
-CLAUDE.md
+docs/CLAUDE.md
 .claude/
 
 # --- Working documents ----------------------------------------------------
-# docs/ is scratch space and stays local, with one exception: the database
-# schema reference is the agreed source of truth shared with whoever provisions
-# the Neon database, so it must be versioned and diffable.
-# NOTE the trailing /* rather than a bare docs/. Excluding the directory itself
-# stops git descending into it, and a negation can never re-include a file whose
-# parent directory is excluded — the schema reference would silently never be
-# committed. Excluding the contents instead leaves the directory walkable.
-docs/*
-!docs/CALLVERSE_DB_SCHEMA.md
-# docs/user/ holds project deliverables rather than scratch: the identity
-# taxonomy, the auth audits, the ownership-rule catalogue and the Phase 2 plan.
-# They are versioned so findings appear in diffs and the team can read them.
-!docs/user/
-!docs/user/**
-# docs/frontend/ holds the Next.js pivot audit and the scaffold prompt handed to the
-# frontend repository. Same reasoning as docs/user/: they are deliverables the team
-# reads and diffs, not scratch.
-!docs/frontend/
-!docs/frontend/**
+# The whole docs/ folder is local. Nothing under it is versioned: it holds
+# working notes, audits, handoffs, presentation material and planning documents
+# that are written for one moment and superseded by the next.
+#
+# A bare docs/ is enough here precisely because there are no exceptions. If one
+# is ever re-introduced, this must become docs/* plus a negation: excluding the
+# directory itself stops git descending into it, and a negation can never
+# re-include a file whose parent directory is excluded.
+#
+# Note that docs/CALLVERSE_DB_SCHEMA.md is the agreed database source of truth,
+# shared with whoever provisions Neon. It is no longer versioned here, so it has
+# to reach them by another route.
+docs/
 
 # --- Secrets --------------------------------------------------------------
 # Never commit a real Neon connection string or a JWT secret. Only the
