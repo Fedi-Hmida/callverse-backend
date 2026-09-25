@@ -13,7 +13,19 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface AppUserRepository extends JpaRepository<AppUser, UUID> {
 
-    /** Backed by the unique index on email. */
+    /**
+     * The login lookup. Backed by the unique index on email.
+     *
+     * <p><strong>Use this, not {@link #findByEmailIgnoreCase}, for authentication.</strong>
+     * {@code V1__init.sql:45} records that inactive users are never routed to or authenticated, and
+     * that rule has no other enforcement point: the column has no CHECK, the filter chain does not
+     * know about it, and nothing else in the request path consults it. Loading by email alone and
+     * remembering to test {@code active} afterwards is the shape of the bug this method exists to
+     * make impossible.
+     */
+    Optional<AppUser> findByEmailIgnoreCaseAndActiveTrue(String email);
+
+    /** Backed by the unique index on email. Does not consider {@code active}. */
     Optional<AppUser> findByEmailIgnoreCase(String email);
 
     boolean existsByEmailIgnoreCase(String email);

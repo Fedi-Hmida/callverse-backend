@@ -1,6 +1,7 @@
 package com.callverse.host.api.errorhandling;
 
 import com.callverse.core.application.exceptions.ApplicationException;
+import com.callverse.core.application.exceptions.InvalidCredentialsException;
 import com.callverse.core.application.exceptions.ResourceNotFoundException;
 import com.callverse.core.domain.exceptions.DomainException;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -81,6 +82,37 @@ public class GlobalExceptionHandler {
                 "ENDPOINT_NOT_FOUND",
                 "No endpoint %s %s".formatted(request.getMethod(), request.getRequestURI()),
                 request);
+    }
+
+    /**
+     * Authentication was refused.
+     *
+     * <p>Declared separately from {@link ApplicationException}, which it extends, because Spring
+     * dispatches to the most specific handler and this one must answer 401 rather than 400: the
+     * request was well-formed, the credentials were not accepted.
+     *
+     * <p>Logged at WARN without the email. A log line naming the address that failed is a list of
+     * valid accounts for anyone who reads the logs, which defeats the point of returning an
+     * indistinguishable error to the caller.
+     *
+     * <p>This covers only failures raised inside a use case. Denials produced by the security
+     * filter chain never reach this class — the chain runs before the dispatcher — and giving those
+     * the same envelope is sub-phase 2.3.
+     */
+    @ApiResponse(
+            responseCode = "401",
+            description =
+                    "Authentication failed. An unknown email and a wrong password are deliberately"
+                            + " indistinguishable: both return code INVALID_CREDENTIALS.",
+            content =
+                    @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ErrorResponse.class)))
+    @ExceptionHandler(InvalidCredentialsException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidCredentials(
+            InvalidCredentialsException exception, HttpServletRequest request) {
+        log.warn("{} {} -> 401 {}", request.getMethod(), request.getRequestURI(), exception.code());
+        return build(HttpStatus.UNAUTHORIZED, exception.code(), exception.getMessage(), request);
     }
 
     /** Any other application-layer failure: a precondition of the use case was unmet. */
