@@ -78,11 +78,11 @@ management:
         include: health,info
 
 jwt:
-  # No default, on purpose: once Phase 2 reads this property the application will refuse
-  # to start rather than run on a well-known signing key. Verified 2026-09-17: today the
-  # app starts WITHOUT JWT_SECRET, because no code reads the property yet, so the
-  # placeholder is never resolved and the fail-fast never fires.
-  # Generate one with: openssl rand -base64 48
+  # No default, on purpose: JwtTokenService reads this property, so a missing JWT_SECRET is
+  # a startup failure ("Could not resolve placeholder 'JWT_SECRET'") rather than a run on a
+  # well-known signing key. Tokens are HS512, so the secret must be at least 64 bytes; a
+  # shorter one also fails at startup.
+  # Generate one with: openssl rand -base64 48   (prints 64 characters)
   secret: ${JWT_SECRET}
   expiration-ms: ${JWT_EXPIRATION_MS:3600000}
 

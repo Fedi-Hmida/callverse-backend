@@ -44,10 +44,6 @@ import org.springframework.test.web.servlet.MvcResult;
 @ActiveProfiles("dev")
 class LoginEndpointTest extends AbstractPersistenceTest {
 
-    /** Must match {@code AbstractPersistenceTest}'s registered {@code jwt.secret}. */
-    private static final String TEST_SIGNING_KEY =
-            "test-only-signing-key-not-used-for-anything-real-0123456789";
-
     private static final String DEV_PASSWORD = "CallVerse!Dev2026";
 
     @Autowired private MockMvc mockMvc;
@@ -73,7 +69,7 @@ class LoginEndpointTest extends AbstractPersistenceTest {
 
         Claims claims =
                 Jwts.parser()
-                        .verifyWith(Keys.hmacShaKeyFor(TEST_SIGNING_KEY.getBytes(StandardCharsets.UTF_8)))
+                        .verifyWith(Keys.hmacShaKeyFor(TEST_JWT_SECRET.getBytes(StandardCharsets.UTF_8)))
                         .build()
                         .parseSignedClaims(body.get("token").asText())
                         .getPayload();

@@ -32,6 +32,16 @@ import org.testcontainers.utility.DockerImageName;
 @Testcontainers
 public abstract class AbstractPersistenceTest {
 
+    /**
+     * The {@code jwt.secret} every Spring test context signs and verifies with.
+     *
+     * <p>At least 64 bytes, because the issuer pins HS512 and jjwt refuses a shorter key for it.
+     * Public so that test helpers mint tokens with the same key instead of keeping a copy that can
+     * drift.
+     */
+    public static final String TEST_JWT_SECRET =
+            "test-only-hs512-signing-key-not-used-for-anything-real-0123456789abcdef";
+
     @SuppressWarnings("resource") // lifecycle is managed by Testcontainers' JVM shutdown hook
     static final PostgreSQLContainer<?> POSTGRES =
             new PostgreSQLContainer<>(
@@ -59,6 +69,6 @@ public abstract class AbstractPersistenceTest {
 
         // application.yml gives jwt.secret no default on purpose, so that the application refuses
         // to start on a well-known key. Tests must therefore supply one.
-        registry.add("jwt.secret", () -> "test-only-signing-key-not-used-for-anything-real-0123456789");
+        registry.add("jwt.secret", () -> TEST_JWT_SECRET);
     }
 }
