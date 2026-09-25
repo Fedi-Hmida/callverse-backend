@@ -92,6 +92,13 @@ ai:
     base-url: ${AI_SERVICE_BASE_URL:http://localhost:8000}
 
 callverse:
+  cors:
+    # Browser origins allowed to call this API directly (comma-separated, exact origins, no
+    # wildcards). The default is the Next.js dev server. Which origin the frontend is served
+    # from in each environment is decided in the frontend repository, and Decision 3 (direct
+    # calls versus a Next.js backend-for-frontend) is still open: under a BFF, REST needs no
+    # CORS at all. See CorsPolicyConfiguration.
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
   # Substituted at build time from the POM's <version> by Maven resource filtering:
   # spring-boot-starter-parent configures @...@ as the delimiter for application*.yml,
   # which keeps the version reported by the API in lockstep with the artifact.

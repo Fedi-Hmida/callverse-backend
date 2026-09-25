@@ -3,6 +3,7 @@ package com.callverse.auth;
 import static com.callverse.auth.AuthenticatedRequests.bearer;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 import com.callverse.core.domain.enums.UserRole;
@@ -37,6 +38,9 @@ class SecurityErrorContractTest extends AbstractPersistenceTest {
 
     private static final String DENIED_ROUTE = "/api/v1/health/status";
     private static final String DEV_PASSWORD = "CallVerse!Dev2026";
+
+    /** The default of {@code callverse.cors.allowed-origins}: the Next.js dev server. */
+    static final String ALLOWED_ORIGIN = "http://localhost:3000";
 
     @Autowired private MockMvc mockMvc;
     @Autowired private ObjectMapper objectMapper;
@@ -107,6 +111,45 @@ class SecurityErrorContractTest extends AbstractPersistenceTest {
         assertThat(perform(get("/api/v1/auth/me").with(bearer(customerToken))).getResponse().getStatus())
                 .isEqualTo(200);
         ErrorEnvelope.assertConforms(body(perform(get("/api/v1/auth/me"))), 401, "UNAUTHENTICATED");
+    }
+
+    @Test
+    @DisplayName("a preflight from the configured origin succeeds, even to a route that needs a token")
+    void preflightFromConfiguredOriginSucceeds() throws Exception {
+        MvcResult result = perform(preflight(ALLOWED_ORIGIN, "GET", "/api/v1/auth/me"));
+
+        assertThat(result.getResponse().getStatus()).isEqualTo(200);
+        assertThat(result.getResponse().getHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN)).isEqualTo(ALLOWED_ORIGIN);
+        assertThat(result.getResponse().getHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS))
+                .containsIgnoringCase("authorization")
+                .containsIgnoringCase("content-type");
+        assertThat(result.getResponse().getHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS))
+                .as("the token travels in a header, so credentials are never allowed")
+                .isNull();
+    }
+
+    @Test
+    @DisplayName("a preflight from any other origin is refused and carries no allow-origin")
+    void preflightFromOtherOriginIsRefused() throws Exception {
+        MvcResult result = perform(preflight("http://evil.example", "POST", "/api/v1/auth/login"));
+
+        assertThat(result.getResponse().getStatus()).isEqualTo(403);
+        assertThat(result.getResponse().getHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN)).isNull();
+    }
+
+    @Test
+    @DisplayName("a preflight asking for a method outside the allowed set is refused")
+    void preflightForUnlistedMethodIsRefused() throws Exception {
+        MvcResult result = perform(preflight(ALLOWED_ORIGIN, "TRACE", "/api/v1/auth/me"));
+
+        assertThat(result.getResponse().getStatus()).isEqualTo(403);
+    }
+
+    static RequestBuilder preflight(String origin, String method, String path) {
+        return options(path)
+                .header(HttpHeaders.ORIGIN, origin)
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, method)
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "authorization,content-type");
     }
 
     private RequestBuilder login(String email, String password) {

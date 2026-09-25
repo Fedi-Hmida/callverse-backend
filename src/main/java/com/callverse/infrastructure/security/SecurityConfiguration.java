@@ -6,6 +6,7 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.AuthenticationEntryPoint;
@@ -20,6 +21,9 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
  * <p><strong>What both chains share</strong>, applied by {@link #common} so the two cannot drift:
  *
  * <ul>
+ *   <li>CORS from {@link CorsPolicyConfiguration}. Spring's {@code CorsFilter} runs ahead of
+ *       authorization, so a preflight from an allowed origin succeeds even on a route that
+ *       requires a token — a preflight never carries one.
  *   <li>{@link JwtAuthenticationFilter}, before {@code UsernamePasswordAuthenticationFilter}: a
  *       verified bearer token becomes the principal; a refused one is a 401.
  *   <li>An entry point and an access-denied handler that write the standard error envelope — 401
@@ -114,6 +118,7 @@ public class SecurityConfiguration {
             AccessDeniedHandler accessDeniedHandler)
             throws Exception {
         return http
+                .cors(Customizer.withDefaults())
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(session ->
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))

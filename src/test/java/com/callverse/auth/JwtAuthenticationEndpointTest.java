@@ -159,6 +159,17 @@ class JwtAuthenticationEndpointTest extends AbstractPersistenceTest {
         call(loginRequest("advisor@callverse.local").with(bearer(stale)), 200);
     }
 
+    @Test
+    @DisplayName("CORS applies under dev too: the frontend is developed against this chain")
+    void preflightSucceedsUnderDev() throws Exception {
+        MvcResult result =
+                perform(SecurityErrorContractTest.preflight(SecurityErrorContractTest.ALLOWED_ORIGIN, "POST", "/api/v1/auth/login"));
+
+        assertThat(result.getResponse().getStatus()).isEqualTo(200);
+        assertThat(result.getResponse().getHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN))
+                .isEqualTo(SecurityErrorContractTest.ALLOWED_ORIGIN);
+    }
+
     private String login(String email) throws Exception {
         return call(loginRequest(email), 200).get("token").asText();
     }
