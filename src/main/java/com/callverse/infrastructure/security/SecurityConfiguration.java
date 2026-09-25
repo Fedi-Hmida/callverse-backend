@@ -3,65 +3,67 @@ package com.callverse.infrastructure.security;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
-import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 /**
- * Security wiring for the CallVerse backend.
+ * Security wiring for the CallVerse backend: two profile-bound filter chains that share everything
+ * except their authorization rules.
  *
- * <p><strong>TODO — this class contains no authentication yet.</strong> Issuing and validating JWTs
- * is a separate task. What exists here is the filter chain skeleton and the session policy, so that
- * the JWT work has a defined place to land and so that the walking-skeleton endpoint is reachable
- * in the meantime. Specifically, still to be built:
+ * <p><strong>What both chains share</strong>, applied by {@link #common} so the two cannot drift:
  *
  * <ul>
- *   <li>a {@code JwtAuthenticationFilter} placed before
- *       {@code UsernamePasswordAuthenticationFilter}, reading the {@code jwt.secret} property;
- *   <li>a {@code UserDetailsService} backed by the advisor and customer tables;
- *   <li>role-based rules for CUSTOMER, ADVISOR, SUPERVISOR and ADMIN;
- *   <li>authentication on {@code /internal/**}, which the Python AI service calls and which must
- *       never be reachable from the public internet;
- *   <li>CORS configuration for the Angular origin.
+ *   <li>{@link JwtAuthenticationFilter}, before {@code UsernamePasswordAuthenticationFilter}: a
+ *       verified bearer token becomes the principal; a refused one is a 401.
+ *   <li>An entry point and an access-denied handler that write the standard error envelope — 401
+ *       {@code UNAUTHENTICATED} for an unidentified caller, 403 {@code ACCESS_DENIED} for an
+ *       identified one who is not allowed. Without them Spring answers 403 with an empty body for
+ *       both.
+ *   <li>Stateless sessions and CSRF disabled. <strong>CSRF is off only because no cookie exists
+ *       anywhere in the system</strong>: the token travels in the {@code Authorization} header,
+ *       which a cross-site form cannot set. If a refresh token ever lands in a cookie (sub-phase
+ *       2.4, Decision 2), this justification is void and CSRF must be revisited in both chains.
  * </ul>
  *
- * <p>Sessions are stateless in both chains below and should stay that way: the Angular frontend and
- * the Python service are separate origins, so a server-side session is the wrong mechanism.
+ * <p><strong>Still to come, and where.</strong> Role rules on individual endpoints are
+ * {@code @PreAuthorize} in sub-phase 2.5 (blocked on schema change S-1). {@code /internal/**}
+ * gets its own service-key scheme in 2.7 — a distinct mechanism, not a JWT variant. STOMP frames are
+ * authenticated in 2.8. No {@code UserDetailsService} is planned: the token's claims are the
+ * principal, so there is nothing for one to load.
  */
 @Configuration
 @EnableWebSecurity
 // Registers the interceptor that makes @PreAuthorize execute. Without it those
 // annotations are inert metadata: they compile, they pass review, and they enforce
-// nothing, with no warning and no failing test. Added while zero @PreAuthorize exist
-// so it is a no-op today and a working guard the moment the first one is written.
+// nothing, with no warning and no failing test. GlobalExceptionHandler maps the
+// AccessDeniedException it throws to 401/403 rather than letting the catch-all make it a 500.
 @EnableMethodSecurity
 public class SecurityConfiguration {
 
     /**
-     * Development chain: everything is permitted.
+     * Development chain: every request is permitted.
      *
-     * <p>This exists so that the API, Swagger UI and the health endpoint can be exercised before
-     * authentication is implemented. It is bound to the {@code dev} profile precisely so that it
-     * cannot be switched on by accident anywhere else.
+     * <p>Bound to the {@code dev} profile so it cannot be switched on by accident elsewhere. The JWT
+     * filter still runs, so a request carrying a valid token is identified and a request carrying a
+     * refused one is a 401 — but no route requires a token. The filter authenticates; it does not
+     * authorize.
      */
     @Bean
     @Profile("dev")
     SecurityFilterChain developmentFilterChain(
-            HttpSecurity http, JwtTokenService tokens, AuthenticationEntryPoint entryPoint)
+            HttpSecurity http,
+            JwtTokenService tokens,
+            AuthenticationEntryPoint entryPoint,
+            AccessDeniedHandler accessDeniedHandler)
             throws Exception {
-        return http
-                .addFilterBefore(
-                        new JwtAuthenticationFilter(tokens, entryPoint),
-                        UsernamePasswordAuthenticationFilter.class)
-                // No cookies are used, so there is no CSRF vector to protect; leaving CSRF on
-                // would only reject the frontend's POSTs for no gain.
-                .csrf(csrf -> csrf.disable())
-                .sessionManagement(session ->
-                        session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+        return common(http, tokens, entryPoint, accessDeniedHandler)
                 .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
                 .build();
     }
@@ -69,35 +71,57 @@ public class SecurityConfiguration {
     /**
      * Default chain for every profile other than {@code dev}: deny by default.
      *
-     * <p>This is deliberately not an implementation of authentication. It is the absence of one,
-     * made explicit: a deployment that forgets to set a profile gets a uniform denial rather than
-     * Boot's auto-configured chain. Only the health probe is open, because the platform needs it
-     * to decide whether the instance is alive.
+     * <p>Three routes are open, each for a reason that does not depend on 2.5's role rules:
      *
-     * <p>Two corrections to an earlier version of this comment, both established by running the
-     * application rather than by reading it. First, Boot's generated security password IS still
-     * logged on every boot today: UserDetailsServiceAutoConfiguration backs off on an
-     * AuthenticationManager, AuthenticationProvider or UserDetailsService bean, not on a
-     * SecurityFilterChain, and this class declares none of those. Declaring a UserDetailsService
-     * in Phase 2 will silence it. Second, this chain returns 403, not 401: with no
-     * AuthenticationEntryPoint registered, Spring Security falls back to
-     * Http403ForbiddenEntryPoint.
+     * <ul>
+     *   <li>{@code /actuator/health/**} — the platform decides from it whether the instance lives.
+     *   <li>{@code POST /api/v1/auth/login} — the only way to obtain a token; closing it makes every
+     *       other route unreachable.
+     *   <li>{@code GET /api/v1/auth/me} — any authenticated caller, since it only echoes back the
+     *       caller's own token.
+     * </ul>
+     *
+     * <p>Everything else is {@code denyAll()}, which refuses even a valid token: anonymous callers
+     * get 401, authenticated ones 403. Opening further routes is 2.5's work, route by route.
+     *
+     * <p>Boot's generated security password is still logged at startup:
+     * {@code UserDetailsServiceAutoConfiguration} backs off on a {@code UserDetailsService},
+     * {@code AuthenticationProvider} or {@code AuthenticationManager} bean, and this application
+     * declares none because the token is the principal. The generated in-memory user is reachable
+     * by no mechanism here — neither chain enables form login or HTTP Basic.
      */
     @Bean
     @Profile("!dev")
     SecurityFilterChain defaultFilterChain(
-            HttpSecurity http, JwtTokenService tokens, AuthenticationEntryPoint entryPoint)
+            HttpSecurity http,
+            JwtTokenService tokens,
+            AuthenticationEntryPoint entryPoint,
+            AccessDeniedHandler accessDeniedHandler)
+            throws Exception {
+        return common(http, tokens, entryPoint, accessDeniedHandler)
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/actuator/health/**").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/login").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/auth/me").authenticated()
+                        .anyRequest().denyAll())
+                .build();
+    }
+
+    private static HttpSecurity common(
+            HttpSecurity http,
+            JwtTokenService tokens,
+            AuthenticationEntryPoint entryPoint,
+            AccessDeniedHandler accessDeniedHandler)
             throws Exception {
         return http
-                .addFilterBefore(
-                        new JwtAuthenticationFilter(tokens, entryPoint),
-                        UsernamePasswordAuthenticationFilter.class)
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(session ->
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/actuator/health/**").permitAll()
-                        .anyRequest().denyAll())
-                .build();
+                .exceptionHandling(exceptions -> exceptions
+                        .authenticationEntryPoint(entryPoint)
+                        .accessDeniedHandler(accessDeniedHandler))
+                .addFilterBefore(
+                        new JwtAuthenticationFilter(tokens, entryPoint),
+                        UsernamePasswordAuthenticationFilter.class);
     }
 }

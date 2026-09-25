@@ -34,11 +34,10 @@ import org.springframework.test.web.servlet.MvcResult;
  * this test created proves the code path and nothing about the demo. The four accounts in
  * {@code V2__seed_reference.sql} are what a jury will actually type, so they are what gets tested.
  *
- * <p><strong>Why {@code dev}.</strong> The two filter chains are profile-bound: {@code dev} permits
- * every request, everything else denies all but the health probe. Since no authentication filter
- * exists yet, {@code dev} is the only profile under which any endpoint is reachable. Making login
- * reachable under the deny-by-default chain is sub-phase 2.3, and this test will need revisiting
- * then — deliberately, because that change should not pass silently.
+ * <p><strong>Why {@code dev}.</strong> Login behaves identically under both chains — the
+ * deny-by-default chain permits it explicitly — so this class uses the profile every other endpoint
+ * test shares, and reuses its application context. {@code SecurityErrorContractTest} asserts that
+ * login is reachable under the non-dev chain.
  */
 @AutoConfigureMockMvc
 @ActiveProfiles("dev")

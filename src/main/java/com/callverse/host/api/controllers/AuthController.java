@@ -27,12 +27,11 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>The first {@code @PostMapping} in the repository, and the first endpoint whose failure mode
  * matters more than its success path.
  *
- * <p><strong>No security rule is declared here.</strong> Under the {@code dev} profile the filter
- * chain permits every request, so this endpoint is reachable as-is; under any other profile the
- * default chain denies everything except the health probe, so it is not. Making login reachable in
- * a deny-by-default deployment needs an explicit permit rule on the chain, and that belongs with
- * sub-phase 2.3, alongside the authentication entry point that gives 401s the standard envelope.
- * Adding it here would be half of a change whose other half does not exist yet.
+ * <p><strong>No security rule is declared here.</strong> Reachability is decided by the filter
+ * chains in {@code SecurityConfiguration}: under {@code dev} every route is open; under any other
+ * profile login is permitted to everyone and {@code /me} to any authenticated caller, and the rest
+ * is denied. The JWT filter skips login, so a stale token attached to it does not block a fresh
+ * login.
  *
  * <p><strong>The token is returned in the body, not in a cookie.</strong> That is not an
  * accident of convenience: the backend's CSRF protection is currently disabled, and the
