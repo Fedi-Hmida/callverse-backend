@@ -16,6 +16,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.AuthenticationTrustResolver;
+import org.springframework.security.authentication.AuthenticationTrustResolverImpl;
+import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -45,15 +50,20 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
  * the Angular client is generated from, so a status documented here and not returned is a lie the
  * compiler cannot catch.
  *
- * <p><strong>401 and 403 are deliberately absent.</strong> They never reach this class: Spring
- * Security rejects at the filter chain, before the dispatcher, and returns an empty body rather
- * than this envelope. Documenting them here would advertise a shape the API does not produce. Once
- * Phase 2 adds an {@code AuthenticationEntryPoint} that writes an {@link ErrorResponse}, add them.
+ * <p><strong>401 and 403 have two writers, and one contract.</strong> Denials by the security
+ * filter chain happen before the dispatcher and never reach this class; {@link
+ * RestAuthenticationEntryPoint} and {@link RestAccessDeniedHandler} write those, through {@link
+ * SecurityErrorWriter}, with the same record, codes and messages used here. Denials by
+ * {@code @PreAuthorize} are thrown <em>inside</em> the dispatcher and do reach this class — and
+ * without the two security handlers below, the catch-all would answer them with a 500 and an
+ * ERROR-level stack trace. The single 401 and 403 {@code @ApiResponse} below document both writers.
  */
 @RestControllerAdvice
 @RequiredArgsConstructor
 @Slf4j
 public class GlobalExceptionHandler {
+
+    private static final AuthenticationTrustResolver TRUST = new AuthenticationTrustResolverImpl();
 
     private final Clock clock;
 
@@ -97,19 +107,9 @@ public class GlobalExceptionHandler {
      * valid accounts for anyone who reads the logs, which defeats the point of returning an
      * indistinguishable error to the caller.
      *
-     * <p>This covers only failures raised inside a use case. Denials produced by the security
-     * filter chain never reach this class — the chain runs before the dispatcher — and giving those
-     * the same envelope is sub-phase 2.3.
+     * <p>Its 401 is documented by the single 401 {@code @ApiResponse} on
+     * {@link #handleAuthentication}.
      */
-    @ApiResponse(
-            responseCode = "401",
-            description =
-                    "Authentication failed. An unknown email and a wrong password are deliberately"
-                            + " indistinguishable: both return code INVALID_CREDENTIALS.",
-            content =
-                    @Content(
-                            mediaType = "application/json",
-                            schema = @Schema(implementation = ErrorResponse.class)))
     @ExceptionHandler(InvalidCredentialsException.class)
     public ResponseEntity<ErrorResponse> handleInvalidCredentials(
             InvalidCredentialsException exception, HttpServletRequest request) {
@@ -128,6 +128,65 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleAuthenticationRequired(
             AuthenticationRequiredException exception, HttpServletRequest request) {
         return unauthenticated(request);
+    }
+
+    /**
+     * Spring Security refused to authenticate the caller inside MVC.
+     *
+     * <p>This one annotation documents every 401 the API returns, whichever writer produced it.
+     */
+    @ApiResponse(
+            responseCode = "401",
+            description =
+                    "Not authenticated. code UNAUTHENTICATED: no bearer token, or one that is"
+                            + " expired, malformed or wrongly signed - all indistinguishable, and the"
+                            + " signal to refresh or log in again. code INVALID_CREDENTIALS: login"
+                            + " refused; an unknown email and a wrong password are deliberately"
+                            + " indistinguishable.",
+            content =
+                    @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ErrorResponse.class)))
+    @ExceptionHandler(AuthenticationException.class)
+    public ResponseEntity<ErrorResponse> handleAuthentication(
+            AuthenticationException exception, HttpServletRequest request) {
+        return unauthenticated(request);
+    }
+
+    /**
+     * A method-security rule such as {@code @PreAuthorize("hasRole('ADMIN')")} refused the call.
+     *
+     * <p><strong>This handler is what keeps a routine denial from becoming a 500.</strong>
+     * {@code AccessDeniedException} is a {@code RuntimeException}; without a handler this specific,
+     * the catch-all below would match it. Spring dispatches to the most specific handler, so
+     * declaring it is enough.
+     *
+     * <p>An <em>anonymous</em> caller gets 401, not 403. Inside the chain,
+     * {@code ExceptionTranslationFilter} makes that distinction itself; once the exception is caught
+     * here it never reaches that filter, so the distinction is made here instead. Answering an
+     * anonymous caller with 403 would tell the frontend "logged in, not allowed", and its refresh
+     * logic would never fire.
+     */
+    @ApiResponse(
+            responseCode = "403",
+            description =
+                    "Authenticated, but not permitted: code ACCESS_DENIED. Re-authenticating will not"
+                            + " help, so clients must not refresh on it.",
+            content =
+                    @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ErrorResponse.class)))
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleAccessDenied(
+            AccessDeniedException exception, HttpServletRequest request) {
+        if (!TRUST.isAuthenticated(SecurityContextHolder.getContext().getAuthentication())) {
+            return unauthenticated(request);
+        }
+        return build(
+                HttpStatus.FORBIDDEN,
+                SecurityErrorWriter.ACCESS_DENIED,
+                SecurityErrorWriter.ACCESS_DENIED_MESSAGE,
+                request);
     }
 
     /** Any other application-layer failure: a precondition of the use case was unmet. */
