@@ -12,7 +12,7 @@ package com.callverse.core.application.exceptions;
  * <p>It maps to <strong>401</strong> rather than 400. The request was well-formed; the credentials
  * were not accepted. Note this is an MVC-level failure thrown by the use case and handled by
  * {@code GlobalExceptionHandler}; denials raised by the security filter chain never reach that
- * handler and are a separate concern, addressed in sub-phase 2.3.
+ * handler and are written, in the same envelope, by the chain's own entry point.
  */
 public class InvalidCredentialsException extends ApplicationException {
 

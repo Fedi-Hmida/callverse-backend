@@ -22,11 +22,11 @@ import org.springframework.context.annotation.Configuration;
  * team generates its TypeScript client from {@code /v3/api-docs}, so this document is a published
  * contract rather than documentation. A renamed field here is a compile error there.
  *
- * <p><strong>The two security schemes are declared but not yet enforced.</strong> No filter reads
- * them and no endpoint requires them — authentication arrives in Phase 2. They are declared now for
- * one practical reason: without a registered scheme, Swagger UI renders no "Authorize" button, and
- * the moment the first protected endpoint exists it becomes untestable from the browser. Declaring
- * them costs nothing today and removes a stumbling block later.
+ * <p><strong>Two security schemes, one of them enforced.</strong> {@code bearerAuth} is read by
+ * {@code JwtAuthenticationFilter} on every request, and {@code GET /api/v1/auth/me} declares it, so
+ * Swagger UI's "Authorize" button works against it today. {@code serviceKey} is declared but read
+ * by nothing until sub-phase 2.7; it is registered now so that {@code /internal} is testable from
+ * the browser the day it exists.
  *
  * <ul>
  *   <li>{@code bearerAuth} — the user JWT, for {@code /api/v1/**}. Issued by the login endpoint.
@@ -86,7 +86,8 @@ public class OpenApiConfiguration {
                                         Carries the account identifier and one role of \
                                         CUSTOMER, ADVISOR, SUPERVISOR or ADMIN.
 
-                                        Not yet implemented - Phase 2."""))
+                                        HS512, valid for one hour by default. Missing, \
+                                        expired or invalid: 401 UNAUTHENTICATED."""))
                         .addSecuritySchemes(SERVICE_KEY_SCHEME, new SecurityScheme()
                                 .type(SecurityScheme.Type.APIKEY)
                                 .in(SecurityScheme.In.HEADER)
