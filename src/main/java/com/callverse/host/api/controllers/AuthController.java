@@ -3,13 +3,19 @@ package com.callverse.host.api.controllers;
 import com.callverse.core.application.features.auth.commands.LoginCommand;
 import com.callverse.core.application.features.auth.commands.LoginCommandHandler;
 import com.callverse.core.application.features.auth.commands.LoginResult;
+import com.callverse.core.application.features.auth.queries.GetCurrentUserQuery;
+import com.callverse.core.application.features.auth.queries.GetCurrentUserQueryHandler;
+import com.callverse.core.application.interfaces.AuthenticatedPrincipal;
 import com.callverse.host.api.dto.request.LoginRequest;
+import com.callverse.host.api.dto.response.CurrentUserResponse;
 import com.callverse.host.api.dto.response.TokenResponse;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -46,6 +52,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private final LoginCommandHandler login;
+    private final GetCurrentUserQueryHandler currentUser;
 
     @PostMapping("/login")
     @Operation(
@@ -58,5 +65,19 @@ public class AuthController {
     public TokenResponse login(@Valid @RequestBody LoginRequest request) {
         LoginResult result = login.handle(new LoginCommand(request.email(), request.password()));
         return new TokenResponse(result.token(), result.expiresAt(), result.role().name());
+    }
+
+    // consumes is widened because a GET carries no body; the class-level JSON constraint is for login.
+    @GetMapping(path = "/me", consumes = MediaType.ALL_VALUE)
+    @SecurityRequirement(name = "bearerAuth")
+    @Operation(
+            summary = "Who am I",
+            description =
+                    "Returns the account the presented bearer token identifies. Read from the token, "
+                            + "not the database: a change made after login appears only after the "
+                            + "next login. Without a valid token: 401 UNAUTHENTICATED.")
+    public CurrentUserResponse me() {
+        AuthenticatedPrincipal principal = currentUser.handle(new GetCurrentUserQuery());
+        return new CurrentUserResponse(principal.userId(), principal.email(), principal.role().name());
     }
 }

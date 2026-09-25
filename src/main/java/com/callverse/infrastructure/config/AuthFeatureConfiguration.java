@@ -1,7 +1,9 @@
 package com.callverse.infrastructure.config;
 
 import com.callverse.core.application.features.auth.commands.LoginCommandHandler;
+import com.callverse.core.application.features.auth.queries.GetCurrentUserQueryHandler;
 import com.callverse.core.application.interfaces.AppUserDirectory;
+import com.callverse.core.application.interfaces.CurrentPrincipalProvider;
 import com.callverse.core.application.interfaces.PasswordVerifier;
 import com.callverse.core.application.interfaces.TokenIssuer;
 import org.springframework.context.annotation.Bean;
@@ -21,5 +23,10 @@ public class AuthFeatureConfiguration {
     LoginCommandHandler loginCommandHandler(
             AppUserDirectory directory, PasswordVerifier passwordVerifier, TokenIssuer tokenIssuer) {
         return new LoginCommandHandler(directory, passwordVerifier, tokenIssuer);
+    }
+
+    @Bean
+    GetCurrentUserQueryHandler getCurrentUserQueryHandler(CurrentPrincipalProvider principals) {
+        return new GetCurrentUserQueryHandler(principals);
     }
 }

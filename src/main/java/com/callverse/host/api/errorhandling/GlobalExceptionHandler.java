@@ -1,6 +1,7 @@
 package com.callverse.host.api.errorhandling;
 
 import com.callverse.core.application.exceptions.ApplicationException;
+import com.callverse.core.application.exceptions.AuthenticationRequiredException;
 import com.callverse.core.application.exceptions.InvalidCredentialsException;
 import com.callverse.core.application.exceptions.ResourceNotFoundException;
 import com.callverse.core.domain.exceptions.DomainException;
@@ -12,6 +13,7 @@ import java.time.Clock;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -115,6 +117,19 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.UNAUTHORIZED, exception.code(), exception.getMessage(), request);
     }
 
+    /**
+     * A use case needed the caller and there is none — an anonymous request on a route the chain
+     * leaves open, such as {@code /api/v1/auth/me} under {@code dev}.
+     *
+     * <p>Answered with the security chain's own code, message and challenge, not the exception's
+     * message, so that a client cannot tell whether the filter chain or a use case refused it.
+     */
+    @ExceptionHandler(AuthenticationRequiredException.class)
+    public ResponseEntity<ErrorResponse> handleAuthenticationRequired(
+            AuthenticationRequiredException exception, HttpServletRequest request) {
+        return unauthenticated(request);
+    }
+
     /** Any other application-layer failure: a precondition of the use case was unmet. */
     @ApiResponse(
             responseCode = "400",
@@ -181,6 +196,18 @@ public class GlobalExceptionHandler {
                 // Deliberately not exception.getMessage(): see the class javadoc.
                 "An unexpected error occurred.",
                 request);
+    }
+
+    private ResponseEntity<ErrorResponse> unauthenticated(HttpServletRequest request) {
+        ResponseEntity<ErrorResponse> response =
+                build(
+                        HttpStatus.UNAUTHORIZED,
+                        SecurityErrorWriter.UNAUTHENTICATED,
+                        SecurityErrorWriter.UNAUTHENTICATED_MESSAGE,
+                        request);
+        return ResponseEntity.status(response.getStatusCode())
+                .header(HttpHeaders.WWW_AUTHENTICATE, SecurityErrorWriter.BEARER_CHALLENGE)
+                .body(response.getBody());
     }
 
     private ResponseEntity<ErrorResponse> build(

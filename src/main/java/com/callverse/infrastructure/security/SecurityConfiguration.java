@@ -7,7 +7,9 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 /**
  * Security wiring for the CallVerse backend.
@@ -48,8 +50,13 @@ public class SecurityConfiguration {
      */
     @Bean
     @Profile("dev")
-    SecurityFilterChain developmentFilterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain developmentFilterChain(
+            HttpSecurity http, JwtTokenService tokens, AuthenticationEntryPoint entryPoint)
+            throws Exception {
         return http
+                .addFilterBefore(
+                        new JwtAuthenticationFilter(tokens, entryPoint),
+                        UsernamePasswordAuthenticationFilter.class)
                 // No cookies are used, so there is no CSRF vector to protect; leaving CSRF on
                 // would only reject the frontend's POSTs for no gain.
                 .csrf(csrf -> csrf.disable())
@@ -78,8 +85,13 @@ public class SecurityConfiguration {
      */
     @Bean
     @Profile("!dev")
-    SecurityFilterChain defaultFilterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain defaultFilterChain(
+            HttpSecurity http, JwtTokenService tokens, AuthenticationEntryPoint entryPoint)
+            throws Exception {
         return http
+                .addFilterBefore(
+                        new JwtAuthenticationFilter(tokens, entryPoint),
+                        UsernamePasswordAuthenticationFilter.class)
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(session ->
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
