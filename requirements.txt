@@ -10,3 +10,6 @@ sqlalchemy
 pgvector
 httpx
 python-dotenv
+pytest-asyncio
+sentence-transformers
+asyncpg

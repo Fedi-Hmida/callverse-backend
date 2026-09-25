@@ -1,20 +1,68 @@
 """
-Client HTTP vers le backend Spring Boot (outils métier : get_customer,
-apply_credit, escalate, etc.). Aucune règle métier n'est réimplémentée ici,
-seulement des appels REST.
+Client HTTP mutualisé vers le backend Spring Boot.
+
+Toute la couche AI passe par ici pour parler au backend (source de vérité
+métier) : aucun autre module ne doit instancier httpx.AsyncClient lui-même.
 """
+from __future__ import annotations
+
+from typing import Any
+
 import httpx
 
 from app.config import settings
 
 
 class BackendClient:
-    def __init__(self, base_url: str = settings.backend_base_url):
-        self.base_url = base_url
-        self._client = httpx.Client(base_url=base_url)
+    """
+    Sept outils metier, alignes sur les endpoints figes du document 01
+    (Contrat 2 - Service AI vers Backend), prefixe /api/v1/internal.
+    """
 
-    def get(self, path: str, **kwargs):
-        raise NotImplementedError
+    def __init__(self, base_url: str | None = None, timeout: float = 5.0) -> None:
+        self._base_url = base_url or settings.backend_base_url
+        self._timeout = timeout
 
-    def post(self, path: str, **kwargs):
-        raise NotImplementedError
+    async def _get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        async with httpx.AsyncClient(base_url=self._base_url, timeout=self._timeout) as client:
+            resp = await client.get(path, params=params)
+            resp.raise_for_status()
+            return resp.json()
+
+    async def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+        async with httpx.AsyncClient(base_url=self._base_url, timeout=self._timeout) as client:
+            resp = await client.post(path, json=payload)
+            resp.raise_for_status()
+            return resp.json()
+
+    async def get_customer(self, customer_id: str) -> dict[str, Any]:
+        return await self._get(f"/api/v1/internal/customers/{customer_id}")
+
+    async def get_transactions(self, customer_id: str, n: int = 3) -> dict[str, Any]:
+        return await self._get(f"/api/v1/internal/customers/{customer_id}/invoices", params={"n": n})
+
+    async def check_system_status(self, zone: str) -> dict[str, Any]:
+        return await self._get("/api/v1/internal/network/status", params={"zone": zone})
+
+    async def search_knowledge_base(self, query: str, k: int = 5) -> dict[str, Any]:
+        return await self._get("/api/v1/internal/kb/search", params={"q": query, "k": k})
+
+    async def create_case(
+        self, customer_id: str, subject: str, incident_id: str | None = None
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {"customer_id": customer_id, "subject": subject}
+        if incident_id:
+            payload["incident_id"] = incident_id
+        return await self._post("/api/v1/internal/tickets", payload)
+
+    async def apply_credit(self, customer_id: str, amount: float) -> dict[str, Any]:
+        return await self._post("/api/v1/internal/credits", {"customer_id": customer_id, "amount": amount})
+
+    async def escalate(self, conversation_id: str, reason: str) -> dict[str, Any]:
+        return await self._post(
+            f"/api/v1/internal/conversations/{conversation_id}/escalate",
+            {"reason": reason},
+        )
+
+
+backend_client = BackendClient()
