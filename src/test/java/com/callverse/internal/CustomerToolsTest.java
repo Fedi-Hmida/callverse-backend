@@ -1,6 +1,5 @@
 package com.callverse.internal;
 
-import static com.callverse.auth.AuthenticatedRequests.serviceKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 
@@ -9,24 +8,11 @@ import com.callverse.core.domain.entities.Contract;
 import com.callverse.core.domain.entities.Customer;
 import com.callverse.core.domain.entities.Invoice;
 import com.callverse.core.domain.enums.InvoiceStatus;
-import com.callverse.persistence.AbstractPersistenceTest;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import jakarta.persistence.EntityManager;
-import jakarta.transaction.Transactional;
 import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.UUID;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.MvcResult;
-import org.springframework.test.web.servlet.RequestBuilder;
 
 /**
  * {@code GET /internal/customers/{id}} and {@code GET /internal/customers/{id}/invoices} —
@@ -37,21 +23,7 @@ import org.springframework.test.web.servlet.RequestBuilder;
  * — never from a caller-chosen contract — so another customer's bills cannot appear. The latter is
  * rule A4, ranked the most likely rule in the catalogue to be forgotten.
  */
-@AutoConfigureMockMvc
-@ActiveProfiles("dev")
-@Transactional
-class CustomerToolsTest extends AbstractPersistenceTest {
-
-    @Autowired private MockMvc mockMvc;
-    @Autowired private ObjectMapper objectMapper;
-    @Autowired private EntityManager em;
-
-    private InternalFixtures fixtures;
-
-    @BeforeEach
-    void setUp() {
-        fixtures = new InternalFixtures(em);
-    }
+class CustomerToolsTest extends AbstractInternalToolTest {
 
     @Test
     @DisplayName("the profile carries identity, zone, tenure and each contract with its plan")
@@ -150,27 +122,5 @@ class CustomerToolsTest extends AbstractPersistenceTest {
     void invoicesOfUnknownCustomerAreNotFound() throws Exception {
         ErrorEnvelope.assertConforms(
                 call(get("/internal/customers/" + UUID.randomUUID() + "/invoices"), 404), 404, "RESOURCE_NOT_FOUND");
-    }
-
-    private JsonNode ok(RequestBuilder request) throws Exception {
-        return call(request, 200);
-    }
-
-    private JsonNode call(RequestBuilder request, int expectedStatus) throws Exception {
-        MvcResult result = mockMvc.perform(withKey(request)).andReturn();
-        assertThat(result.getResponse().getStatus())
-                .as("body: %s", result.getResponse().getContentAsString())
-                .isEqualTo(expectedStatus);
-        return objectMapper.readTree(result.getResponse().getContentAsString());
-    }
-
-    private static RequestBuilder withKey(RequestBuilder request) {
-        return ((org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder) request).with(serviceKey());
-    }
-
-    private static List<String> ids(JsonNode array) {
-        List<String> ids = new ArrayList<>();
-        array.forEach(node -> ids.add(node.get("id").asText()));
-        return ids;
     }
 }
