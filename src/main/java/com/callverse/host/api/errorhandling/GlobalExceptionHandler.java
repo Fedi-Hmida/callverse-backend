@@ -16,14 +16,17 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.AuthenticationTrustResolver;
 import org.springframework.security.authentication.AuthenticationTrustResolverImpl;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
@@ -193,8 +196,9 @@ public class GlobalExceptionHandler {
     @ApiResponse(
             responseCode = "400",
             description =
-                    "Rejected before any business rule ran: Bean Validation failed"
-                            + " (code VALIDATION_FAILED) or a use-case precondition was unmet.",
+                    "Rejected before any business rule ran: the body is not valid JSON (code"
+                            + " MALFORMED_REQUEST), a parameter or field broke a rule (code"
+                            + " VALIDATION_FAILED), or a use-case precondition was unmet.",
             content =
                     @Content(
                             mediaType = "application/json",
@@ -233,6 +237,52 @@ public class GlobalExceptionHandler {
                         .map(error -> "%s %s".formatted(error.getField(), error.getDefaultMessage()))
                         .collect(Collectors.joining("; "));
         return build(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", details, request);
+    }
+
+    /**
+     * A path variable or query parameter that cannot be converted — {@code /customers/not-a-uuid},
+     * {@code ?n=three}. The caller's mistake, so 400, not the catch-all's 500.
+     *
+     * <p>The message names the parameter and the expected type, never the rejected value: a value
+     * echoed back is a value echoed into logs and into whatever displays the error.
+     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ErrorResponse> handleTypeMismatch(
+            MethodArgumentTypeMismatchException exception, HttpServletRequest request) {
+        String expected =
+                exception.getRequiredType() == null ? "another type" : exception.getRequiredType().getSimpleName();
+        return build(
+                HttpStatus.BAD_REQUEST,
+                "VALIDATION_FAILED",
+                "%s must be a %s".formatted(exception.getName(), expected),
+                request);
+    }
+
+    /** A required query parameter is absent. */
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ErrorResponse> handleMissingParameter(
+            MissingServletRequestParameterException exception, HttpServletRequest request) {
+        return build(
+                HttpStatus.BAD_REQUEST,
+                "VALIDATION_FAILED",
+                "%s is required".formatted(exception.getParameterName()),
+                request);
+    }
+
+    /**
+     * The body is not parseable JSON, or does not fit the expected shape at all. Distinct from
+     * {@code VALIDATION_FAILED}, which means the body parsed but a field broke a rule.
+     *
+     * <p>The parser's own message is not returned: it quotes the offending input.
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ErrorResponse> handleUnreadableBody(
+            HttpMessageNotReadableException exception, HttpServletRequest request) {
+        return build(
+                HttpStatus.BAD_REQUEST,
+                "MALFORMED_REQUEST",
+                "The request body is not valid JSON for this operation.",
+                request);
     }
 
     /** Anything not anticipated above. */
