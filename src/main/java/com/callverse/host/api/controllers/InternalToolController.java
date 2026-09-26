@@ -4,8 +4,14 @@ import com.callverse.core.application.features.customer.queries.GetCustomerProfi
 import com.callverse.core.application.features.customer.queries.GetCustomerProfileQueryHandler;
 import com.callverse.core.application.features.customer.queries.GetRecentInvoicesQuery;
 import com.callverse.core.application.features.customer.queries.GetRecentInvoicesQueryHandler;
+import com.callverse.core.application.features.knowledge.queries.SearchKnowledgeBaseQuery;
+import com.callverse.core.application.features.knowledge.queries.SearchKnowledgeBaseQueryHandler;
+import com.callverse.core.application.features.network.queries.GetNetworkStatusQuery;
+import com.callverse.core.application.features.network.queries.GetNetworkStatusQueryHandler;
 import com.callverse.host.api.dto.response.internal.CustomerProfileResponse;
 import com.callverse.host.api.dto.response.internal.InvoicesResponse;
+import com.callverse.host.api.dto.response.internal.KnowledgeSearchResponse;
+import com.callverse.host.api.dto.response.internal.NetworkStatusResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -50,6 +56,8 @@ public class InternalToolController {
 
     private final GetCustomerProfileQueryHandler customerProfile;
     private final GetRecentInvoicesQueryHandler recentInvoices;
+    private final GetNetworkStatusQueryHandler networkStatus;
+    private final SearchKnowledgeBaseQueryHandler knowledgeSearch;
 
     @GetMapping("/customers/{id}")
     @Operation(
@@ -73,5 +81,35 @@ public class InternalToolController {
             @Parameter(description = "How many, 1 to 12; default 3") @RequestParam(name = "n", required = false)
                     Integer n) {
         return InvoicesResponse.from(id, recentInvoices.handle(new GetRecentInvoicesQuery(id, n)));
+    }
+
+    @GetMapping("/network/status")
+    @Operation(
+            summary = "Active network incidents in a zone",
+            description =
+                    "Unresolved incidents for the zone, most recent first. Live system only unless"
+                            + " runId names a simulation run, in which case only that run's incidents."
+                            + " Missing zone: 400 VALIDATION_FAILED.")
+    public NetworkStatusResponse networkStatus(
+            @Parameter(description = "The customer's zone") @RequestParam String zone,
+            @Parameter(description = "Simulation run to ask inside; omit for the live system")
+                    @RequestParam(required = false)
+                    UUID runId) {
+        return NetworkStatusResponse.from(
+                zone, runId, networkStatus.handle(new GetNetworkStatusQuery(zone, runId)));
+    }
+
+    @GetMapping("/kb/search")
+    @Operation(
+            summary = "Search the knowledge base",
+            description =
+                    "Case-insensitive literal substring search over published articles' title and"
+                            + " content, most recently updated first. q: 2 to 100 characters. k: 1 to"
+                            + " 10, default 5. Otherwise 400 VALIDATION_FAILED.")
+    public KnowledgeSearchResponse knowledgeSearch(
+            @Parameter(description = "Text to look for, matched literally") @RequestParam String q,
+            @Parameter(description = "How many articles, 1 to 10; default 5") @RequestParam(required = false)
+                    Integer k) {
+        return KnowledgeSearchResponse.from(q, knowledgeSearch.handle(new SearchKnowledgeBaseQuery(q, k)));
     }
 }

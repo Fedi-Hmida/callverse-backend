@@ -2,7 +2,11 @@ package com.callverse.infrastructure.config;
 
 import com.callverse.core.application.features.customer.queries.GetCustomerProfileQueryHandler;
 import com.callverse.core.application.features.customer.queries.GetRecentInvoicesQueryHandler;
+import com.callverse.core.application.features.knowledge.queries.SearchKnowledgeBaseQueryHandler;
+import com.callverse.core.application.features.network.queries.GetNetworkStatusQueryHandler;
 import com.callverse.core.application.interfaces.CustomerRecords;
+import com.callverse.core.application.interfaces.KnowledgeBase;
+import com.callverse.core.application.interfaces.NetworkIncidents;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -23,5 +27,15 @@ public class InternalToolFeatureConfiguration {
     @Bean
     GetRecentInvoicesQueryHandler getRecentInvoicesQueryHandler(CustomerRecords customers) {
         return new GetRecentInvoicesQueryHandler(customers);
+    }
+
+    @Bean
+    GetNetworkStatusQueryHandler getNetworkStatusQueryHandler(NetworkIncidents incidents) {
+        return new GetNetworkStatusQueryHandler(incidents);
+    }
+
+    @Bean
+    SearchKnowledgeBaseQueryHandler searchKnowledgeBaseQueryHandler(KnowledgeBase knowledgeBase) {
+        return new SearchKnowledgeBaseQueryHandler(knowledgeBase);
     }
 }

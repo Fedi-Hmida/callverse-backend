@@ -17,4 +17,15 @@ public interface NetworkIncidentRepository extends JpaRepository<NetworkIncident
     List<NetworkIncident> findByZoneAndResolvedAtIsNull(String zone);
 
     List<NetworkIncident> findByResolvedAtIsNull();
+
+    /**
+     * Live active incidents in a zone: {@code run_id IS NULL}, so no simulation run's injected
+     * outage can reach a real customer ({@code OWNERSHIP_RULES.md} E3). The zone-and-active part is
+     * served by the partial index {@code idx_incident_zone_active}; the run filter is applied to the
+     * few rows it returns.
+     */
+    List<NetworkIncident> findByZoneAndResolvedAtIsNullAndRunIdIsNullOrderByStartedAtDesc(String zone);
+
+    /** One simulation run's active incidents in a zone, and nothing from the live system or other runs. */
+    List<NetworkIncident> findByZoneAndResolvedAtIsNullAndRunIdOrderByStartedAtDesc(String zone, UUID runId);
 }
