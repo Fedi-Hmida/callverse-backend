@@ -23,7 +23,8 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
  * order is not defined.
  *
  * <p><strong>What is deliberately absent.</strong> No JWT filter: a user token must open nothing
- * here. No CORS: this is server-to-server, and a browser has no business calling it. CSRF is off for
+ * here. CORS explicitly disabled: this is server-to-server, and a browser has no business calling
+ * it — see the comment on {@code cors()} below for why leaving it out is not enough. CSRF is off for
  * the reason given in {@code SecurityConfiguration} — no cookie exists — and sessions are stateless.
  *
  * <p>The entry point is the service-key variant, which writes the same envelope as the user chains
@@ -44,6 +45,11 @@ public class InternalApiSecurityConfiguration {
             throws Exception {
         return http
                 .securityMatcher(INTERNAL_PATHS)
+                // Explicit, because omitting cors() is not enough: Spring Security's
+                // HttpSecurityConfiguration.applyCorsIfAvailable applies cors(withDefaults()) to every
+                // chain once a UrlBasedCorsConfigurationSource bean exists, which would hand this
+                // server-to-server chain the browser policy from CorsPolicyConfiguration.
+                .cors(cors -> cors.disable())
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(session ->
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))

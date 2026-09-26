@@ -109,17 +109,24 @@ abstract class AbstractInternalApiSecurityTest extends AbstractPersistenceTest {
     }
 
     @Test
-    @DisplayName("a browser preflight to /internal gets no CORS allowance: it is server-to-server")
+    @DisplayName("a browser preflight to /internal gets no CORS allowance, even from the allowed frontend origin")
     void browserPreflightIsNotAllowed() throws Exception {
-        RequestBuilder preflight =
+        // Deliberately the simplest preflight: an allowed origin and an allowed method, asking for
+        // no custom header. The user chains' CORS policy would admit it; this chain must not.
+        RequestBuilder plain =
+                options(PROBE)
+                        .header(HttpHeaders.ORIGIN, "http://localhost:3000")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET");
+        RequestBuilder withKeyHeader =
                 options(PROBE)
                         .header(HttpHeaders.ORIGIN, "http://localhost:3000")
                         .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET")
                         .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "x-internal-key");
 
-        MvcResult result = mockMvc.perform(preflight).andReturn();
-
-        assertThat(result.getResponse().getHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN)).isNull();
+        for (RequestBuilder preflight : new RequestBuilder[] {plain, withKeyHeader}) {
+            MvcResult result = mockMvc.perform(preflight).andReturn();
+            assertThat(result.getResponse().getHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN)).isNull();
+        }
     }
 
     JsonNode body(MvcResult result) throws Exception {
