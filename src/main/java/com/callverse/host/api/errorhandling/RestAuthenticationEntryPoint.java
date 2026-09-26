@@ -6,6 +6,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.time.Clock;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.web.AuthenticationEntryPoint;
@@ -27,6 +28,7 @@ import org.springframework.stereotype.Component;
  * interface type without naming this class.
  */
 @Component
+@Primary // the default for the user chains; /internal asks for ServiceKeyAuthenticationEntryPoint by name
 @Slf4j
 public class RestAuthenticationEntryPoint implements AuthenticationEntryPoint {
 
@@ -50,6 +52,7 @@ public class RestAuthenticationEntryPoint implements AuthenticationEntryPoint {
                 response,
                 HttpStatus.UNAUTHORIZED,
                 SecurityErrorWriter.UNAUTHENTICATED,
-                SecurityErrorWriter.UNAUTHENTICATED_MESSAGE);
+                SecurityErrorWriter.UNAUTHENTICATED_MESSAGE,
+                SecurityErrorWriter.BEARER_CHALLENGE);
     }
 }

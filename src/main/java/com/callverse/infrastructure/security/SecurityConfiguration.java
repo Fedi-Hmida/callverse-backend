@@ -3,6 +3,7 @@ package com.callverse.infrastructure.security;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -37,9 +38,9 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
  * </ul>
  *
  * <p><strong>Still to come, and where.</strong> Role rules on individual endpoints are
- * {@code @PreAuthorize} in sub-phase 2.5 (blocked on schema change S-1). {@code /internal/**}
- * gets its own service-key scheme in 2.7 — a distinct mechanism, not a JWT variant. STOMP frames are
- * authenticated in 2.8. No {@code UserDetailsService} is planned: the token's claims are the
+ * {@code @PreAuthorize} in sub-phase 2.5 (blocked on schema change S-1). STOMP frames are
+ * authenticated in 2.8. {@code /internal/**} is not handled here at all: it has its own chain and
+ * its own service-key scheme in {@link InternalApiSecurityConfiguration}, ordered before these. No {@code UserDetailsService} is planned: the token's claims are the
  * principal, so there is nothing for one to load.
  */
 @Configuration
@@ -60,6 +61,7 @@ public class SecurityConfiguration {
      * authorize.
      */
     @Bean
+    @Order(2) // after InternalApiSecurityConfiguration, which claims /internal/** first
     @Profile("dev")
     SecurityFilterChain developmentFilterChain(
             HttpSecurity http,
@@ -95,6 +97,7 @@ public class SecurityConfiguration {
      * by no mechanism here — neither chain enables form login or HTTP Basic.
      */
     @Bean
+    @Order(2) // after InternalApiSecurityConfiguration, which claims /internal/** first
     @Profile("!dev")
     SecurityFilterChain defaultFilterChain(
             HttpSecurity http,

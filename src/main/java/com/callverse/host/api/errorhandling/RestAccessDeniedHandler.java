@@ -45,6 +45,7 @@ public class RestAccessDeniedHandler implements AccessDeniedHandler {
                 response,
                 HttpStatus.FORBIDDEN,
                 SecurityErrorWriter.ACCESS_DENIED,
-                SecurityErrorWriter.ACCESS_DENIED_MESSAGE);
+                SecurityErrorWriter.ACCESS_DENIED_MESSAGE,
+                null);
     }
 }

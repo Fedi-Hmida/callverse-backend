@@ -1,5 +1,6 @@
 package com.callverse.auth;
 
+import static com.callverse.persistence.AbstractPersistenceTest.TEST_INTERNAL_SERVICE_KEY;
 import static com.callverse.persistence.AbstractPersistenceTest.TEST_JWT_SECRET;
 
 import com.callverse.core.domain.enums.UserRole;
@@ -56,6 +57,22 @@ public final class AuthenticatedRequests {
     public static RequestPostProcessor bearer(String token) {
         return request -> {
             request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + token);
+            return request;
+        };
+    }
+
+    /** The header the AI service authenticates with on {@code /internal/**}. */
+    public static final String SERVICE_KEY_HEADER = "X-Internal-Key";
+
+    /** Adds the test context's valid service key: the request is the AI service. */
+    public static RequestPostProcessor serviceKey() {
+        return serviceKey(TEST_INTERNAL_SERVICE_KEY);
+    }
+
+    /** Adds an arbitrary value as the service key, for the refusal tests. */
+    public static RequestPostProcessor serviceKey(String value) {
+        return request -> {
+            request.addHeader(SERVICE_KEY_HEADER, value);
             return request;
         };
     }

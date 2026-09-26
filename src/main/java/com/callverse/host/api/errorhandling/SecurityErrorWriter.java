@@ -45,15 +45,20 @@ final class SecurityErrorWriter {
         this.clock = clock;
     }
 
+    /**
+     * @param challenge the {@code WWW-Authenticate} value, or null to send none — {@code /internal}
+     *     accepts no standard scheme, so it sends none rather than a misleading {@code Bearer}
+     */
     void write(
             HttpServletRequest request,
             HttpServletResponse response,
             HttpStatus status,
             String code,
-            String message)
+            String message,
+            String challenge)
             throws IOException {
-        if (status == HttpStatus.UNAUTHORIZED) {
-            response.setHeader(HttpHeaders.WWW_AUTHENTICATE, BEARER_CHALLENGE);
+        if (challenge != null) {
+            response.setHeader(HttpHeaders.WWW_AUTHENTICATE, challenge);
         }
         response.setStatus(status.value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);

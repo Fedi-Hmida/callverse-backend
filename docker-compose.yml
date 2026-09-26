@@ -73,6 +73,10 @@ services:
       # agent, is the authority on business rules such as the commercial-credit
       # ceiling, so this URL points the agents back at the /internal tool API.
       CALLVERSE_BACKEND_BASE_URL: http://backend:8080
+      # The key the agents send in X-Internal-Key on every /internal call. Interpolated
+      # from .env, the same value the backend reads, so the two cannot drift. Without
+      # it every tool call is a 401.
+      INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY:?set INTERNAL_SERVICE_KEY in .env}
     ports:
       - "${AI_SERVICE_PORT:-8000}:8000"
     depends_on:
