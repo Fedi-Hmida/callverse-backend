@@ -2,10 +2,13 @@ package com.callverse.infrastructure.persistence.repositories;
 
 import com.callverse.core.domain.entities.Conversation;
 import com.callverse.core.domain.enums.ConversationStatus;
+import jakarta.persistence.LockModeType;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -49,6 +52,15 @@ public interface ConversationRepository extends JpaRepository<Conversation, UUID
             @Param("status") ConversationStatus status,
             @Param("skillId") UUID skillId,
             Pageable pageable);
+
+    /**
+     * The conversation, with its row locked ({@code SELECT ... FOR UPDATE}) until the surrounding
+     * transaction ends. Used to serialise writes that must see each other — two concurrent
+     * escalation retries on one conversation queue here instead of both inserting.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select c from Conversation c where c.id = :id")
+    Optional<Conversation> findByIdForUpdate(@Param("id") UUID id);
 
     /** Queue depth per skill, the Workforce Manager's primary observation. */
     long countByStatusAndSkillId(ConversationStatus status, UUID skillId);
