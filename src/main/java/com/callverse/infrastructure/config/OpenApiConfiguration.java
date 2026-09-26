@@ -22,11 +22,10 @@ import org.springframework.context.annotation.Configuration;
  * team generates its TypeScript client from {@code /v3/api-docs}, so this document is a published
  * contract rather than documentation. A renamed field here is a compile error there.
  *
- * <p><strong>Two security schemes, one of them enforced.</strong> {@code bearerAuth} is read by
- * {@code JwtAuthenticationFilter} on every request, and {@code GET /api/v1/auth/me} declares it, so
- * Swagger UI's "Authorize" button works against it today. {@code serviceKey} is declared but read
- * by nothing until sub-phase 2.7; it is registered now so that {@code /internal} is testable from
- * the browser the day it exists.
+ * <p><strong>Two security schemes, both enforced.</strong> {@code bearerAuth} is read by
+ * {@code JwtAuthenticationFilter} on the user chains, and {@code serviceKey} by
+ * {@code ServiceKeyAuthenticationFilter} on the {@code /internal/**} chain. Each route declares the
+ * one it accepts, so Swagger UI's "Authorize" button sends the right credential to each.
  *
  * <ul>
  *   <li>{@code bearerAuth} — the user JWT, for {@code /api/v1/**}. Issued by the login endpoint.
@@ -96,8 +95,8 @@ public class OpenApiConfiguration {
                                         Shared service key for `/internal/**`, used by the Python \
                                         AI service. Not a user credential: it carries no role and \
                                         no identity, and its access is bounded by business rules \
-                                        rather than by authorization.
-
-                                        Not yet implemented - Phase 3.""")));
+                                        rather than by authorization. Required on \
+                                        every /internal route in every profile; \
+                                        missing or wrong: 401 UNAUTHENTICATED.""")));
     }
 }
