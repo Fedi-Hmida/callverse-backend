@@ -110,6 +110,12 @@ public class SecurityConfiguration {
                         .requestMatchers("/actuator/health/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/login").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/me").authenticated()
+                        // Staff-only reads. The chain grants reachability to any
+                        // authenticated caller; @PreAuthorize on the controller decides the
+                        // role. Both layers are required - dropping this line makes the
+                        // route unreachable outside dev, and dropping the annotation makes
+                        // it readable by every authenticated caller.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/customers/**").authenticated()
                         .anyRequest().denyAll())
                 .build();
     }

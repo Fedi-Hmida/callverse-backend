@@ -1,8 +1,6 @@
 package com.callverse.infrastructure.config;
 
 import com.callverse.core.application.features.conversation.commands.EscalateConversationCommandHandler;
-import com.callverse.core.application.features.customer.queries.GetCustomerProfileQueryHandler;
-import com.callverse.core.application.features.customer.queries.GetRecentInvoicesQueryHandler;
 import com.callverse.core.application.features.knowledge.queries.SearchKnowledgeBaseQueryHandler;
 import com.callverse.core.application.features.network.queries.GetNetworkStatusQueryHandler;
 import com.callverse.core.application.features.ticket.commands.OpenTicketCommandHandler;
@@ -23,16 +21,6 @@ import org.springframework.context.annotation.Configuration;
  */
 @Configuration
 public class InternalToolFeatureConfiguration {
-
-    @Bean
-    GetCustomerProfileQueryHandler getCustomerProfileQueryHandler(CustomerRecords customers) {
-        return new GetCustomerProfileQueryHandler(customers);
-    }
-
-    @Bean
-    GetRecentInvoicesQueryHandler getRecentInvoicesQueryHandler(CustomerRecords customers) {
-        return new GetRecentInvoicesQueryHandler(customers);
-    }
 
     @Bean
     GetNetworkStatusQueryHandler getNetworkStatusQueryHandler(NetworkIncidents incidents) {
