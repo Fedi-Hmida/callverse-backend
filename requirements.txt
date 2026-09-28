@@ -10,3 +10,4 @@ sqlalchemy
 pgvector
 httpx
 python-dotenv
+pytest

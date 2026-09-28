@@ -26,17 +26,17 @@ HOURLY_LAMBDA = {
 
 # Motif -> compétence requise (mapping métier)
 MOTIF_TO_SKILL = {
-    "BILLING": "BILLING",
-    "TECHNICAL": "TECHNICAL",
-    "COMMERCIAL": "COMMERCIAL",
-    "CHURN": "COMMERCIAL",  # une résiliation est traitée par le commercial
+    "ACCOUNT": "ACCOUNT",
+    "CARD": "CARD",
+    "CREDIT": "CREDIT",
+    "ADVISORY": "ADVISORY",
 }
 
 MOTIF_WEIGHTS = {
-    "BILLING": 0.35,
-    "TECHNICAL": 0.40,
-    "COMMERCIAL": 0.15,
-    "CHURN": 0.10,
+    "ACCOUNT": 0.30,
+    "CARD": 0.30,
+    "CREDIT": 0.25,
+    "ADVISORY": 0.15,
 }
 
 PROFILE_WEIGHTS = {
