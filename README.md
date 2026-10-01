@@ -381,9 +381,36 @@ operation id or field fails the build until `make openapi` regenerates the file 
 committed. A demo dataset for the call scenario loads in `dev` only, and only with
 `CALLVERSE_DEMODATA_ENABLED=true` (`callverse.demo-data.enabled`); it is never a migration.
 
+**Real-time events** (2026-10-01): STOMP over a native WebSocket at `ws://localhost:8080/ws`.
+
+- **Connect** with a STOMP header `Authorization: Bearer <token>` (the token from login). No token,
+  a bad token or an expired one is refused.
+- **Subscribe only.** Clients never publish: SEND, MESSAGE and every other client frame except
+  CONNECT/STOMP, SUBSCRIBE, UNSUBSCRIBE and DISCONNECT is refused. Destinations must be literal — no
+  wildcards. When the token expires the socket stops receiving and new subscriptions are refused;
+  the client reconnects with a fresh token.
+- **Topics and who may listen** — anything else is refused:
+
+| Topic | Who | Status |
+|---|---|---|
+| `/topic/supervision/alerts` | supervisor, admin | live |
+| `/topic/supervision/kpi` | supervisor, admin | rule in place; events in the conversation-core phase |
+| `/topic/runs/{runId}` | supervisor, admin | rule in place; events in the experiment phase |
+| `/topic/queue/{skill}` | advisor, supervisor, admin | rule in place; events in the conversation-core phase |
+| `/topic/conversation/{id}` | advisor, supervisor, admin | rule in place; events in the conversation-core phase |
+
+- **Supervision alerts** are JSON with one fixed shape (`schemaVersion` 1): `type`, `occurredAt`,
+  `customerId`, `conversationId`, `escalationId`, `cardId`, `cardLast4`; unused fields are null.
+  `ESCALATION_RAISED` fires when an advisor creates an escalation; `CARD_BLOCKED_FRAUD` when a card
+  is newly blocked for suspected fraud. Repeats raise nothing. Alerts carry identifiers only (the
+  customer's details come from the staff customer routes) and leave only after the database
+  commits. The broker is in memory: one backend instance. Do not enable TRACE or DEBUG logging for
+  `org.springframework.web.socket` or `org.springframework.messaging` outside development: Spring
+  then prints frame headers, including the CONNECT token.
+
 **Does not exist yet:** routing, SLA and priority-scoring logic (the state machine is declared on
 `ConversationStatus` but only escalation consults it); the conversation lifecycle and message routes;
-the STOMP topics; customer self-service; simulation-run and KPI routes; quality routes; the `MetricSampleBatchWriter` implementation;
+events on the queue, conversation, KPI and run topics; customer self-service; simulation-run and KPI routes; quality routes; the `MetricSampleBatchWriter` implementation;
 the RAG embedding pipeline; and every call to or from the AI service.
 
 **Neon:** the application booted against Neon on 2026-09-17 and again on 2026-09-24, with Flyway at
