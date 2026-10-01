@@ -122,6 +122,18 @@ public class JwtTokenService implements TokenIssuer {
      * @throws InvalidTokenException for every kind of refusal; its reason is for logging only
      */
     AuthenticatedPrincipal verify(String token) {
+        return verifyWithExpiry(token).principal();
+    }
+
+    /** A verified token: who the caller is, and until when the token is good. */
+    record VerifiedToken(AuthenticatedPrincipal principal, Instant expiresAt) {}
+
+    /**
+     * Same verification as {@link #verify}, also returning the expiry. The STOMP channel needs it:
+     * a WebSocket session outlives a single request, so a token that expires while the socket is open
+     * must stop opening new subscriptions.
+     */
+    VerifiedToken verifyWithExpiry(String token) {
         Claims claims;
         try {
             claims = parser.parseSignedClaims(token).getPayload();
@@ -144,7 +156,7 @@ public class JwtTokenService implements TokenIssuer {
         } catch (JwtException e) {
             throw new InvalidTokenException(Reason.MALFORMED, e);
         }
-        return toPrincipal(claims);
+        return new VerifiedToken(toPrincipal(claims), claims.getExpiration().toInstant());
     }
 
     private static AuthenticatedPrincipal toPrincipal(Claims claims) {

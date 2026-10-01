@@ -2,6 +2,7 @@ package com.callverse.infrastructure.config;
 
 import com.callverse.core.application.features.card.commands.BlockCardCommandHandler;
 import com.callverse.core.application.interfaces.Cards;
+import com.callverse.core.application.interfaces.RealtimeEventPublisher;
 import java.time.Clock;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -14,7 +15,7 @@ import org.springframework.context.annotation.Configuration;
 public class WorkspaceFeatureConfiguration {
 
     @Bean
-    BlockCardCommandHandler blockCardCommandHandler(Cards cards, Clock clock) {
-        return new BlockCardCommandHandler(cards, clock);
+    BlockCardCommandHandler blockCardCommandHandler(Cards cards, Clock clock, RealtimeEventPublisher events) {
+        return new BlockCardCommandHandler(cards, clock, events);
     }
 }

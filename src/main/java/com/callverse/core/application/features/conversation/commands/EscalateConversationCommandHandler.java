@@ -1,10 +1,12 @@
 package com.callverse.core.application.features.conversation.commands;
 
 import com.callverse.core.application.exceptions.ResourceNotFoundException;
-import com.callverse.core.application.interfaces.ConversationDirectory;
 import com.callverse.core.application.interfaces.ConversationDirectory.ConversationRef;
-import com.callverse.core.application.interfaces.Escalations;
+import com.callverse.core.application.interfaces.ConversationDirectory;
 import com.callverse.core.application.interfaces.Escalations.EscalationOutcome;
+import com.callverse.core.application.interfaces.Escalations;
+import com.callverse.core.application.interfaces.RealtimeEventPublisher;
+import com.callverse.core.application.interfaces.SupervisionAlert;
 import com.callverse.core.domain.enums.ConversationStatus;
 import com.callverse.core.domain.exceptions.InvalidStateTransitionException;
 import java.util.Objects;
@@ -31,6 +33,10 @@ import java.util.Optional;
  *       claim to be the AI or a rule.
  * </ol>
  *
+ * <p><strong>Supervisors are told.</strong> A newly created escalation raises an
+ * {@code ESCALATION_RAISED} supervision alert; returning an escalation that was already pending
+ * raises nothing.
+ *
  * <p><strong>What it does not do: move the conversation to {@code ESCALATED}.</strong> Transitions
  * belong to the conversation state machine of Phase 4.5, which also owns the supervisor queue and
  * its notifications. Until then this records the escalation and leaves the status as it was — so a
@@ -41,10 +47,13 @@ public class EscalateConversationCommandHandler {
 
     private final ConversationDirectory conversations;
     private final Escalations escalations;
+    private final RealtimeEventPublisher events;
 
-    public EscalateConversationCommandHandler(ConversationDirectory conversations, Escalations escalations) {
+    public EscalateConversationCommandHandler(
+            ConversationDirectory conversations, Escalations escalations, RealtimeEventPublisher events) {
         this.conversations = Objects.requireNonNull(conversations, "conversations must not be null");
         this.escalations = Objects.requireNonNull(escalations, "escalations must not be null");
+        this.events = Objects.requireNonNull(events, "events must not be null");
     }
 
     public EscalationOutcome handle(EscalateConversationCommand command) {
@@ -61,9 +70,16 @@ public class EscalateConversationCommandHandler {
         if (!conversation.status().canTransitionTo(ConversationStatus.ESCALATED)) {
             throw new InvalidStateTransitionException(conversation.status(), ConversationStatus.ESCALATED);
         }
-        return escalations.raiseUnlessPending(
+        EscalationOutcome outcome = escalations.raiseUnlessPending(
                 conversation.id(),
                 command.reason().trim(),
                 Objects.requireNonNull(command.raisedBy(), "raisedBy must not be null"));
+        if (outcome.created()) {
+            // Only a new escalation is news; a concurrent duplicate resolved under the lock is not.
+            events.publishSupervisionAlert(SupervisionAlert.escalationRaised(
+                    outcome.escalation().id(), conversation.id(), conversation.customerId(),
+                    outcome.escalation().createdAt()));
+        }
+        return outcome;
     }
 }

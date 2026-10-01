@@ -54,7 +54,7 @@ class CardsAdapterTest extends AbstractPersistenceTest {
         em.flush();
         em.clear();
 
-        Cards.CardRecord again = cards.blockIfActive(card.getId(), CardBlockReason.LOST, Instant.now());
+        Cards.CardRecord again = cards.blockIfActive(card.getId(), CardBlockReason.LOST, Instant.now()).card();
 
         assertThat(again.blockReason()).isEqualTo(CardBlockReason.STOLEN);
         assertThat(again.blockedAt()).isEqualTo(first);

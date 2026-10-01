@@ -29,7 +29,7 @@ class CardsAdapter implements Cards {
 
     @Override
     @Transactional
-    public CardRecord blockIfActive(UUID cardId, CardBlockReason reason, Instant at) {
+    public BlockOutcome blockIfActive(UUID cardId, CardBlockReason reason, Instant at) {
         Card card = cards.findByIdForUpdate(cardId)
                 .orElseThrow(() -> new ResourceNotFoundException("Card", cardId));
         if (card.getStatus() == CardStatus.ACTIVE) {
@@ -37,11 +37,12 @@ class CardsAdapter implements Cards {
             card.setStatus(CardStatus.BLOCKED);
             card.setBlockedAt(at);
             card.setBlockReason(reason);
+            return new BlockOutcome(toRecord(card), true);
         } else if (card.getStatus() != CardStatus.BLOCKED) {
             // The card expired or was cancelled between the handler's check and this lock.
             throw new InvalidStateTransitionException("card", card.getStatus(), CardStatus.BLOCKED);
         }
-        return toRecord(card);
+        return new BlockOutcome(toRecord(card), false);
     }
 
     private static CardRecord toRecord(Card card) {
@@ -49,6 +50,8 @@ class CardsAdapter implements Cards {
                 card.getId(),
                 // Reading the id of a lazy proxy does not initialise it.
                 card.getAccount().getId(),
+                // Inside the adapter's transaction, so walking the lazy account is safe.
+                card.getAccount().getCustomer().getId(),
                 card.getPanLast4(),
                 card.getNetwork(),
                 card.getType(),

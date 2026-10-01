@@ -8,6 +8,7 @@ import com.callverse.core.application.interfaces.ConversationDirectory;
 import com.callverse.core.application.interfaces.CustomerRecords;
 import com.callverse.core.application.interfaces.Escalations;
 import com.callverse.core.application.interfaces.KnowledgeBase;
+import com.callverse.core.application.interfaces.RealtimeEventPublisher;
 import com.callverse.core.application.interfaces.ServiceIncidents;
 import com.callverse.core.application.interfaces.Tickets;
 import org.springframework.context.annotation.Bean;
@@ -45,7 +46,7 @@ public class InternalToolFeatureConfiguration {
 
     @Bean
     EscalateConversationCommandHandler escalateConversationCommandHandler(
-            ConversationDirectory conversations, Escalations escalations) {
-        return new EscalateConversationCommandHandler(conversations, escalations);
+            ConversationDirectory conversations, Escalations escalations, RealtimeEventPublisher events) {
+        return new EscalateConversationCommandHandler(conversations, escalations, events);
     }
 }

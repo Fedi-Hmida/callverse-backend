@@ -117,6 +117,10 @@ public class SecurityConfiguration {
                         // route unreachable outside dev, and dropping the annotation makes
                         // it readable by every authenticated caller.
                         .requestMatchers(HttpMethod.GET, "/api/v1/customers/**").authenticated()
+                        // The WebSocket handshake. Authentication happens one step later, on the
+                        // STOMP CONNECT frame (StompAuthorizationInterceptor): a browser cannot put a
+                        // bearer header on the upgrade request itself.
+                        .requestMatchers(HttpMethod.GET, "/ws").permitAll()
                         // Liveness for the frontend and the demo: it reports no business data.
                         .requestMatchers(HttpMethod.GET, "/api/v1/health/status").permitAll()
                         // The documentation is public, the API is not: anyone can open Swagger UI and

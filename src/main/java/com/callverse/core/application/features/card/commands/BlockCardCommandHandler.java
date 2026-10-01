@@ -3,7 +3,11 @@ package com.callverse.core.application.features.card.commands;
 import com.callverse.core.application.exceptions.InvalidRequestException;
 import com.callverse.core.application.exceptions.ResourceNotFoundException;
 import com.callverse.core.application.interfaces.Cards;
+import com.callverse.core.application.interfaces.Cards.BlockOutcome;
 import com.callverse.core.application.interfaces.Cards.CardRecord;
+import com.callverse.core.application.interfaces.RealtimeEventPublisher;
+import com.callverse.core.application.interfaces.SupervisionAlert;
+import com.callverse.core.domain.enums.CardBlockReason;
 import com.callverse.core.domain.enums.CardStatus;
 import com.callverse.core.domain.exceptions.InvalidStateTransitionException;
 import java.time.Clock;
@@ -25,15 +29,21 @@ import java.util.Objects;
  *   <li><em>The backend sets the time</em>, from the injected {@link Clock}. The caller cannot
  *       back-date a block.
  * </ol>
+ *
+ * <p><strong>Supervisors are told about fraud.</strong> A block for {@code FRAUD_SUSPECTED} raises a
+ * {@code CARD_BLOCKED_FRAUD} supervision alert — only from the call that actually blocked the card,
+ * so a retry or a colleague's second click never raises a second alert.
  */
 public class BlockCardCommandHandler {
 
     private final Cards cards;
     private final Clock clock;
+    private final RealtimeEventPublisher events;
 
-    public BlockCardCommandHandler(Cards cards, Clock clock) {
+    public BlockCardCommandHandler(Cards cards, Clock clock, RealtimeEventPublisher events) {
         this.cards = Objects.requireNonNull(cards, "cards must not be null");
         this.clock = Objects.requireNonNull(clock, "clock must not be null");
+        this.events = Objects.requireNonNull(events, "events must not be null");
     }
 
     public CardRecord handle(BlockCardCommand command) {
@@ -51,6 +61,13 @@ public class BlockCardCommandHandler {
         }
         // Truncated to what PostgreSQL stores, so the first response reports the same instant as every
         // later read of the card.
-        return cards.blockIfActive(card.id(), command.reason(), clock.instant().truncatedTo(ChronoUnit.MICROS));
+        BlockOutcome outcome =
+                cards.blockIfActive(card.id(), command.reason(), clock.instant().truncatedTo(ChronoUnit.MICROS));
+        CardRecord blocked = outcome.card();
+        if (outcome.blocked() && blocked.blockReason() == CardBlockReason.FRAUD_SUSPECTED) {
+            events.publishSupervisionAlert(SupervisionAlert.cardBlockedForFraud(
+                    blocked.id(), blocked.customerId(), blocked.panLast4(), blocked.blockedAt()));
+        }
+        return blocked;
     }
 }

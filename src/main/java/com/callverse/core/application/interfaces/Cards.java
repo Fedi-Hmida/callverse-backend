@@ -21,12 +21,18 @@ public interface Cards {
      * Blocks the card if it is still ACTIVE when its row is locked; otherwise returns it unchanged.
      * The lock is what makes two simultaneous blocks resolve to one block with one reason and one
      * time, rather than the second silently overwriting the first.
+     *
+     * @return the card, and whether this call is the one that blocked it — only that call may
+     *     announce the block
      */
-    CardRecord blockIfActive(UUID cardId, CardBlockReason reason, Instant at);
+    BlockOutcome blockIfActive(UUID cardId, CardBlockReason reason, Instant at);
+
+    record BlockOutcome(CardRecord card, boolean blocked) {}
 
     record CardRecord(
             UUID id,
             UUID accountId,
+            UUID customerId,
             String panLast4,
             CardNetwork network,
             CardType type,
