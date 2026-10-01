@@ -92,11 +92,10 @@ public class SecurityConfiguration {
      * <p>Everything else is {@code denyAll()}, which refuses even a valid token: anonymous callers
      * get 401, authenticated ones 403. Opening further routes is 2.5's work, route by route.
      *
-     * <p>Boot's generated security password is still logged at startup:
-     * {@code UserDetailsServiceAutoConfiguration} backs off on a {@code UserDetailsService},
-     * {@code AuthenticationProvider} or {@code AuthenticationManager} bean, and this application
-     * declares none because the token is the principal. The generated in-memory user is reachable
-     * by no mechanism here — neither chain enables form login or HTTP Basic.
+     * <p>No form login and no HTTP Basic in either chain, and no default user store: Boot's
+     * {@code UserDetailsServiceAutoConfiguration} is excluded in {@code CallVerseApplication}, so no
+     * "generated security password" exists. A "Please sign in" page can only appear if these chains
+     * fail to load — for example a DevTools restart while {@code mvn clean} empties target/classes.
      */
     @Bean
     @Order(2) // slot 1 stays free for the /internal chain the AI-integration phase restores

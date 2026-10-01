@@ -64,3 +64,6 @@ Thumbs.db
 
 # --- Spring Initializr leftover ------------------------------------------
 HELP.md
+
+# DevTools restart trigger (see application-dev.yml)
+.reloadtrigger
