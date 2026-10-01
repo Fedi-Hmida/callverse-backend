@@ -43,7 +43,7 @@ import org.springframework.test.web.servlet.MvcResult;
 @ActiveProfiles("dev")
 class LoginEndpointTest extends AbstractPersistenceTest {
 
-    private static final String DEV_PASSWORD = "CallVerse!Dev2026";
+    private static final String DEV_PASSWORD = "Admin111***";
 
     @Autowired private MockMvc mockMvc;
     @Autowired private ObjectMapper objectMapper;

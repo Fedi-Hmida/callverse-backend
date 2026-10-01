@@ -22,6 +22,6 @@ public record LoginRequest(
         @NotBlank
                 @Schema(
                         description = "Never logged, never echoed back",
-                        example = "CallVerse!Dev2026",
+                        example = "your-password",
                         requiredMode = Schema.RequiredMode.REQUIRED)
                 String password) {}

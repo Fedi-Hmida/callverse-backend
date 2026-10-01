@@ -43,10 +43,14 @@ class SeedPasswordHashTest {
      * accounts exist for local development and the demo, and the plaintext lives in the README
      * rather than in a SQL comment, because a password in a comment is a password in the schema.
      */
-    private static final String DEV_PASSWORD = "CallVerse!Dev2026";
+    private static final String DEV_PASSWORD = "Admin111***";
 
+    /**
+     * Where the effective hashes live. V2 seeded the accounts; V4 rotated their password. V2 cannot
+     * be edited (it is applied on Neon), so the hashes that log a user in today are V4's.
+     */
     private static final Path SEED_MIGRATION =
-            Path.of("src", "main", "resources", "db", "migration", "V2__seed_reference.sql");
+            Path.of("src", "main", "resources", "db", "migration", "V4__rotate_dev_passwords.sql");
 
     /** Matches a BCrypt hash in the seed file: the 2a variant, cost, then the 53-char payload. */
     private static final Pattern BCRYPT = Pattern.compile("\\$2[aby]\\$\\d{2}\\$[./A-Za-z0-9]{53}");
@@ -79,6 +83,7 @@ class SeedPasswordHashTest {
     }
 
     private static List<String> seededHashes() throws IOException {
+        assertThat(Files.exists(SEED_MIGRATION)).as("%s is missing", SEED_MIGRATION).isTrue();
         String sql = Files.readString(SEED_MIGRATION);
         Matcher matcher = BCRYPT.matcher(sql);
         List<String> found = new ArrayList<>();

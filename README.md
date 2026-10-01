@@ -289,10 +289,11 @@ an HNSW index, so the image is part of the contract.
 
 ### Seeded development accounts
 
-`V2__seed_reference.sql` creates one account per role. All four share the development password:
+`V2__seed_reference.sql` creates one account per role, and `V4__rotate_dev_passwords.sql` set
+their shared development password (2026-10-01) to:
 
 ```
-CallVerse!Dev2026
+Admin111***
 ```
 
 Emails are `customer@`, `advisor@`, `supervisor@` and `admin@callverse.local`. Only BCrypt hashes are

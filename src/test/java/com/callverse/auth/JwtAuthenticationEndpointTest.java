@@ -45,7 +45,7 @@ import org.springframework.test.web.servlet.RequestBuilder;
 @ActiveProfiles("dev")
 class JwtAuthenticationEndpointTest extends AbstractPersistenceTest {
 
-    private static final String DEV_PASSWORD = "CallVerse!Dev2026";
+    private static final String DEV_PASSWORD = "Admin111***";
     private static final String OPEN_ROUTE = "/api/v1/health/status";
     private static final String ME = "/api/v1/auth/me";
 

@@ -1230,7 +1230,7 @@ components:
         password:
           type: string
           description: "Never logged, never echoed back"
-          example: CallVerse!Dev2026
+          example: your-password
       required:
       - email
       - password

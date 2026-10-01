@@ -33,7 +33,7 @@ import org.junit.jupiter.api.Test;
 class LoginCommandHandlerTest {
 
     private static final String EMAIL = "advisor@callverse.local";
-    private static final String RAW_PASSWORD = "CallVerse!Dev2026";
+    private static final String RAW_PASSWORD = "Admin111***";
     private static final String STORED_HASH = "$2a$10$storedhashvaluethatthefakeverifierwillcompareagainst00";
     private static final UUID USER_ID = UUID.fromString("11111111-2222-3333-4444-555555555555");
 

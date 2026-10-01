@@ -38,7 +38,7 @@ class SecurityErrorContractTest extends AbstractPersistenceTest {
 
     /** Unmapped, so only the chain's anyRequest().denyAll() can answer it. */
     private static final String DENIED_ROUTE = "/api/v1/no-such-route";
-    private static final String DEV_PASSWORD = "CallVerse!Dev2026";
+    private static final String DEV_PASSWORD = "Admin111***";
 
     /** The default of {@code callverse.cors.allowed-origins}: the Next.js dev server. */
     static final String ALLOWED_ORIGIN = "http://localhost:3000";
