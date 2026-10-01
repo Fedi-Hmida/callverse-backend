@@ -13,7 +13,12 @@ import com.callverse.core.domain.enums.TicketStatus;
 import java.util.Objects;
 
 /**
- * Answers the agent tool {@code POST /internal/tickets} ({@code OWNERSHIP_RULES.md} E5).
+ * Opens a ticket — formerly the agent tool {@code POST /internal/tickets}
+ * ({@code OWNERSHIP_RULES.md} E5).
+ *
+ * <p><strong>Parked.</strong> The {@code /internal} route that called this was withdrawn on 2026-09-30
+ * pending the AI-integration phase (git tag {@code internal-tools-http-surface}). No HTTP route calls
+ * it until it is re-exposed under {@code /api/v1}; the rules below still hold for that caller.
  *
  * <p><strong>What the backend decides, not the agent.</strong> Every new ticket is {@code OPEN};
  * the agent cannot file one already closed. Severity defaults to 3 and must be 1 to 5 — checked here
@@ -23,7 +28,8 @@ import java.util.Objects;
  *
  * <p><strong>What it cannot decide.</strong> With no conversation named, the customer id is taken on
  * the agent's word: the route carries no conversation, and no column records which conversations the
- * agent is handling. That residual trust is the scope of the service key, recorded in E5.
+ * agent is handling. That residual trust was the scope of the withdrawn service key, recorded in E5;
+ * a re-exposed route must bound it with its own role or ownership rule.
  */
 public class OpenTicketCommandHandler {
 

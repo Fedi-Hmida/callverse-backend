@@ -12,8 +12,13 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * Answers the agent tool {@code POST /internal/conversations/{id}/escalate}
- * ({@code OWNERSHIP_RULES.md} E7).
+ * Raises an escalation on a conversation — formerly the agent tool
+ * {@code POST /internal/conversations/{id}/escalate} ({@code OWNERSHIP_RULES.md} E7).
+ *
+ * <p><strong>Parked.</strong> The {@code /internal} route that called this was withdrawn on 2026-09-30
+ * pending the AI-integration phase (git tag {@code internal-tools-http-surface}). No HTTP route calls
+ * it until it is re-exposed under {@code /api/v1}. Rules 1 and 2 below hold for any caller; rule 3
+ * was specific to the AI service and must change when an advisor becomes the caller.
  *
  * <p><strong>Three rules, in this order.</strong>
  *
@@ -24,8 +29,8 @@ import java.util.Optional;
  *   <li><em>Only where the state machine allows it.</em> {@link ConversationStatus#canTransitionTo}
  *       permits {@code ESCALATED} from {@code ACTIVE} alone; anything else is 409
  *       {@code INVALID_STATE_TRANSITION}.
- *   <li><em>Raised by AI.</em> The route belongs to the AI service, so {@code raised_by} is always
- *       {@code AI}; the caller cannot claim to be an advisor or a rule.
+ *   <li><em>Raised by AI.</em> The withdrawn route belonged to the AI service, so {@code raised_by}
+ *       is always {@code AI}; the caller cannot claim to be an advisor or a rule.
  * </ol>
  *
  * <p><strong>What it does not do: move the conversation to {@code ESCALATED}.</strong> Transitions

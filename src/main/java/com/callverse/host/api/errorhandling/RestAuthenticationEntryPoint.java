@@ -28,7 +28,7 @@ import org.springframework.stereotype.Component;
  * interface type without naming this class.
  */
 @Component
-@Primary // the default for the user chains; /internal asks for ServiceKeyAuthenticationEntryPoint by name
+@Primary // the default entry point; the withdrawn /internal chain declared its own
 @Slf4j
 public class RestAuthenticationEntryPoint implements AuthenticationEntryPoint {
 

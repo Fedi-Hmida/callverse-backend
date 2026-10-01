@@ -7,7 +7,7 @@ import java.util.UUID;
  *
  * <p>The frozen tool contract lets the agent state the customer id, and nothing in the route ties it
  * to the conversation being handled ({@code OWNERSHIP_RULES.md} E5). When the agent also names the
- * conversation, this is the check that the two agree — without it, whoever holds the service key
+ * conversation, this is the check that the two agree — without it, any caller of the ticket use case
  * could file tickets on any customer while appearing to act inside a legitimate conversation.
  */
 public class ConversationCustomerMismatchException extends ApplicationException {

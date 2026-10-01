@@ -26,10 +26,11 @@ import lombok.Setter;
  * Someone who handles conversations, human or simulated. Maps {@code advisor}. Aggregate root.
  *
  * <p>{@code creditLimit} is the ceiling this advisor may grant without supervisor approval.
- * <strong>The backend enforces it, never the agent.</strong> When the Customer Advisor agent calls
- * {@code apply_credit} through the {@code /internal} API, this column is what the decision is
- * checked against — an agent that believes it may grant more is simply refused. Putting the ceiling
- * in the database rather than in the agent's prompt is what makes that guarantee auditable.
+ * <strong>The backend enforces it, never the caller.</strong> When a credit is requested — by an
+ * advisor, or later by the Customer Advisor agent's {@code apply_credit} tool — this column is what
+ * the decision is checked against; a caller that believes it may grant more is simply refused.
+ * Putting the ceiling in the database rather than in the agent's prompt is what makes that
+ * guarantee auditable.
  *
  * <p>{@code simulated} mirrors {@code Customer.simulated}: an experiment populates a synthetic
  * workforce, and business reporting filters it out.

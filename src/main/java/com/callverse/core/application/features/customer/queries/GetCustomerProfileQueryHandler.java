@@ -6,11 +6,13 @@ import com.callverse.core.application.interfaces.CustomerRecords;
 import java.util.Objects;
 
 /**
- * Answers the agent tool {@code GET /internal/customers/{id}} ({@code OWNERSHIP_RULES.md} E1).
+ * Reads a customer's profile for {@code GET /api/v1/customers/{id}} ({@code OWNERSHIP_RULES.md} E1).
  *
- * <p>No ownership check, by design: the AI service has no principal and legitimately reads any
- * customer it serves. What protects the data is the service key on the route and the projection in
- * {@link CustomerProfile}, which leaves out every field the agent has no use for.
+ * <p>No ownership check, by design: the only caller today is ADMIN-gated, and ADMIN legitimately
+ * reads any customer. What protects the data is the route's role gate and the projection in
+ * {@link CustomerProfile}, which leaves out {@code churn_risk}. It also answered the agent tool
+ * {@code GET /internal/customers/{id}} until that surface was withdrawn on 2026-09-30 (git tag
+ * {@code internal-tools-http-surface}).
  */
 public class GetCustomerProfileQueryHandler {
 

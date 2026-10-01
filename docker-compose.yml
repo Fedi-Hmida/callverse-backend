@@ -69,14 +69,10 @@ services:
     container_name: callverse-ai
     restart: unless-stopped
     environment:
-      # The agents' tools are REST endpoints of the backend. The backend, never the
-      # agent, is the authority on business rules such as the commercial-credit
-      # ceiling, so this URL points the agents back at the /internal tool API.
+      # The agents' tools are REST endpoints of the backend, which stays the authority
+      # on business rules. The /internal tool API and its service key were withdrawn on
+      # 2026-09-30; both return, re-agreed, in the AI-integration phase.
       CALLVERSE_BACKEND_BASE_URL: http://backend:8080
-      # The key the agents send in X-Internal-Key on every /internal call. Interpolated
-      # from .env, the same value the backend reads, so the two cannot drift. Without
-      # it every tool call is a 401.
-      INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY:?set INTERNAL_SERVICE_KEY in .env}
     ports:
       - "${AI_SERVICE_PORT:-8000}:8000"
     depends_on:

@@ -187,7 +187,7 @@ env-check: ## Verify every variable the application needs is present in .env
 	$(require_env)
 	@$(LOAD_ENV); missing=0; \
 	  for v in DB_HOST DB_DIRECT_HOST DB_PORT DB_NAME DB_USERNAME DB_PASSWORD \
-	           DB_SSLMODE JWT_SECRET JWT_EXPIRATION_MS INTERNAL_SERVICE_KEY AI_SERVICE_BASE_URL \
+	           DB_SSLMODE JWT_SECRET JWT_EXPIRATION_MS AI_SERVICE_BASE_URL \
 	           SERVER_PORT; do \
 	    if [ -z "$${!v}" ]; then echo "    MISSING  $$v"; missing=1; \
 	    else echo "    ok       $$v"; fi; \

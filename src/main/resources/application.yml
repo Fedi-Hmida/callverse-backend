@@ -86,13 +86,6 @@ jwt:
   secret: ${JWT_SECRET}
   expiration-ms: ${JWT_EXPIRATION_MS:3600000}
 
-internal:
-  # Shared secret the Python AI service sends in the X-Internal-Key header on /internal/**.
-  # No default, on purpose: the application refuses to start without it, and refuses one
-  # shorter than 32 bytes, rather than guard the tool API with a guessable value. The same
-  # value must be given to the AI service. Generate one with: openssl rand -base64 48
-  service-key: ${INTERNAL_SERVICE_KEY}
-
 ai:
   service:
     # The Python FastAPI service hosting the LangGraph agents and the RL policy.

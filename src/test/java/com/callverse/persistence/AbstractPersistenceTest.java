@@ -42,12 +42,6 @@ public abstract class AbstractPersistenceTest {
     public static final String TEST_JWT_SECRET =
             "test-only-hs512-signing-key-not-used-for-anything-real-0123456789abcdef";
 
-    /**
-     * The {@code internal.service-key} every Spring test context accepts on {@code /internal/**}.
-     * At least 32 bytes, the startup minimum.
-     */
-    public static final String TEST_INTERNAL_SERVICE_KEY = "test-only-internal-service-key-0123456789abcdef";
-
     @SuppressWarnings("resource") // lifecycle is managed by Testcontainers' JVM shutdown hook
     static final PostgreSQLContainer<?> POSTGRES =
             new PostgreSQLContainer<>(
@@ -76,6 +70,5 @@ public abstract class AbstractPersistenceTest {
         // application.yml gives jwt.secret no default on purpose, so that the application refuses
         // to start on a well-known key. Tests must therefore supply one.
         registry.add("jwt.secret", () -> TEST_JWT_SECRET);
-        registry.add("internal.service-key", () -> TEST_INTERNAL_SERVICE_KEY);
     }
 }

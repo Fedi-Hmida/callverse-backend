@@ -25,10 +25,10 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * Input the framework cannot even bind is the caller's mistake: 400 in the envelope, never 500.
  *
- * <p>Before the {@code /internal} tools, no route took a path variable or a query parameter, so
- * these failures could not happen. Every tool takes one, and the AI service will eventually send a
- * malformed id. Left unmapped, each would reach the catch-all and be reported — to the caller and in
- * the ERROR log — as a server failure.
+ * <p>The {@code /internal} tools (withdrawn on 2026-09-30) were the first routes to take path
+ * variables and query parameters; {@code GET /api/v1/customers/{id}} takes one today, and every
+ * route that re-exposes those use cases will too. Left unmapped, each would reach the catch-all and
+ * be reported — to the caller and in the ERROR log — as a server failure.
  */
 @AutoConfigureMockMvc
 @ActiveProfiles("dev")

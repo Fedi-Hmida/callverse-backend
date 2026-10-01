@@ -46,8 +46,8 @@ final class SecurityErrorWriter {
     }
 
     /**
-     * @param challenge the {@code WWW-Authenticate} value, or null to send none — {@code /internal}
-     *     accepts no standard scheme, so it sends none rather than a misleading {@code Bearer}
+     * @param challenge the {@code WWW-Authenticate} value, or null to send none — the withdrawn
+     *     {@code /internal} chain accepted no standard scheme, so it sent none rather than {@code Bearer}
      */
     void write(
             HttpServletRequest request,
