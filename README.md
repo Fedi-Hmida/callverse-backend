@@ -1,15 +1,17 @@
 # CallVerse — Backend
 
-CallVerse is a digital twin of a telecom customer relation center. Four autonomous agents operate
+CallVerse is a digital twin of a retail bank's customer relation center. Four autonomous agents operate
 inside it — a Client Simulator, a Customer Advisor, a Workforce Manager driven by reinforcement
 learning, and a Quality Analyst — and the platform runs in two modes on one codebase: **live**, with
 a real person on the customer portal, and **simulation**, with thousands of synthetic customers used
 to train the RL policy and to produce measured results against a baseline. This repository is the
-**backend**: it owns the business domain (customers, contracts, invoices, conversations, tickets,
-advisors, skills), the queue engine and skill-based routing, the SLA and escalation rules, the
-commercial-credit ceilings, security and roles, simulation-run orchestration, the KPI engine, and the
-`/internal` tool API the Python AI service calls. The Angular frontend and the Python/FastAPI service
-running the LangGraph agents live in their own repositories.
+**backend**: it owns the business domain (customers, accounts, cards, transactions, conversations,
+tickets, advisors, skills), the queue engine and skill-based routing, the SLA and escalation rules, the
+commercial-credit ceilings, security and roles, simulation-run orchestration, and the KPI engine.
+The Next.js frontend and the Python/FastAPI service running the LangGraph agents live in their own
+repositories. The AI-service integration is deliberately deferred until the frontend–backend–database
+path is complete: the `/internal` tool API the agents called was withdrawn on 2026-09-30 and is kept
+under the git tag `internal-tools-http-surface`.
 
 One rule is worth stating up front, because it is the reason several design decisions here look
 conservative: **the backend, never the agent, is the authority on business rules.** An agent that
@@ -187,7 +189,7 @@ concession is one package wide, and the build enforces it.
 
 | | |
 |---|---|
-| **Routes** | `/api/v1/...` for the public API; `/internal/...` for the AI service's tool API. Version in the path, plural nouns, no verbs. |
+| **Routes** | `/api/v1/...` for the public API. The AI service's tool API (`/internal/...`) is withdrawn until the AI-integration phase re-agrees its prefix and casing. Version in the path, plural nouns, no verbs. |
 | **Identifiers** | UUIDs are exposed publicly. Database sequence IDs never appear in a payload or a URL — they leak row counts and are guessable. |
 | **Dates** | ISO-8601, always UTC, always with the `Z` suffix. The backend does not do timezones; the frontend formats for the user. A KPI compared across two simulation runs must not be measuring a daylight-saving transition. |
 | **Errors** | Every failure returns the same envelope: `timestamp`, `status`, `code`, `message`, `path`. Clients branch on `code`; `message` is for humans and may be reworded or translated. |
@@ -196,12 +198,12 @@ concession is one package wide, and the build enforces it.
 
 ### Frontend type generation
 
-The Angular client generates its TypeScript types from the OpenAPI document rather than hand-writing
+The Next.js client generates its TypeScript types from the OpenAPI document rather than hand-writing
 them, which makes a backend contract change a compile error in the frontend instead of a runtime
 surprise. With the backend running:
 
 ```bash
-npx openapi-typescript http://localhost:8080/v3/api-docs -o src/app/core/api/callverse-api.d.ts
+npx openapi-typescript http://localhost:8080/v3/api-docs -o src/shared/api-client/generated/callverse-api.d.ts
 ```
 
 Because of this, `host.api.dto.response` is a published contract. Renaming a field there is a
@@ -219,22 +221,30 @@ divergence between the migration and the provisioned database is silent and expe
 The rest of `docs/` is deliberately untracked (see `.gitignore`); only the schema reference is
 versioned, so that schema changes show up in diffs.
 
-### Entity map — 26 tables, 26 entities, 23 repositories
+### Entity map — 27 tables, 27 entities, 22 repositories
 
 | Block | Entities | Aggregate roots (have a repository) |
 |---|---|---|
 | 1 Identity | `AppUser` | `AppUser` |
-| 2 Customer | `Customer`, `Plan`, `Contract`, `Invoice` | `Customer`, `Plan`, `Invoice` |
+| 2 Customer | `Customer`, `BankingProduct`, `Account`, `Card`, `BankTransaction` | `Customer`, `BankTransaction` |
 | 3 Resources | `Skill`, `Advisor`, `AdvisorSkill` | `Skill`, `Advisor` |
 | 4 Interaction | `Conversation`, `Message`, `Ticket`, `CommercialCredit`, `Escalation` | all five |
 | 5 Knowledge | `KbArticle`, `KbChunk` | both |
-| 6 Control | `SlaPolicy`, `RoutingRule`, `NetworkIncident` | all three |
+| 6 Control | `SlaPolicy`, `RoutingRule`, `ServiceIncident` | all three |
 | 7 Experiment | `ControlStrategy`, `Scenario`, `SimulationRun`, `RunKpi`, `MetricSample`, `AgentDecision` | all but `RunKpi` |
 | 8 Quality | `QualityCriterion`, `QualityEvaluation` | both |
 
 Three entities deliberately have **no** repository, because they live inside another aggregate and
-are reached through its root: `Contract` (via `Customer.getContracts()`), `AdvisorSkill` (via
+are reached through its root: `Account` (via `Customer.getAccounts()`), `AdvisorSkill` (via
 `Advisor.getSkills()`), and `RunKpi` (via `SimulationRun.getKpi()`, sharing its primary key).
+`BankingProduct` and `Card` have none *yet*: no use case reads them on their own. The card-blocking
+route adds a card repository when it lands.
+
+**The domain is retail banking.** It was telecom until 2026-09-30; `V3__banking_domain.sql` dropped
+the telecom tables (`plan`, `contract`, `invoice`, `network_incident`), renamed `customer.zone` to
+`region`, and created the banking ones. `V1` and `V2` are untouched because they are applied on
+Neon. **No card number, CVV or PIN is stored anywhere**: a card keeps its last four digits only, and
+the database refuses more.
 
 `MetricSampleRepository` is the odd one out: it extends Spring Data's bare `Repository`, **not**
 `JpaRepository`, so `save` and `saveAll` do not exist on the type. Writes to `metric_sample` go
@@ -244,7 +254,7 @@ is a compile error rather than a comment on purpose.
 
 ### Mapping conventions
 
-Decided once and applied to all 26 entities. Inconsistency across that many classes is worse than a
+Decided once and applied to all 27 entities. Inconsistency across that many classes is worse than a
 uniform but imperfect choice.
 
 | Decision | Choice | Why |
@@ -252,7 +262,7 @@ uniform but imperfect choice.
 | UUID primary keys | `@GeneratedValue(strategy = GenerationType.UUID)` | Hibernate-side generation needs no read-back; a DB-generated default forces a `RETURNING` fetch per row, defeating batching and costing a Neon round trip. The SQL `DEFAULT gen_random_uuid()` stays for direct SQL such as the seed. |
 | `BIGSERIAL` keys | `GenerationType.IDENTITY` | `message`, `kb_chunk`, `agent_decision` |
 | `TIMESTAMPTZ` | `java.time.Instant` | The column stores a UTC instant and discards the offset, so `OffsetDateTime` would advertise information it does not carry. |
-| `DATE` | `java.time.LocalDate` | Calendar dates, not instants — a contract starts on an agreed day, not at a moment. |
+| `DATE` | `java.time.LocalDate` | Calendar dates, not instants — an account opens on an agreed day, not at a moment. |
 | `NUMERIC` | `BigDecimal` with explicit `precision`/`scale` | Never `double`. These are money and ratios that get compared and summed. |
 | JSONB | `@JdbcTypeCode(SqlTypes.JSON)` on `JsonNode` | Handles object- *and* array-shaped columns uniformly with no POJO per column. Proven to round-trip before 11 columns depended on it. |
 | `TEXT[]` | `String[]` + `SqlTypes.ARRAY` + `columnDefinition` | Tags are read with their article, never queried across articles, so a join table would buy nothing. |
@@ -330,23 +340,34 @@ read the failure message, which names the class, the line, and the reason the ru
 
 ## Project status
 
-Scaffold, walking skeleton, and the complete persistence layer.
+Security, authentication and the complete persistence layer. The full-stack path (frontend, backend,
+database) comes first; the AI-service integration comes after it.
 
 **Exists:** the layer structure and its ArchUnit enforcement; configuration profiles; the error
-envelope; one walking-skeleton endpoint (`GET /api/v1/health/status`); 19 domain enums including the
-conversation state machine; `V1__init.sql` with all 26 tables and `V2__seed_reference.sql`; 26
-entities, 23 repositories, and the `MetricSampleBatchWriter` port; and a Testcontainers suite proving
-migration and entities agree.
+envelope; JWT (HS512) login and authentication with a permissive `dev` chain and deny-by-default
+elsewhere; four endpoints — `POST /api/v1/auth/login`, `GET /api/v1/auth/me`, the ADMIN-only
+`GET /api/v1/customers/{id}` (IBANs masked), and `GET /api/v1/health/status`; 27 domain enums
+including the conversation state machine; three migrations — `V1__init.sql`, `V2__seed_reference.sql`
+and `V3__banking_domain.sql` — giving 27 tables; 27 entities, 22 repositories, and the
+`MetricSampleBatchWriter` port; and a Testcontainers suite proving migrations and entities agree.
+
+**Parked:** the use cases behind the withdrawn `/internal` tool API — recent transactions,
+service-outage status, knowledge-base search, ticket creation and escalation — remain in `core` with
+their adapters and have no HTTP route until they are re-exposed under `/api/v1` for the frontend.
+The transaction and outage queries are tested against PostgreSQL and their handlers against fakes;
+knowledge-base search, ticket creation and escalation have no tests until then.
 
 **Does not exist yet:** routing, SLA and priority-scoring logic (the state machine is declared on
-`ConversationStatus` but nothing enforces it); the JWT implementation (`SecurityConfiguration` is a
-documented skeleton with a permissive dev-only chain and deny-by-default elsewhere); the `/internal`
-tool endpoints; the `MetricSampleBatchWriter` implementation; and the RAG embedding pipeline.
+`ConversationStatus` but only escalation consults it); conversation and message routes; the STOMP
+topics; simulation-run and KPI routes; quality routes; the `MetricSampleBatchWriter` implementation;
+the RAG embedding pipeline; and every call to or from the AI service.
 
-**Never verified against Neon.** Everything above was tested against a local container. The
-pooled/direct endpoint split, `sslmode=require`, serverless cold starts, and whether the Hikari cap
-of 8 suits the real connection ceiling all remain unproven until someone runs it with real
-credentials.
+**Neon:** the application booted against Neon on 2026-09-17 and again on 2026-09-24, with Flyway at
+version 2 and Hibernate validating the entity model against the live schema. `V3` (the banking
+domain) has **not** been applied to Neon yet; the schema owner provisions it. That proves tables,
+columns and types — not constraints or indexes, which `validate` does not check. The pooled/direct
+endpoint split under load, serverless cold starts, and whether the Hikari cap of 8 suits the real
+connection ceiling all remain unproven.
 
 The health slice is temporary and should be deleted once real features land — it is one directory per
 layer.

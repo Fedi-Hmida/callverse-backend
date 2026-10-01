@@ -6,7 +6,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 /**
  * Entry point for the CallVerse backend.
  *
- * <p>CallVerse is a digital twin of a telecom customer relation center. This service owns the
+ * <p>CallVerse is a digital twin of a retail bank's customer relation center. This service owns the
  * business domain, the queue and routing engine, the SLA rules and the simulation orchestration,
  * and it remains the authority on business rules even when the autonomous agents in the Python
  * service are the ones asking.

@@ -8,7 +8,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 /**
- * Customer aggregate root. Contract is reached through Customer.getContracts() and has no
+ * Customer aggregate root. Account is reached through Customer.getAccounts() and has no
  * repository of its own.
  */
 @Repository
@@ -16,8 +16,8 @@ public interface CustomerRepository extends JpaRepository<Customer, UUID> {
 
     Optional<Customer> findByExternalRef(String externalRef);
 
-    /** Uses idx_customer_zone. Technical triage cross-references this against active incidents. */
-    List<Customer> findByZone(String zone);
+    /** Uses idx_customer_region. Outage triage cross-references this against active incidents. */
+    List<Customer> findByRegion(String region);
 
     /**
      * Excludes simulated customers, which is the filter that keeps experiment traffic out of

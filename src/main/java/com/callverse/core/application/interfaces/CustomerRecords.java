@@ -5,7 +5,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Read access to a customer and what hangs off it, for the agent tools.
+ * Read access to a customer and what hangs off it, for the customer read and its parked use cases.
  *
  * <p>Returns read models, never entities. With {@code open-in-view} off, an entity handed out of the
  * adapter carries lazy associations that fail the moment a handler touches them; and an entity that
@@ -14,17 +14,17 @@ import java.util.UUID;
  */
 public interface CustomerRecords {
 
-    /** @return the profile with every contract and its plan, or empty for an unknown id */
+    /** @return the profile with every account and its product, or empty for an unknown id */
     Optional<CustomerProfile> findProfile(UUID customerId);
 
     boolean exists(UUID customerId);
 
     /**
-     * The customer's most recent invoices across <em>all</em> their contracts, newest period first.
+     * The customer's most recent movements across <em>all</em> their accounts, newest first.
      *
-     * <p>The path customer → contract → invoice is resolved here: {@code invoice} has no
-     * {@code customer_id}, and no caller ever supplies a contract id. That is what keeps another
-     * customer's invoices out ({@code OWNERSHIP_RULES.md} A4 and E2).
+     * <p>The path customer → account → transaction is resolved here: {@code bank_transaction} has
+     * no {@code customer_id}, and no caller ever supplies an account id. That is what keeps another
+     * customer's movements out ({@code OWNERSHIP_RULES.md} A4 and E2).
      */
-    List<InvoiceSummary> findRecentInvoices(UUID customerId, int limit);
+    List<TransactionSummary> findRecentTransactions(UUID customerId, int limit);
 }

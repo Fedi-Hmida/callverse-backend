@@ -1,15 +1,14 @@
 package com.callverse.core.domain.enums;
 
 /**
- * Commercial family a telecom plan belongs to. BUNDLE denotes a combined offer rather than a
- * single access technology.
+ * Why a card was blocked. A blocked card always carries one: {@code chk_card_blocked}.
  *
  * <p>Persisted as {@code EnumType.STRING}, never ORDINAL. These constants must match the
  * column's SQL CHECK constraint character for character.
  */
-public enum PlanCategory {
-    MOBILE,
-    FIBER,
-    ADSL,
-    BUNDLE
+public enum CardBlockReason {
+    LOST,
+    STOLEN,
+    FRAUD_SUSPECTED,
+    CUSTOMER_REQUEST
 }

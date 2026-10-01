@@ -4,6 +4,7 @@ import com.callverse.core.application.features.customer.queries.GetCustomerProfi
 import com.callverse.core.application.features.customer.queries.GetCustomerProfileQueryHandler;
 import com.callverse.core.application.interfaces.CustomerProfile;
 import com.callverse.host.api.dto.response.CustomerResponse;
+import com.callverse.host.api.dto.response.IbanMask;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -56,43 +57,46 @@ public class CustomerController {
     @Operation(
             summary = "Read a customer",
             description =
-                    "Returns the customer's account, contracts and plans. ADMIN only for now: the "
-                            + "CUSTOMER and ADVISOR paths need ownership predicates that are not yet "
-                            + "expressible. Churn risk is deliberately not exposed. An unknown id is "
-                            + "404 RESOURCE_NOT_FOUND; a non-ADMIN caller is 403 ACCESS_DENIED.")
+                    "Returns the customer, their accounts and the products they hold. ADMIN only "
+                            + "for now: the CUSTOMER and ADVISOR paths need ownership predicates that "
+                            + "are not yet expressible. IBANs are masked; churn risk is deliberately "
+                            + "not exposed. An unknown id is 404 RESOURCE_NOT_FOUND; a non-ADMIN "
+                            + "caller is 403 ACCESS_DENIED.")
     public CustomerResponse byId(@PathVariable UUID id) {
         return toResponse(getCustomerProfile.handle(new GetCustomerProfileQuery(id)));
     }
 
     private static CustomerResponse toResponse(CustomerProfile profile) {
-        List<CustomerResponse.Contract> contracts =
-                profile.contracts().stream().map(CustomerController::toContract).toList();
+        List<CustomerResponse.Account> accounts =
+                profile.accounts().stream().map(CustomerController::toAccount).toList();
 
         return new CustomerResponse(
                 profile.id(),
                 profile.externalRef(),
                 profile.firstName(),
                 profile.lastName(),
-                profile.zone(),
+                profile.region(),
+                profile.segment() == null ? null : profile.segment().name(),
                 profile.tenureMonths(),
-                contracts);
+                accounts);
     }
 
-    private static CustomerResponse.Contract toContract(CustomerProfile.Contract contract) {
-        CustomerProfile.Plan plan = contract.plan();
-        return new CustomerResponse.Contract(
-                contract.id(),
-                contract.status() == null ? null : contract.status().name(),
-                contract.startedAt(),
-                contract.endedAt(),
-                plan == null
+    private static CustomerResponse.Account toAccount(CustomerProfile.Account account) {
+        CustomerProfile.Product product = account.product();
+        return new CustomerResponse.Account(
+                account.id(),
+                IbanMask.mask(account.iban()),
+                account.currency(),
+                account.balance(),
+                account.overdraftLimit(),
+                account.status() == null ? null : account.status().name(),
+                account.openedAt(),
+                account.closedAt(),
+                product == null
                         ? null
-                        : new CustomerResponse.Plan(
-                                plan.code(),
-                                plan.name(),
-                                plan.category() == null ? null : plan.category().name(),
-                                plan.monthlyPrice(),
-                                plan.dataGb(),
-                                plan.speedMbps()));
+                        : new CustomerResponse.Product(
+                                product.code(),
+                                product.name(),
+                                product.category() == null ? null : product.category().name()));
     }
 }

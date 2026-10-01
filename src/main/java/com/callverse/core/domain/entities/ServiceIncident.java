@@ -1,7 +1,10 @@
 package com.callverse.core.domain.entities;
 
+import com.callverse.core.domain.enums.BankingService;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -14,24 +17,24 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 /**
- * A network outage affecting a geographic zone. Maps {@code network_incident}.
+ * An outage of a banking service. Maps {@code service_incident}.
  *
- * <p>Joined against {@link Customer#getZone()} during technical triage: an advisor, or the Customer
- * Advisor agent, needs to know that this customer's problem is a known outage rather than a fault on
- * their line. {@code idx_incident_zone_active} is partial on {@code resolved_at IS NULL}, because
- * only unresolved incidents are ever looked up this way and resolved ones accumulate forever.
+ * <p>An advisor, or the Customer Advisor agent, needs to know that a declined card or a failed
+ * transfer is a known outage rather than a problem with this customer's account.
+ * {@code region} is null for a national outage, which is why a regional question must also return
+ * the incidents whose region is null. {@code idx_service_incident_active} is partial on
+ * {@code resolved_at IS NULL}: only unresolved incidents are ever looked up.
  *
- * <p>{@code runId} is a plain UUID with no foreign key, exactly as on {@link Conversation}: an
- * experiment can inject synthetic incidents as a scenario event, and the same table then carries
- * both real and simulated outages without the business universe gaining a dependency on the
- * experiment universe.
+ * <p>{@code runId} is a plain UUID with no foreign key, exactly as on {@link Conversation}: a
+ * scenario can inject a synthetic outage, and the same table then carries real and simulated ones
+ * without the business universe depending on the experiment universe.
  */
 @Entity
-@Table(name = "network_incident")
+@Table(name = "service_incident")
 @Getter
 @Setter
 @NoArgsConstructor
-public class NetworkIncident {
+public class ServiceIncident {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -39,15 +42,19 @@ public class NetworkIncident {
     @Setter(AccessLevel.NONE)
     private UUID id;
 
-    @Column(name = "zone", nullable = false, length = 40)
-    private String zone;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "service", nullable = false, length = 30)
+    private BankingService service;
 
-    /** Free text in the schema; no CHECK constraint and no enum. Left as specified. */
-    @Column(name = "type", nullable = false, length = 30)
-    private String type;
+    /** Null when the outage is national. */
+    @Column(name = "region", length = 40)
+    private String region;
 
     @Column(name = "severity", nullable = false)
     private short severity;
+
+    @Column(name = "description", length = 255)
+    private String description;
 
     @Column(name = "started_at", nullable = false)
     private Instant startedAt;

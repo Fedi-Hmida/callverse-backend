@@ -5,13 +5,19 @@ import static com.callverse.auth.AuthenticatedRequests.validToken;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 
+import com.callverse.core.domain.entities.Account;
+import com.callverse.core.domain.entities.BankingProduct;
 import com.callverse.core.domain.entities.Customer;
+import com.callverse.core.domain.enums.AccountStatus;
+import com.callverse.core.domain.enums.CustomerSegment;
 import com.callverse.core.domain.enums.UserRole;
 import com.callverse.persistence.AbstractPersistenceTest;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -53,15 +59,31 @@ class CustomerEndpointTest extends AbstractPersistenceTest {
 
     @Test
     @Transactional
-    @DisplayName("an ADMIN reads a real customer out of the database")
+    @DisplayName("an ADMIN reads a real customer and their accounts out of the database")
     void adminReadsCustomer() throws Exception {
         Customer stored = persistCustomer("CUST-ADMIN-READ", "Marseille");
+        stored.setSegment(CustomerSegment.AFFLUENT);
+        persistAccount(stored, RAW_IBAN);
+        em.flush();
+        em.clear();
 
-        JsonNode body = request(stored.getId(), admin(), 200);
+        MvcResult result = mockMvc.perform(get(PATH, stored.getId()).with(admin())).andReturn();
+        String raw = result.getResponse().getContentAsString();
+        assertThat(result.getResponse().getStatus()).as("body was: %s", raw).isEqualTo(200);
+        JsonNode body = objectMapper.readTree(raw);
 
         assertThat(body.get("id").asText()).isEqualTo(stored.getId().toString());
         assertThat(body.get("externalRef").asText()).isEqualTo("CUST-ADMIN-READ");
-        assertThat(body.get("zone").asText()).isEqualTo("Marseille");
+        assertThat(body.get("region").asText()).isEqualTo("Marseille");
+        assertThat(body.get("segment").asText()).isEqualTo("AFFLUENT");
+        JsonNode account = body.get("accounts").get(0);
+        assertThat(account.get("maskedIban").asText()).isEqualTo("FR76 **** **** 0189");
+        assertThat(account.get("balance").decimalValue()).isEqualByComparingTo("1523.40");
+        assertThat(account.get("product").get("category").asText()).isEqualTo("CURRENT_ACCOUNT");
+        assertThat(raw)
+                .as("the full IBAN must never leave this route")
+                .doesNotContain(RAW_IBAN)
+                .doesNotContain("300060000112345678");
         assertThat(body.has("churnRisk"))
                 .as("churn_risk feeds priority_score; it must not leave the backend")
                 .isFalse();
@@ -101,12 +123,29 @@ class CustomerEndpointTest extends AbstractPersistenceTest {
         assertThat(body.get("code").asText()).isEqualTo("RESOURCE_NOT_FOUND");
     }
 
-    private Customer persistCustomer(String externalRef, String zone) {
+    /** The documentation-example IBAN format: not a real account. */
+    private static final String RAW_IBAN = "FR7630006000011234567890189";
+
+    private void persistAccount(Customer customer, String iban) {
+        BankingProduct product = em.createQuery(
+                        "select p from BankingProduct p where p.code = 'CUR_ESSENTIAL'", BankingProduct.class)
+                .getSingleResult();
+        Account account = new Account();
+        account.setCustomer(customer);
+        account.setProduct(product);
+        account.setIban(iban);
+        account.setBalance(new BigDecimal("1523.40"));
+        account.setStatus(AccountStatus.ACTIVE);
+        account.setOpenedAt(LocalDate.of(2024, 3, 1));
+        em.persist(account);
+    }
+
+    private Customer persistCustomer(String externalRef, String region) {
         Customer customer = new Customer();
         customer.setExternalRef(externalRef);
         customer.setFirstName("Test");
         customer.setLastName("Customer");
-        customer.setZone(zone);
+        customer.setRegion(region);
         customer.setTenureMonths(18);
         em.persist(customer);
         em.flush();
