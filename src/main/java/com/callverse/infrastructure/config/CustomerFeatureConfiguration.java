@@ -1,5 +1,6 @@
 package com.callverse.infrastructure.config;
 
+import com.callverse.core.application.features.customer.queries.FindCustomerByReferenceQueryHandler;
 import com.callverse.core.application.features.customer.queries.GetCustomerProfileQueryHandler;
 import com.callverse.core.application.features.customer.queries.GetRecentTransactionsQueryHandler;
 import com.callverse.core.application.interfaces.CustomerRecords;
@@ -20,6 +21,11 @@ import org.springframework.context.annotation.Configuration;
  */
 @Configuration
 public class CustomerFeatureConfiguration {
+
+    @Bean
+    FindCustomerByReferenceQueryHandler findCustomerByReferenceQueryHandler(CustomerRecords customers) {
+        return new FindCustomerByReferenceQueryHandler(customers);
+    }
 
     @Bean
     GetCustomerProfileQueryHandler getCustomerProfileQueryHandler(CustomerRecords customers) {

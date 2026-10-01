@@ -22,6 +22,8 @@ import org.springframework.security.authentication.AuthenticationTrustResolver;
 import org.springframework.security.authentication.AuthenticationTrustResolverImpl;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -282,6 +284,36 @@ public class GlobalExceptionHandler {
                 HttpStatus.BAD_REQUEST,
                 "MALFORMED_REQUEST",
                 "The request body is not valid JSON for this operation.",
+                request);
+    }
+
+    /**
+     * A real route called with a method it does not support. 405 with an {@code Allow} header naming
+     * what it does support, so a client can correct itself; never the catch-all's 500.
+     */
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ErrorResponse> handleMethodNotSupported(
+            HttpRequestMethodNotSupportedException exception, HttpServletRequest request) {
+        ResponseEntity<ErrorResponse> response = build(
+                HttpStatus.METHOD_NOT_ALLOWED,
+                "METHOD_NOT_ALLOWED",
+                "%s is not supported on this endpoint.".formatted(request.getMethod()),
+                request);
+        HttpHeaders headers = new HttpHeaders();
+        if (exception.getSupportedHttpMethods() != null) {
+            headers.setAllow(exception.getSupportedHttpMethods());
+        }
+        return ResponseEntity.status(response.getStatusCode()).headers(headers).body(response.getBody());
+    }
+
+    /** A body in a content type the route does not read, such as {@code text/plain} on a JSON route. */
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<ErrorResponse> handleMediaTypeNotSupported(
+            HttpMediaTypeNotSupportedException exception, HttpServletRequest request) {
+        return build(
+                HttpStatus.UNSUPPORTED_MEDIA_TYPE,
+                "UNSUPPORTED_MEDIA_TYPE",
+                "This endpoint accepts application/json.",
                 request);
     }
 

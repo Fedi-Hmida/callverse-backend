@@ -27,7 +27,7 @@ import org.springframework.test.web.servlet.RequestBuilder;
  *
  * <p><strong>The first test in the repository to run under a profile other than {@code dev}.</strong>
  * {@code prod} is chosen because it is what {@code docker-compose.yml} defaults to; any non-dev
- * profile selects the same chain. Every route except health, login and {@code /me} is
+ * profile selects the same chain. Every route without an explicit rule is
  * {@code denyAll()} here, so a single route separates the two outcomes cleanly: anonymous is 401
  * (who are you?), authenticated is 403 (you may not). The frontend refreshes on 401 and must not on
  * 403, so the two being swapped presents as a user stuck in a broken session.
@@ -36,7 +36,8 @@ import org.springframework.test.web.servlet.RequestBuilder;
 @ActiveProfiles("prod")
 class SecurityErrorContractTest extends AbstractPersistenceTest {
 
-    private static final String DENIED_ROUTE = "/api/v1/health/status";
+    /** Unmapped, so only the chain's anyRequest().denyAll() can answer it. */
+    private static final String DENIED_ROUTE = "/api/v1/no-such-route";
     private static final String DEV_PASSWORD = "CallVerse!Dev2026";
 
     /** The default of {@code callverse.cors.allowed-origins}: the Next.js dev server. */

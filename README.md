@@ -137,7 +137,7 @@ its classpath, importing it is impossible. A single module trades that guarantee
 rules:
 
 1. `core` must not depend on `host` or `infrastructure`.
-2. `core` must not depend on `org.springframework.web`, `.security`, or `.boot`.
+2. `core` must not depend on anything under `org.springframework` — no `@Service`, `@Component`, `@Autowired` or `@Transactional`.
 3. `core.domain` must not depend on `core.application`.
 4. Only `core.domain.entities` may depend on `jakarta.persistence`.
 5. `host` must not depend on `infrastructure.persistence` — controllers talk to handlers, never to
@@ -221,12 +221,12 @@ divergence between the migration and the provisioned database is silent and expe
 The rest of `docs/` is deliberately untracked (see `.gitignore`); only the schema reference is
 versioned, so that schema changes show up in diffs.
 
-### Entity map — 27 tables, 27 entities, 22 repositories
+### Entity map — 27 tables, 27 entities, 23 repositories
 
 | Block | Entities | Aggregate roots (have a repository) |
 |---|---|---|
 | 1 Identity | `AppUser` | `AppUser` |
-| 2 Customer | `Customer`, `BankingProduct`, `Account`, `Card`, `BankTransaction` | `Customer`, `BankTransaction` |
+| 2 Customer | `Customer`, `BankingProduct`, `Account`, `Card`, `BankTransaction` | `Customer`, `Card`, `BankTransaction` |
 | 3 Resources | `Skill`, `Advisor`, `AdvisorSkill` | `Skill`, `Advisor` |
 | 4 Interaction | `Conversation`, `Message`, `Ticket`, `CommercialCredit`, `Escalation` | all five |
 | 5 Knowledge | `KbArticle`, `KbChunk` | both |
@@ -237,8 +237,8 @@ versioned, so that schema changes show up in diffs.
 Three entities deliberately have **no** repository, because they live inside another aggregate and
 are reached through its root: `Account` (via `Customer.getAccounts()`), `AdvisorSkill` (via
 `Advisor.getSkills()`), and `RunKpi` (via `SimulationRun.getKpi()`, sharing its primary key).
-`BankingProduct` and `Card` have none *yet*: no use case reads them on their own. The card-blocking
-route adds a card repository when it lands.
+`BankingProduct` has none: no use case reads it on its own. `Card` has one since card blocking,
+which locks the row so two simultaneous blocks resolve to one.
 
 **The domain is retail banking.** It was telecom until 2026-09-30; `V3__banking_domain.sql` dropped
 the telecom tables (`plan`, `contract`, `invoice`, `network_incident`), renamed `customer.zone` to
@@ -345,26 +345,50 @@ database) comes first; the AI-service integration comes after it.
 
 **Exists:** the layer structure and its ArchUnit enforcement; configuration profiles; the error
 envelope; JWT (HS512) login and authentication with a permissive `dev` chain and deny-by-default
-elsewhere; four endpoints — `POST /api/v1/auth/login`, `GET /api/v1/auth/me`, the ADMIN-only
-`GET /api/v1/customers/{id}` (IBANs masked), and `GET /api/v1/health/status`; 27 domain enums
+elsewhere; eleven operations, listed under *Advisor workspace* below; 27 domain enums
 including the conversation state machine; three migrations — `V1__init.sql`, `V2__seed_reference.sql`
-and `V3__banking_domain.sql` — giving 27 tables; 27 entities, 22 repositories, and the
+and `V3__banking_domain.sql` — giving 27 tables; 27 entities, 23 repositories, and the
 `MetricSampleBatchWriter` port; and a Testcontainers suite proving migrations and entities agree.
 
-**Parked:** the use cases behind the withdrawn `/internal` tool API — recent transactions,
-service-outage status, knowledge-base search, ticket creation and escalation — remain in `core` with
-their adapters and have no HTTP route until they are re-exposed under `/api/v1` for the frontend.
-The transaction and outage queries are tested against PostgreSQL and their handlers against fakes;
-knowledge-base search, ticket creation and escalation have no tests until then.
+**Advisor workspace** (2026-10-01): what an advisor needs to handle a banking call. Every route
+behind a login is gated twice — a filter-chain rule and `@PreAuthorize` — and tested for success
+and refusal by role. Successful writes (card block, ticket, escalation) log an `AUDIT` line naming
+the user, until the schema has actor columns.
+
+| Operation | Route | Who |
+|---|---|---|
+| `login` | `POST /api/v1/auth/login` | anyone |
+| `getCurrentUser` | `GET /api/v1/auth/me` | signed in |
+| `getHealthStatus` | `GET /api/v1/health/status` | anyone |
+| `findCustomerByReference` | `GET /api/v1/customers?externalRef=` | staff |
+| `getCustomer` | `GET /api/v1/customers/{id}` | staff |
+| `listCustomerTransactions` | `GET /api/v1/customers/{id}/transactions?count=` | staff |
+| `listActiveServiceIncidents` | `GET /api/v1/service-incidents?region=` | signed in |
+| `searchKnowledgeArticles` | `GET /api/v1/kb/articles?q=&limit=` | staff |
+| `openTicket` | `POST /api/v1/tickets` | advisor, supervisor |
+| `blockCard` | `POST /api/v1/cards/{id}/block` | advisor, supervisor |
+| `escalateConversation` | `POST /api/v1/conversations/{id}/escalations` | advisor |
+
+*Staff* is ADVISOR, SUPERVISOR or ADMIN. **Staff can read any customer** until ownership rules land
+(they need a `UNIQUE` constraint on `customer.user_id`); this is documented on each route, not an
+oversight. Account IBANs are masked, and so is any IBAN inside a transaction's label or
+counterparty; free text elsewhere (ticket descriptions, KB content) is not scanned. The public
+health route reports the build version and active profile, and nothing else.
+
+The contract is committed as `openapi.yaml` and pinned by `OpenApiContractTest`: a changed route,
+operation id or field fails the build until `make openapi` regenerates the file and the diff is
+committed. A demo dataset for the call scenario loads in `dev` only, and only with
+`CALLVERSE_DEMODATA_ENABLED=true` (`callverse.demo-data.enabled`); it is never a migration.
 
 **Does not exist yet:** routing, SLA and priority-scoring logic (the state machine is declared on
-`ConversationStatus` but only escalation consults it); conversation and message routes; the STOMP
-topics; simulation-run and KPI routes; quality routes; the `MetricSampleBatchWriter` implementation;
+`ConversationStatus` but only escalation consults it); the conversation lifecycle and message routes;
+the STOMP topics; customer self-service; simulation-run and KPI routes; quality routes; the `MetricSampleBatchWriter` implementation;
 the RAG embedding pipeline; and every call to or from the AI service.
 
 **Neon:** the application booted against Neon on 2026-09-17 and again on 2026-09-24, with Flyway at
 version 2 and Hibernate validating the entity model against the live schema. `V3` (the banking
-domain) has **not** been applied to Neon yet; the schema owner provisions it. That proves tables,
+domain) is applied on Neon and was verified on 2026-10-01: Flyway validated three migrations and the
+application started. That proves tables,
 columns and types — not constraints or indexes, which `validate` does not check. The pooled/direct
 endpoint split under load, serverless cold starts, and whether the Hikari cap of 8 suits the real
 connection ceiling all remain unproven.

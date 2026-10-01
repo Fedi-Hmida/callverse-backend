@@ -14,12 +14,12 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Wires the use cases that were behind the {@code /internal} agent tools.
+ * Wires the use cases that were behind the {@code /internal} agent tools, and that the advisor
+ * workspace routes now call.
  *
- * <p><strong>Parked.</strong> The {@code /internal} HTTP surface was withdrawn on 2026-09-30
- * pending the AI-integration phase; the git tag {@code internal-tools-http-surface} holds it. These
- * beans have no HTTP caller until the use cases are re-exposed under {@code /api/v1} for the
- * frontend, which is when each moves to its own feature slice's configuration.
+ * <p>The {@code /internal} HTTP surface was withdrawn on 2026-09-30 pending the AI-integration
+ * phase (git tag {@code internal-tools-http-surface}). Since the advisor-workspace phase these beans
+ * serve {@code /api/v1} routes; the AI phase will call the same beans again.
  *
  * <p>Same shape as {@code HealthFeatureConfiguration}: the handlers are plain classes in
  * {@code core}, and this is the one place they become beans.

@@ -140,6 +140,11 @@ verify: ## Full build + all tests - run this before pushing (REQUIRES Docker)
 	  echo "  ERROR: Docker is not running. Start Docker Desktop first."; exit 1; }
 	@$(MVNW) clean install
 
+.PHONY: openapi
+openapi: ## Regenerate the committed openapi.yaml from the live document (REQUIRES Docker)
+	@docker info >/dev/null 2>&1 || { echo "  ERROR: Docker is not running."; exit 1; }
+	@$(MVNW) test -Dtest=OpenApiContractTest -Dopenapi.update=true
+
 .PHONY: arch
 arch: ## Run only the architecture rules (fast, no Docker needed)
 	@$(MVNW) test -Dtest=LayerDependencyTest

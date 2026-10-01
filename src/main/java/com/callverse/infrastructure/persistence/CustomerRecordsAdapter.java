@@ -6,13 +6,17 @@ import com.callverse.core.application.interfaces.TransactionSummary;
 import com.callverse.core.domain.entities.Account;
 import com.callverse.core.domain.entities.BankTransaction;
 import com.callverse.core.domain.entities.BankingProduct;
+import com.callverse.core.domain.entities.Card;
 import com.callverse.core.domain.entities.Customer;
 import com.callverse.infrastructure.persistence.repositories.BankTransactionRepository;
+import com.callverse.infrastructure.persistence.repositories.CardRepository;
 import com.callverse.infrastructure.persistence.repositories.CustomerRepository;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
@@ -36,10 +40,16 @@ class CustomerRecordsAdapter implements CustomerRecords {
 
     private final CustomerRepository customers;
     private final BankTransactionRepository transactions;
+    private final CardRepository cards;
 
     @Override
     public Optional<CustomerProfile> findProfile(UUID customerId) {
-        return customers.findById(customerId).map(CustomerRecordsAdapter::toProfile);
+        return customers.findById(customerId).map(this::toProfile);
+    }
+
+    @Override
+    public Optional<CustomerProfile> findProfileByExternalRef(String externalRef) {
+        return customers.findByExternalRef(externalRef).map(this::toProfile);
     }
 
     @Override
@@ -54,12 +64,20 @@ class CustomerRecordsAdapter implements CustomerRecords {
                 .toList();
     }
 
-    private static CustomerProfile toProfile(Customer customer) {
+    private CustomerProfile toProfile(Customer customer) {
+        // One query for every card of every account, grouped here, rather than one per account.
+        List<UUID> accountIds = customer.getAccounts().stream().map(Account::getId).toList();
+        Map<UUID, List<CustomerProfile.Card>> cardsByAccount = accountIds.isEmpty()
+                ? Map.of()
+                : cards.findByAccountIdIn(accountIds).stream()
+                        .collect(Collectors.groupingBy(
+                                card -> card.getAccount().getId(),
+                                Collectors.mapping(CustomerRecordsAdapter::toCard, Collectors.toList())));
         List<CustomerProfile.Account> accounts =
                 customer.getAccounts().stream()
                         // Newest first, so the account the customer is most likely calling about leads.
                         .sorted(Comparator.comparing(Account::getOpenedAt).reversed())
-                        .map(CustomerRecordsAdapter::toAccount)
+                        .map(account -> toAccount(account, cardsByAccount.getOrDefault(account.getId(), List.of())))
                         .toList();
         return new CustomerProfile(
                 customer.getId(),
@@ -72,7 +90,7 @@ class CustomerRecordsAdapter implements CustomerRecords {
                 accounts);
     }
 
-    private static CustomerProfile.Account toAccount(Account account) {
+    private static CustomerProfile.Account toAccount(Account account, List<CustomerProfile.Card> accountCards) {
         BankingProduct product = account.getProduct();
         return new CustomerProfile.Account(
                 account.getId(),
@@ -83,7 +101,14 @@ class CustomerRecordsAdapter implements CustomerRecords {
                 account.getStatus(),
                 account.getOpenedAt(),
                 account.getClosedAt(),
-                new CustomerProfile.Product(product.getCode(), product.getName(), product.getCategory()));
+                new CustomerProfile.Product(product.getCode(), product.getName(), product.getCategory()),
+                accountCards);
+    }
+
+    private static CustomerProfile.Card toCard(Card card) {
+        return new CustomerProfile.Card(
+                card.getId(), card.getPanLast4(), card.getNetwork(), card.getType(), card.getStatus(),
+                card.getExpiresOn());
     }
 
     private static TransactionSummary toSummary(BankTransaction transaction) {

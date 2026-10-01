@@ -20,8 +20,8 @@ import java.time.Instant;
  */
 @Schema(description = "Standard error envelope returned by every CallVerse endpoint")
 public record ErrorResponse(
-        @Schema(example = "2026-09-14T08:31:07.412Z") Instant timestamp,
-        @Schema(example = "404") int status,
-        @Schema(example = "RESOURCE_NOT_FOUND") String code,
-        @Schema(example = "Customer 'a3f1...' was not found") String message,
-        @Schema(example = "/api/v1/customers/a3f1") String path) {}
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED, example = "2026-09-14T08:31:07.412Z") Instant timestamp,
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED, example = "404") int status,
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED, example = "RESOURCE_NOT_FOUND") String code,
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED, example = "Customer 'a3f1...' was not found") String message,
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED, example = "/api/v1/customers/a3f1") String path) {}

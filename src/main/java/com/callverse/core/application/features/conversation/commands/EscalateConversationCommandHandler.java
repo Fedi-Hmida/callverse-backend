@@ -6,7 +6,6 @@ import com.callverse.core.application.interfaces.ConversationDirectory.Conversat
 import com.callverse.core.application.interfaces.Escalations;
 import com.callverse.core.application.interfaces.Escalations.EscalationOutcome;
 import com.callverse.core.domain.enums.ConversationStatus;
-import com.callverse.core.domain.enums.EscalationRaisedBy;
 import com.callverse.core.domain.exceptions.InvalidStateTransitionException;
 import java.util.Objects;
 import java.util.Optional;
@@ -15,10 +14,8 @@ import java.util.Optional;
  * Raises an escalation on a conversation — formerly the agent tool
  * {@code POST /internal/conversations/{id}/escalate} ({@code OWNERSHIP_RULES.md} E7).
  *
- * <p><strong>Parked.</strong> The {@code /internal} route that called this was withdrawn on 2026-09-30
- * pending the AI-integration phase (git tag {@code internal-tools-http-surface}). No HTTP route calls
- * it until it is re-exposed under {@code /api/v1}. Rules 1 and 2 below hold for any caller; rule 3
- * was specific to the AI service and must change when an advisor becomes the caller.
+ * <p>Serves {@code POST /api/v1/conversations/{id}/escalations} (advisors). The AI tool that once
+ * called it was withdrawn on 2026-09-30.
  *
  * <p><strong>Three rules, in this order.</strong>
  *
@@ -29,8 +26,9 @@ import java.util.Optional;
  *   <li><em>Only where the state machine allows it.</em> {@link ConversationStatus#canTransitionTo}
  *       permits {@code ESCALATED} from {@code ACTIVE} alone; anything else is 409
  *       {@code INVALID_STATE_TRANSITION}.
- *   <li><em>Raised by AI.</em> The withdrawn route belonged to the AI service, so {@code raised_by}
- *       is always {@code AI}; the caller cannot claim to be an advisor or a rule.
+ *   <li><em>Raised by whoever the route says.</em> The route, not the request body, decides
+ *       {@code raised_by}: the advisor route always passes {@code ADVISOR}, so a caller cannot
+ *       claim to be the AI or a rule.
  * </ol>
  *
  * <p><strong>What it does not do: move the conversation to {@code ESCALATED}.</strong> Transitions
@@ -63,6 +61,9 @@ public class EscalateConversationCommandHandler {
         if (!conversation.status().canTransitionTo(ConversationStatus.ESCALATED)) {
             throw new InvalidStateTransitionException(conversation.status(), ConversationStatus.ESCALATED);
         }
-        return escalations.raiseUnlessPending(conversation.id(), command.reason().trim(), EscalationRaisedBy.AI);
+        return escalations.raiseUnlessPending(
+                conversation.id(),
+                command.reason().trim(),
+                Objects.requireNonNull(command.raisedBy(), "raisedBy must not be null"));
     }
 }

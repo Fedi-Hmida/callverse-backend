@@ -22,7 +22,10 @@ management:
   endpoints:
     web:
       exposure:
-        include: "*"
+        # Not "*": the dev chain permits every request, and "*" would publish heapdump (whose
+        # memory holds the JWT signing key), env and a writable loggers endpoint, unauthenticated,
+        # on a port docker-compose publishes. These four are what development actually uses.
+        include: "health,info,metrics,flyway"
   endpoint:
     health:
       show-details: always
@@ -30,7 +33,7 @@ management:
 springdoc:
   api-docs:
     enabled: true
-    # The Angular team generates its TypeScript client from this document.
+    # The Next.js team generates its TypeScript client from this document.
     path: /v3/api-docs
   swagger-ui:
     enabled: true

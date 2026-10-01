@@ -5,7 +5,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Read access to a customer and what hangs off it, for the customer read and its parked use cases.
+ * Read access to a customer and what hangs off it, for the customer reads and the transaction history.
  *
  * <p>Returns read models, never entities. With {@code open-in-view} off, an entity handed out of the
  * adapter carries lazy associations that fail the moment a handler touches them; and an entity that
@@ -16,6 +16,9 @@ public interface CustomerRecords {
 
     /** @return the profile with every account and its product, or empty for an unknown id */
     Optional<CustomerProfile> findProfile(UUID customerId);
+
+    /** @return the profile of the customer with this business reference, or empty */
+    Optional<CustomerProfile> findProfileByExternalRef(String externalRef);
 
     boolean exists(UUID customerId);
 

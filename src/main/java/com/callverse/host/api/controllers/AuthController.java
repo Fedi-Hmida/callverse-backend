@@ -55,6 +55,7 @@ public class AuthController {
 
     @PostMapping("/login")
     @Operation(
+            operationId = "login",
             summary = "Log in",
             description =
                     "Exchanges an email and password for a signed JWT. An unknown email and a wrong "
@@ -70,6 +71,7 @@ public class AuthController {
     @GetMapping(path = "/me", consumes = MediaType.ALL_VALUE)
     @SecurityRequirement(name = "bearerAuth")
     @Operation(
+            operationId = "getCurrentUser",
             summary = "Who am I",
             description =
                     "Returns the account the presented bearer token identifies. Read from the token, "

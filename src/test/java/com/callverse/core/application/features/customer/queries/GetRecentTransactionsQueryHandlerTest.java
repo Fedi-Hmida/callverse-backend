@@ -29,6 +29,11 @@ class GetRecentTransactionsQueryHandlerTest {
         }
 
         @Override
+        public Optional<CustomerProfile> findProfileByExternalRef(String externalRef) {
+            return Optional.empty();
+        }
+
+        @Override
         public boolean exists(UUID customerId) {
             return KNOWN.equals(customerId);
         }

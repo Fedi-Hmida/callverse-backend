@@ -60,14 +60,11 @@ class LayerDependencyTest {
                     .resideInAPackage("..core..")
                     .should()
                     .dependOnClassesThat()
-                    .resideInAnyPackage(
-                            "org.springframework.web..",
-                            "org.springframework.security..",
-                            "org.springframework.boot..")
+                    .resideInAnyPackage("org.springframework..")
                     .because(
                             "use cases stay framework-free and are wired by infrastructure.config; "
-                                    + "once @Service appears in core this rule becomes negotiable, "
-                                    + "and a negotiable rule is not a rule");
+                                    + "once @Service, @Component, @Autowired or @Transactional appears in "
+                                    + "core this rule becomes negotiable, and a negotiable rule is not a rule");
 
     /**
      * The domain is the innermost ring. It describes the business, which existed before anyone

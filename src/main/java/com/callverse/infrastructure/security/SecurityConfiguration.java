@@ -118,6 +118,21 @@ public class SecurityConfiguration {
                         // route unreachable outside dev, and dropping the annotation makes
                         // it readable by every authenticated caller.
                         .requestMatchers(HttpMethod.GET, "/api/v1/customers/**").authenticated()
+                        // Liveness for the frontend and the demo: it reports no business data.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/health/status").permitAll()
+                        // The documentation is public, the API is not: anyone can open Swagger UI and
+                        // read the contract (the frontend generates its types from it), and every
+                        // business route below still needs the bearer token Swagger's Authorize sends.
+                        .requestMatchers(HttpMethod.GET,
+                                "/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs", "/v3/api-docs/**")
+                        .permitAll()
+                        // The advisor workspace. Same two-layer rule as above: the chain admits any
+                        // authenticated caller, @PreAuthorize on each method decides the role.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/service-incidents").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/kb/articles").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/tickets").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/cards/*/block").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/conversations/*/escalations").authenticated()
                         .anyRequest().denyAll())
                 .build();
     }

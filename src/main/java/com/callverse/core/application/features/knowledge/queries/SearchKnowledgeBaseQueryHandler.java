@@ -10,13 +10,12 @@ import java.util.Objects;
  * Searches the knowledge base — formerly the agent tool {@code GET /internal/kb/search?q=&k=}
  * ({@code OWNERSHIP_RULES.md} E4).
  *
- * <p><strong>Parked.</strong> The {@code /internal} route that called this was withdrawn on 2026-09-30
- * pending the AI-integration phase (git tag {@code internal-tools-http-surface}). No HTTP route calls
- * it until it is re-exposed under {@code /api/v1}; the rules below still hold for that caller.
+ * <p>Serves {@code GET /api/v1/kb/articles} (staff). The AI tool that once called it was withdrawn on
+ * 2026-09-30.
  *
  * <p><strong>Bounds.</strong> The text is trimmed and must be 2 to 100 characters: one character
  * matches almost every article, and a whole paragraph is a sign the agent is pasting the
- * conversation instead of querying. {@code k} defaults to 5, the contract's example, and is capped
+ * conversation instead of querying. {@code limit} defaults to 5, the contract's example, and is capped
  * at 10: every article returned lands in the model's context window, so more is not better.
  */
 public class SearchKnowledgeBaseQueryHandler {
@@ -40,7 +39,7 @@ public class SearchKnowledgeBaseQueryHandler {
         }
         int limit = query.limit() == null ? DEFAULT_LIMIT : query.limit();
         if (limit < 1 || limit > MAX_LIMIT) {
-            throw new InvalidRequestException("k must be between 1 and %d".formatted(MAX_LIMIT));
+            throw new InvalidRequestException("limit must be between 1 and %d".formatted(MAX_LIMIT));
         }
         return knowledgeBase.searchPublished(text, limit);
     }

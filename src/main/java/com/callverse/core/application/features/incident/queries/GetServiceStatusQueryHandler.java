@@ -10,9 +10,8 @@ import java.util.Objects;
  * Reports active banking-service outages, optionally for one region ({@code OWNERSHIP_RULES.md}
  * E3).
  *
- * <p><strong>Parked.</strong> No HTTP route calls this: the {@code /internal} route that did was
- * withdrawn on 2026-09-30 pending the AI-integration phase (git tag
- * {@code internal-tools-http-surface}), and roadmap phase FS-1 re-exposes it under {@code /api/v1}.
+ * <p>Serves {@code GET /api/v1/service-incidents} (any signed-in user, live only). The AI tool
+ * that once called it was withdrawn on 2026-09-30.
  *
  * <p>Live by default. Only a caller that names a simulation run sees that run's incidents, so the
  * default can never announce a simulated outage to a real customer. A regional question also

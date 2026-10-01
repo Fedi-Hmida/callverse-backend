@@ -1,0 +1,1477 @@
+openapi: 3.0.1
+info:
+  contact:
+    email: backend@callverse.local
+    name: CallVerse backend
+  description: |-
+    Backend for CallVerse, a digital twin of a retail bank's customer relation center.
+
+    **Two modes, one API.** Every endpoint behaves identically in live mode (a real person on the customer portal) and simulation mode (synthetic customers driving a reinforcement-learning experiment). The only difference is the source of the customers, expressed in the data as `customer.is_simulated` and `conversation.run_id`.
+
+    **The backend is the authority on business rules.** A commercial credit above an advisor's ceiling is refused here, whoever asks.
+
+    **Conventions.** Routes are versioned under `/api/v1`. UUIDs are exposed publicly and sequence identifiers never are. All timestamps are ISO-8601 UTC. Every failure returns the same envelope — `timestamp`, `status`, `code`, `message`, `path` — and clients branch on `code`, never on `message`.
+  license:
+    name: Academic project - 3iL / ESPRIT
+  title: CallVerse Backend API
+  version: 0.1.0-SNAPSHOT
+servers:
+- description: Local development
+  url: http://localhost:8080
+- description: Relative to the deployed host
+  url: /
+tags:
+- description: Payment-card actions
+  name: Cards
+- description: "Customer records and history, for staff"
+  name: Customers
+- description: Active outages of banking services
+  name: Service incidents
+- description: Conversation actions
+  name: Conversations
+- description: Exchanging credentials for an access token
+  name: Authentication
+- description: Support tickets
+  name: Tickets
+- description: Internal procedures for staff
+  name: Knowledge base
+- description: Platform status (walking skeleton)
+  name: Health
+paths:
+  /api/v1/auth/login:
+    post:
+      description: "Exchanges an email and password for a signed JWT. An unknown email\
+        \ and a wrong password return the same 401 with code INVALID_CREDENTIALS,\
+        \ so the endpoint cannot be used to discover which addresses hold accounts.\
+        \ Deactivated accounts cannot authenticate."
+      operationId: login
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenResponse"
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Rejected before any business rule ran: the body is not valid\
+            \ JSON (code MALFORMED_REQUEST), a parameter or field broke a rule (code\
+            \ VALIDATION_FAILED), or a use-case precondition was unmet."
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Not authenticated. code UNAUTHENTICATED: no bearer token,\
+            \ or one that is expired, malformed or wrongly signed - all indistinguishable,\
+            \ and the signal to refresh or log in again. code INVALID_CREDENTIALS:\
+            \ login refused; an unknown email and a wrong password are deliberately\
+            \ indistinguishable."
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Authenticated, but not permitted: code ACCESS_DENIED. Re-authenticating\
+            \ will not help, so clients must not refresh on it."
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "No such route, or a referenced resource does not exist."
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: A business rule refused the operation. The request was well-formed;
+            the current state of the business forbids it.
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Unexpected failure. message is deliberately generic and carries
+            no internal detail; see the server log for the stack trace.
+      summary: Log in
+      tags:
+      - Authentication
+  /api/v1/auth/me:
+    get:
+      description: "Returns the account the presented bearer token identifies. Read\
+        \ from the token, not the database: a change made after login appears only\
+        \ after the next login. Without a valid token: 401 UNAUTHENTICATED."
+      operationId: getCurrentUser
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentUserResponse"
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Rejected before any business rule ran: the body is not valid\
+            \ JSON (code MALFORMED_REQUEST), a parameter or field broke a rule (code\
+            \ VALIDATION_FAILED), or a use-case precondition was unmet."
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Not authenticated. code UNAUTHENTICATED: no bearer token,\
+            \ or one that is expired, malformed or wrongly signed - all indistinguishable,\
+            \ and the signal to refresh or log in again. code INVALID_CREDENTIALS:\
+            \ login refused; an unknown email and a wrong password are deliberately\
+            \ indistinguishable."
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Authenticated, but not permitted: code ACCESS_DENIED. Re-authenticating\
+            \ will not help, so clients must not refresh on it."
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "No such route, or a referenced resource does not exist."
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: A business rule refused the operation. The request was well-formed;
+            the current state of the business forbids it.
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Unexpected failure. message is deliberately generic and carries
+            no internal detail; see the server log for the stack trace.
+      security:
+      - bearerAuth: []
+      summary: Who am I
+      tags:
+      - Authentication
+  /api/v1/cards/{id}/block:
+    post:
+      description: "Blocks an ACTIVE card with a reason and the server's time. Idempotent:\
+        \ an already BLOCKED card is returned unchanged, keeping its first reason\
+        \ and time. An EXPIRED or CANCELLED card is 409 INVALID_STATE_TRANSITION;\
+        \ an unknown card 404. Advisors and supervisors only."
+      operationId: blockCard
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BlockCardRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CardResponse"
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Rejected before any business rule ran: the body is not valid\
+            \ JSON (code MALFORMED_REQUEST), a parameter or field broke a rule (code\
+            \ VALIDATION_FAILED), or a use-case precondition was unmet."
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Not authenticated. code UNAUTHENTICATED: no bearer token,\
+            \ or one that is expired, malformed or wrongly signed - all indistinguishable,\
+            \ and the signal to refresh or log in again. code INVALID_CREDENTIALS:\
+            \ login refused; an unknown email and a wrong password are deliberately\
+            \ indistinguishable."
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Authenticated, but not permitted: code ACCESS_DENIED. Re-authenticating\
+            \ will not help, so clients must not refresh on it."
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "No such route, or a referenced resource does not exist."
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: A business rule refused the operation. The request was well-formed;
+            the current state of the business forbids it.
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Unexpected failure. message is deliberately generic and carries
+            no internal detail; see the server log for the stack trace.
+      security:
+      - bearerAuth: []
+      summary: Block a payment card
+      tags:
+      - Cards
+  /api/v1/conversations/{id}/escalations:
+    post:
+      description: "Raised by ADVISOR. Idempotent: a conversation that already has\
+        \ a pending escalation returns it with 200 instead of creating a second. Only\
+        \ an ACTIVE conversation can be escalated, else 409 INVALID_STATE_TRANSITION;\
+        \ an unknown conversation is 404. Advisors only: a supervisor is who an escalation\
+        \ goes to."
+      operationId: escalateConversation
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EscalationRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EscalationResponse"
+          description: A pending escalation already existed and is returned
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EscalationResponse"
+          description: Escalation created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Rejected before any business rule ran: the body is not valid\
+            \ JSON (code MALFORMED_REQUEST), a parameter or field broke a rule (code\
+            \ VALIDATION_FAILED), or a use-case precondition was unmet."
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Not authenticated. code UNAUTHENTICATED: no bearer token,\
+            \ or one that is expired, malformed or wrongly signed - all indistinguishable,\
+            \ and the signal to refresh or log in again. code INVALID_CREDENTIALS:\
+            \ login refused; an unknown email and a wrong password are deliberately\
+            \ indistinguishable."
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Authenticated, but not permitted: code ACCESS_DENIED. Re-authenticating\
+            \ will not help, so clients must not refresh on it."
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "No such route, or a referenced resource does not exist."
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: A business rule refused the operation. The request was well-formed;
+            the current state of the business forbids it.
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Unexpected failure. message is deliberately generic and carries
+            no internal detail; see the server log for the stack trace.
+      security:
+      - bearerAuth: []
+      summary: Escalate a conversation to a supervisor
+      tags:
+      - Conversations
+  /api/v1/customers:
+    get:
+      description: "Exact match on the bank's customer reference, the one a customer\
+        \ reads out on the phone. Unknown reference: 404 RESOURCE_NOT_FOUND. Staff\
+        \ only; IBANs are masked."
+      operationId: findCustomerByReference
+      parameters:
+      - in: query
+        name: externalRef
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerResponse"
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Rejected before any business rule ran: the body is not valid\
+            \ JSON (code MALFORMED_REQUEST), a parameter or field broke a rule (code\
+            \ VALIDATION_FAILED), or a use-case precondition was unmet."
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Not authenticated. code UNAUTHENTICATED: no bearer token,\
+            \ or one that is expired, malformed or wrongly signed - all indistinguishable,\
+            \ and the signal to refresh or log in again. code INVALID_CREDENTIALS:\
+            \ login refused; an unknown email and a wrong password are deliberately\
+            \ indistinguishable."
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Authenticated, but not permitted: code ACCESS_DENIED. Re-authenticating\
+            \ will not help, so clients must not refresh on it."
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "No such route, or a referenced resource does not exist."
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: A business rule refused the operation. The request was well-formed;
+            the current state of the business forbids it.
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Unexpected failure. message is deliberately generic and carries
+            no internal detail; see the server log for the stack trace.
+      security:
+      - bearerAuth: []
+      summary: Find a customer by reference
+      tags:
+      - Customers
+  /api/v1/customers/{id}:
+    get:
+      description: "Returns the customer, their accounts and the products they hold.\
+        \ Staff only; ownership rules are not yet expressible, so any advisor can\
+        \ read any customer until they are. IBANs are masked; churn risk is deliberately\
+        \ not exposed. Unknown id: 404 RESOURCE_NOT_FOUND; a CUSTOMER caller: 403."
+      operationId: getCustomer
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerResponse"
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Rejected before any business rule ran: the body is not valid\
+            \ JSON (code MALFORMED_REQUEST), a parameter or field broke a rule (code\
+            \ VALIDATION_FAILED), or a use-case precondition was unmet."
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Not authenticated. code UNAUTHENTICATED: no bearer token,\
+            \ or one that is expired, malformed or wrongly signed - all indistinguishable,\
+            \ and the signal to refresh or log in again. code INVALID_CREDENTIALS:\
+            \ login refused; an unknown email and a wrong password are deliberately\
+            \ indistinguishable."
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Authenticated, but not permitted: code ACCESS_DENIED. Re-authenticating\
+            \ will not help, so clients must not refresh on it."
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "No such route, or a referenced resource does not exist."
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: A business rule refused the operation. The request was well-formed;
+            the current state of the business forbids it.
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Unexpected failure. message is deliberately generic and carries
+            no internal detail; see the server log for the stack trace.
+      security:
+      - bearerAuth: []
+      summary: Read a customer
+      tags:
+      - Customers
+  /api/v1/customers/{id}/transactions:
+    get:
+      description: "Across every account, newest first; count 1 to 50, default 10.\
+        \ Any IBAN inside a counterparty is masked. Unknown customer: 404, never an\
+        \ empty list. Staff only."
+      operationId: listCustomerTransactions
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - in: query
+        name: count
+        required: false
+        schema:
+          type: integer
+          format: int32
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TransactionsResponse"
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Rejected before any business rule ran: the body is not valid\
+            \ JSON (code MALFORMED_REQUEST), a parameter or field broke a rule (code\
+            \ VALIDATION_FAILED), or a use-case precondition was unmet."
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Not authenticated. code UNAUTHENTICATED: no bearer token,\
+            \ or one that is expired, malformed or wrongly signed - all indistinguishable,\
+            \ and the signal to refresh or log in again. code INVALID_CREDENTIALS:\
+            \ login refused; an unknown email and a wrong password are deliberately\
+            \ indistinguishable."
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Authenticated, but not permitted: code ACCESS_DENIED. Re-authenticating\
+            \ will not help, so clients must not refresh on it."
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "No such route, or a referenced resource does not exist."
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: A business rule refused the operation. The request was well-formed;
+            the current state of the business forbids it.
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Unexpected failure. message is deliberately generic and carries
+            no internal detail; see the server log for the stack trace.
+      security:
+      - bearerAuth: []
+      summary: List a customer's recent transactions
+      tags:
+      - Customers
+  /api/v1/health/status:
+    get:
+      description: "Returns the service name, build version, business-level status,\
+        \ UTC timestamp and active profile."
+      operationId: getHealthStatus
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatusResponse"
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Rejected before any business rule ran: the body is not valid\
+            \ JSON (code MALFORMED_REQUEST), a parameter or field broke a rule (code\
+            \ VALIDATION_FAILED), or a use-case precondition was unmet."
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Not authenticated. code UNAUTHENTICATED: no bearer token,\
+            \ or one that is expired, malformed or wrongly signed - all indistinguishable,\
+            \ and the signal to refresh or log in again. code INVALID_CREDENTIALS:\
+            \ login refused; an unknown email and a wrong password are deliberately\
+            \ indistinguishable."
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Authenticated, but not permitted: code ACCESS_DENIED. Re-authenticating\
+            \ will not help, so clients must not refresh on it."
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "No such route, or a referenced resource does not exist."
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: A business rule refused the operation. The request was well-formed;
+            the current state of the business forbids it.
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Unexpected failure. message is deliberately generic and carries
+            no internal detail; see the server log for the stack trace.
+      summary: Read platform status
+      tags:
+      - Health
+  /api/v1/kb/articles:
+    get:
+      description: "Case-insensitive search over published articles; q is 2 to 100\
+        \ characters, limit 1 to 10 (default 5). Staff only."
+      operationId: searchKnowledgeArticles
+      parameters:
+      - in: query
+        name: q
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: limit
+        required: false
+        schema:
+          type: integer
+          format: int32
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeArticlesResponse"
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Rejected before any business rule ran: the body is not valid\
+            \ JSON (code MALFORMED_REQUEST), a parameter or field broke a rule (code\
+            \ VALIDATION_FAILED), or a use-case precondition was unmet."
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Not authenticated. code UNAUTHENTICATED: no bearer token,\
+            \ or one that is expired, malformed or wrongly signed - all indistinguishable,\
+            \ and the signal to refresh or log in again. code INVALID_CREDENTIALS:\
+            \ login refused; an unknown email and a wrong password are deliberately\
+            \ indistinguishable."
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Authenticated, but not permitted: code ACCESS_DENIED. Re-authenticating\
+            \ will not help, so clients must not refresh on it."
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "No such route, or a referenced resource does not exist."
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: A business rule refused the operation. The request was well-formed;
+            the current state of the business forbids it.
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Unexpected failure. message is deliberately generic and carries
+            no internal detail; see the server log for the stack trace.
+      security:
+      - bearerAuth: []
+      summary: Search published articles
+      tags:
+      - Knowledge base
+  /api/v1/service-incidents:
+    get:
+      description: Live outages for a region plus national ones; every active outage
+        when no region is given. Any signed-in user. A blank region is 400 VALIDATION_FAILED.
+      operationId: listActiveServiceIncidents
+      parameters:
+      - in: query
+        name: region
+        required: false
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceIncidentsResponse"
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Rejected before any business rule ran: the body is not valid\
+            \ JSON (code MALFORMED_REQUEST), a parameter or field broke a rule (code\
+            \ VALIDATION_FAILED), or a use-case precondition was unmet."
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Not authenticated. code UNAUTHENTICATED: no bearer token,\
+            \ or one that is expired, malformed or wrongly signed - all indistinguishable,\
+            \ and the signal to refresh or log in again. code INVALID_CREDENTIALS:\
+            \ login refused; an unknown email and a wrong password are deliberately\
+            \ indistinguishable."
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Authenticated, but not permitted: code ACCESS_DENIED. Re-authenticating\
+            \ will not help, so clients must not refresh on it."
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "No such route, or a referenced resource does not exist."
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: A business rule refused the operation. The request was well-formed;
+            the current state of the business forbids it.
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Unexpected failure. message is deliberately generic and carries
+            no internal detail; see the server log for the stack trace.
+      security:
+      - bearerAuth: []
+      summary: List active service outages
+      tags:
+      - Service incidents
+  /api/v1/tickets:
+    post:
+      description: "Always created OPEN; severity 1 to 5, default 3. When conversationId\
+        \ is given it must belong to customerId, else 400 CONVERSATION_CUSTOMER_MISMATCH.\
+        \ Unknown customer or conversation: 404. Advisors and supervisors only."
+      operationId: openTicket
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpenTicketRequest"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TicketResponse"
+          description: Ticket created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Rejected before any business rule ran: the body is not valid\
+            \ JSON (code MALFORMED_REQUEST), a parameter or field broke a rule (code\
+            \ VALIDATION_FAILED), or a use-case precondition was unmet."
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Not authenticated. code UNAUTHENTICATED: no bearer token,\
+            \ or one that is expired, malformed or wrongly signed - all indistinguishable,\
+            \ and the signal to refresh or log in again. code INVALID_CREDENTIALS:\
+            \ login refused; an unknown email and a wrong password are deliberately\
+            \ indistinguishable."
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Authenticated, but not permitted: code ACCESS_DENIED. Re-authenticating\
+            \ will not help, so clients must not refresh on it."
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "No such route, or a referenced resource does not exist."
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: A business rule refused the operation. The request was well-formed;
+            the current state of the business forbids it.
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Unexpected failure. message is deliberately generic and carries
+            no internal detail; see the server log for the stack trace.
+      security:
+      - bearerAuth: []
+      summary: Open a support ticket
+      tags:
+      - Tickets
+components:
+  schemas:
+    BlockCardRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          enum:
+          - LOST
+          - STOLEN
+          - FRAUD_SUSPECTED
+          - CUSTOMER_REQUEST
+          example: STOLEN
+      required:
+      - reason
+    CardResponse:
+      type: object
+      description: A payment card
+      properties:
+        accountId:
+          type: string
+          format: uuid
+        blockReason:
+          type: string
+          enum:
+          - LOST
+          - STOLEN
+          - FRAUD_SUSPECTED
+          - CUSTOMER_REQUEST
+          example: STOLEN
+          nullable: true
+        blockedAt:
+          type: string
+          format: date-time
+          description: Set when the card was blocked
+          nullable: true
+        expiresOn:
+          type: string
+          format: date
+        id:
+          type: string
+          format: uuid
+        network:
+          type: string
+          enum:
+          - VISA
+          - MASTERCARD
+          example: VISA
+        panLast4:
+          type: string
+          example: "4242"
+        status:
+          type: string
+          enum:
+          - ACTIVE
+          - BLOCKED
+          - EXPIRED
+          - CANCELLED
+          example: BLOCKED
+        type:
+          type: string
+          enum:
+          - DEBIT
+          - CREDIT
+          example: DEBIT
+      required:
+      - accountId
+      - expiresOn
+      - id
+      - network
+      - panLast4
+      - status
+      - type
+    CurrentUserResponse:
+      type: object
+      description: "The authenticated caller, read from the verified access token"
+      properties:
+        email:
+          type: string
+          example: advisor@callverse.local
+        role:
+          type: string
+          example: ADVISOR
+        userId:
+          type: string
+          format: uuid
+          example: 7d3f0c52-6a4e-4b8e-9d1f-2c5a8e9b0f13
+      required:
+      - email
+      - role
+      - userId
+    CustomerAccount:
+      type: object
+      description: One account held by the customer
+      properties:
+        balance:
+          type: number
+          description: "Signed: negative when overdrawn, and for a loan's outstanding\
+            \ capital"
+          example: 1523.4
+        cards:
+          type: array
+          description: Cards on this account; empty when there are none
+          items:
+            $ref: "#/components/schemas/CustomerAccountCard"
+        closedAt:
+          type: string
+          format: date
+          description: Null while the account is open
+          nullable: true
+        currency:
+          type: string
+          example: EUR
+        id:
+          type: string
+          format: uuid
+        maskedIban:
+          type: string
+          description: The IBAN with all but its first and last four characters masked
+          example: FR76 **** **** 0189
+        openedAt:
+          type: string
+          format: date
+        overdraftLimit:
+          type: number
+          example: 500.0
+        product:
+          $ref: "#/components/schemas/CustomerAccountProduct"
+        status:
+          type: string
+          enum:
+          - ACTIVE
+          - FROZEN
+          - CLOSED
+          example: ACTIVE
+      required:
+      - balance
+      - cards
+      - currency
+      - id
+      - maskedIban
+      - openedAt
+      - overdraftLimit
+      - product
+      - status
+    CustomerAccountCard:
+      type: object
+      description: "A payment card: never more than its last four digits"
+      properties:
+        expiresOn:
+          type: string
+          format: date
+        id:
+          type: string
+          format: uuid
+        network:
+          type: string
+          enum:
+          - VISA
+          - MASTERCARD
+          example: VISA
+        panLast4:
+          type: string
+          example: "4242"
+        status:
+          type: string
+          enum:
+          - ACTIVE
+          - BLOCKED
+          - EXPIRED
+          - CANCELLED
+          example: ACTIVE
+        type:
+          type: string
+          enum:
+          - DEBIT
+          - CREDIT
+          example: DEBIT
+      required:
+      - expiresOn
+      - id
+      - network
+      - panLast4
+      - status
+      - type
+    CustomerAccountProduct:
+      type: object
+      description: The product the account is opened on
+      properties:
+        category:
+          type: string
+          enum:
+          - CURRENT_ACCOUNT
+          - SAVINGS
+          - CONSUMER_LOAN
+          - MORTGAGE
+          example: CURRENT_ACCOUNT
+        code:
+          type: string
+          example: CUR_ESSENTIAL
+        name:
+          type: string
+          example: Compte courant Essentiel
+      required:
+      - category
+      - code
+      - name
+    CustomerResponse:
+      type: object
+      description: "A bank customer, their accounts and the products they hold"
+      properties:
+        accounts:
+          type: array
+          items:
+            $ref: "#/components/schemas/CustomerAccount"
+        externalRef:
+          type: string
+          description: The bank's customer reference
+          example: CUST-00418
+        firstName:
+          type: string
+          example: Amina
+        id:
+          type: string
+          format: uuid
+          example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+        lastName:
+          type: string
+          example: Haddad
+        region:
+          type: string
+          description: "Home region, used to match service outages"
+          example: Marseille
+        segment:
+          type: string
+          enum:
+          - MASS
+          - AFFLUENT
+          - PRIVATE
+          - PROFESSIONAL
+          example: MASS
+        tenureMonths:
+          type: integer
+          format: int32
+          description: Months since the relationship began
+          example: 18
+      required:
+      - accounts
+      - externalRef
+      - firstName
+      - id
+      - lastName
+      - region
+      - segment
+      - tenureMonths
+    ErrorResponse:
+      type: object
+      description: Standard error envelope returned by every CallVerse endpoint
+      properties:
+        code:
+          type: string
+          example: RESOURCE_NOT_FOUND
+        message:
+          type: string
+          example: Customer 'a3f1...' was not found
+        path:
+          type: string
+          example: /api/v1/customers/a3f1
+        status:
+          type: integer
+          format: int32
+          example: 404
+        timestamp:
+          type: string
+          format: date-time
+          example: 2026-09-14T08:31:07.412Z
+      required:
+      - code
+      - message
+      - path
+      - status
+      - timestamp
+    EscalationRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          example: "Fraude suspectee, besoin d'un superviseur"
+          maxLength: 255
+          minLength: 0
+      required:
+      - reason
+    EscalationResponse:
+      type: object
+      description: An escalation of a conversation to a supervisor
+      properties:
+        conversationId:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        id:
+          type: string
+          format: uuid
+        raisedBy:
+          type: string
+          enum:
+          - ADVISOR
+          - AI
+          - RULE
+          example: ADVISOR
+        reason:
+          type: string
+        status:
+          type: string
+          example: PENDING
+      required:
+      - conversationId
+      - createdAt
+      - id
+      - raisedBy
+      - reason
+      - status
+    HealthStatusResponse:
+      type: object
+      description: Business-level status of the CallVerse platform
+      properties:
+        profile:
+          type: string
+          example: dev
+        service:
+          type: string
+          example: callverse-backend
+        status:
+          type: string
+          enum:
+          - UP
+          - DEGRADED
+          - DOWN
+          example: UP
+        timestamp:
+          type: string
+          format: date-time
+          description: ISO-8601 UTC
+          example: 2026-09-14T08:31:07.412Z
+        version:
+          type: string
+          example: 0.1.0-SNAPSHOT
+      required:
+      - profile
+      - service
+      - status
+      - timestamp
+      - version
+    KnowledgeArticle:
+      type: object
+      description: One published article
+      properties:
+        category:
+          type: string
+          example: CARDS
+        content:
+          type: string
+        id:
+          type: string
+          format: uuid
+        tags:
+          type: array
+          items:
+            type: string
+        title:
+          type: string
+          example: Faire opposition a votre carte
+        updatedAt:
+          type: string
+          format: date-time
+        version:
+          type: integer
+          format: int32
+          example: 1
+      required:
+      - category
+      - content
+      - id
+      - tags
+      - title
+      - updatedAt
+      - version
+    KnowledgeArticlesResponse:
+      type: object
+      description: Published articles matching a search
+      properties:
+        articles:
+          type: array
+          items:
+            $ref: "#/components/schemas/KnowledgeArticle"
+        query:
+          type: string
+          example: opposition carte
+      required:
+      - articles
+      - query
+    LoginRequest:
+      type: object
+      description: Credentials submitted for authentication
+      properties:
+        email:
+          type: string
+          example: advisor@callverse.local
+        password:
+          type: string
+          description: "Never logged, never echoed back"
+          example: CallVerse!Dev2026
+      required:
+      - email
+      - password
+    OpenTicketRequest:
+      type: object
+      properties:
+        category:
+          type: string
+          example: FRAUD
+          maxLength: 30
+          minLength: 0
+          pattern: "[A-Z][A-Z_]*"
+        conversationId:
+          type: string
+          format: uuid
+          description: "When given, must belong to customerId"
+          nullable: true
+        customerId:
+          type: string
+          format: uuid
+        description:
+          type: string
+          maxLength: 4000
+          minLength: 0
+          nullable: true
+        severity:
+          type: integer
+          format: int32
+          description: "1 to 5, default 3"
+          example: 3
+          maximum: 5
+          minimum: 1
+          nullable: true
+        title:
+          type: string
+          example: Paiements inconnus a l'etranger
+          maxLength: 200
+          minLength: 0
+      required:
+      - category
+      - customerId
+      - title
+    ServiceIncident:
+      type: object
+      description: One active outage
+      properties:
+        affectedCount:
+          type: integer
+          format: int32
+          nullable: true
+        description:
+          type: string
+          example: Card authorisations failing
+          nullable: true
+        estimatedEnd:
+          type: string
+          format: date-time
+          description: What the customer can be told
+          nullable: true
+        id:
+          type: string
+          format: uuid
+        region:
+          type: string
+          description: Null for a national outage
+          example: Marseille
+          nullable: true
+        service:
+          type: string
+          enum:
+          - CARD_PAYMENTS
+          - ONLINE_BANKING
+          - MOBILE_APP
+          - ATM_NETWORK
+          - TRANSFERS
+          example: CARD_PAYMENTS
+        severity:
+          type: integer
+          format: int32
+          description: 1 (worst) to 5
+          example: 2
+        startedAt:
+          type: string
+          format: date-time
+      required:
+      - id
+      - service
+      - severity
+      - startedAt
+    ServiceIncidentsResponse:
+      type: object
+      description: Active outages of banking services
+      properties:
+        incidents:
+          type: array
+          items:
+            $ref: "#/components/schemas/ServiceIncident"
+      required:
+      - incidents
+    TicketResponse:
+      type: object
+      description: A support ticket
+      properties:
+        category:
+          type: string
+          example: FRAUD
+        conversationId:
+          type: string
+          format: uuid
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        customerId:
+          type: string
+          format: uuid
+        id:
+          type: string
+          format: uuid
+        severity:
+          type: integer
+          format: int32
+          description: 1 (most severe) to 5
+          example: 2
+        status:
+          type: string
+          example: OPEN
+        title:
+          type: string
+          example: Paiements inconnus a l'etranger
+      required:
+      - category
+      - createdAt
+      - customerId
+      - id
+      - severity
+      - status
+      - title
+    TokenResponse:
+      type: object
+      description: An access token and the instant it expires
+      properties:
+        expiresAt:
+          type: string
+          format: date-time
+          description: ISO-8601 UTC
+          example: 2026-09-25T12:00:00Z
+        role:
+          type: string
+          enum:
+          - CUSTOMER
+          - ADVISOR
+          - SUPERVISOR
+          - ADMIN
+          example: ADVISOR
+        token:
+          type: string
+          description: "Signed JWT. Send as: Authorization: Bearer <token>"
+          example: eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIuLi4ifQ.signature
+      required:
+      - expiresAt
+      - role
+      - token
+    Transaction:
+      type: object
+      description: One movement on an account
+      properties:
+        accountId:
+          type: string
+          format: uuid
+        amount:
+          type: number
+          description: "Signed: negative debits the account"
+          example: -89.9
+        bookedAt:
+          type: string
+          format: date-time
+        counterparty:
+          type: string
+          description: Any IBAN inside is masked
+          example: Loyer DE89 **** **** 3000
+          nullable: true
+        currency:
+          type: string
+          example: EUR
+        id:
+          type: string
+          format: uuid
+        label:
+          type: string
+          description: Any IBAN inside is masked
+          example: CB MARKET 29/09
+        status:
+          type: string
+          enum:
+          - PENDING
+          - BOOKED
+          - REJECTED
+          - DISPUTED
+          example: BOOKED
+        type:
+          type: string
+          enum:
+          - CARD_PAYMENT
+          - ATM_WITHDRAWAL
+          - TRANSFER_IN
+          - TRANSFER_OUT
+          - DIRECT_DEBIT
+          - FEE
+          - INTEREST
+          - REFUND
+          example: CARD_PAYMENT
+      required:
+      - accountId
+      - amount
+      - bookedAt
+      - currency
+      - id
+      - label
+      - status
+      - type
+    TransactionsResponse:
+      type: object
+      description: "A customer's recent account movements, newest first"
+      properties:
+        customerId:
+          type: string
+          format: uuid
+        transactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Transaction"
+      required:
+      - customerId
+      - transactions
+  securitySchemes:
+    bearerAuth:
+      bearerFormat: JWT
+      description: |-
+        User access token from `POST /api/v1/auth/login`. Carries the account identifier and one role of CUSTOMER, ADVISOR, SUPERVISOR or ADMIN.
+
+        HS512, valid for one hour by default. Missing, expired or invalid: 401 UNAUTHENTICATED.
+      scheme: bearer
+      type: http

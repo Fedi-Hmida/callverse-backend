@@ -32,4 +32,31 @@ class IbanMaskTest {
     void nullStaysNull() {
         assertThat(IbanMask.mask(null)).isNull();
     }
+
+    @Test
+    @DisplayName("masks an IBAN embedded in free text and leaves the rest of the text alone")
+    void redactsEmbeddedIban() {
+        assertThat(IbanMask.redact("Loyer DE89370400440532013000 octobre"))
+                .isEqualTo("Loyer DE89 **** **** 3000 octobre");
+    }
+
+    @Test
+    @DisplayName("text with no IBAN, and null, pass through unchanged")
+    void redactLeavesOtherTextAlone() {
+        assertThat(IbanMask.redact("CB MARKET 29/09")).isEqualTo("CB MARKET 29/09");
+        assertThat(IbanMask.redact(null)).isNull();
+    }
+
+    @Test
+    @DisplayName("masks an IBAN printed in groups of four, the way statements and the mask itself print it")
+    void redactsGroupedIban() {
+        assertThat(IbanMask.redact("VIR SEPA FR76 3000 6000 0112 3456 7890 189 LOYER"))
+                .isEqualTo("VIR SEPA FR76 **** **** 0189 LOYER");
+    }
+
+    @Test
+    @DisplayName("masks a lower-case IBAN too")
+    void redactsLowerCaseIban() {
+        assertThat(IbanMask.redact("de89370400440532013000")).isEqualTo("DE89 **** **** 3000");
+    }
 }

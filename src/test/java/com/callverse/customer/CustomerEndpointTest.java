@@ -35,7 +35,7 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
  * endpoint test in this repository activates {@code dev}, where the filter chain is
  * {@code anyRequest().permitAll()}. Under that chain a 403-versus-200 distinction proves almost
  * nothing about the chain itself — only that method security fired. The non-dev chain is
- * deny-by-default, so this is the only profile where "an ADMIN may, an ADVISOR may not" is a
+ * deny-by-default, so this is the only profile where "staff may, a CUSTOMER may not" is a
  * statement about the deployed system rather than about an annotation in isolation.
  *
  * <p><strong>Two layers have to agree for this endpoint to work, and the test covers both.</strong>
@@ -91,11 +91,22 @@ class CustomerEndpointTest extends AbstractPersistenceTest {
 
     @Test
     @Transactional
-    @DisplayName("an ADVISOR is refused with 403 in the frozen envelope")
-    void advisorIsRefused() throws Exception {
-        Customer stored = persistCustomer("CUST-ADVISOR-DENIED", "Lyon");
+    @DisplayName("an ADVISOR reads a customer: the advisor console needs it before ownership rules exist")
+    void advisorReadsCustomer() throws Exception {
+        Customer stored = persistCustomer("CUST-ADVISOR-READ", "Lyon");
 
-        JsonNode body = request(stored.getId(), advisor(), 403);
+        JsonNode body = request(stored.getId(), advisor(), 200);
+
+        assertThat(body.get("id").asText()).isEqualTo(stored.getId().toString());
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("a CUSTOMER is refused with 403 in the frozen envelope")
+    void customerIsRefused() throws Exception {
+        Customer stored = persistCustomer("CUST-CUSTOMER-DENIED", "Lyon");
+
+        JsonNode body = request(stored.getId(), customer(), 403);
 
         assertThat(body.fieldNames())
                 .toIterable()
@@ -158,6 +169,10 @@ class CustomerEndpointTest extends AbstractPersistenceTest {
 
     private static RequestPostProcessor advisor() {
         return bearer(validToken(UUID.randomUUID(), "advisor@callverse.local", UserRole.ADVISOR));
+    }
+
+    private static RequestPostProcessor customer() {
+        return bearer(validToken(UUID.randomUUID(), "customer@callverse.local", UserRole.CUSTOMER));
     }
 
     /** A no-op post-processor, so every case goes through the same request builder. */

@@ -10,9 +10,8 @@ import java.util.Objects;
 /**
  * Lists a customer's recent account movements ({@code OWNERSHIP_RULES.md} E2).
  *
- * <p><strong>Parked.</strong> No HTTP route calls this: the {@code /internal} route that did was
- * withdrawn on 2026-09-30 pending the AI-integration phase (git tag
- * {@code internal-tools-http-surface}), and roadmap phase FS-1 re-exposes it under {@code /api/v1}.
+ * <p>Serves {@code GET /api/v1/customers/{id}/transactions} (staff). The AI tool that once called
+ * it was withdrawn on 2026-09-30 and will call it again after the AI-integration phase.
  *
  * <p><strong>The count is bounded here</strong>: 10 by default and at most 50. A statement is
  * denser than a monthly bill, so the bounds are wider than the invoices this replaced (3 and 12);

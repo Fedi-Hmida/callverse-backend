@@ -20,11 +20,13 @@ import java.time.Instant;
 @Schema(description = "An access token and the instant it expires")
 public record TokenResponse(
         @Schema(
+                        requiredMode = Schema.RequiredMode.REQUIRED,
                         description = "Signed JWT. Send as: Authorization: Bearer <token>",
                         example = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIuLi4ifQ.signature")
                 String token,
-        @Schema(description = "ISO-8601 UTC", example = "2026-09-25T12:00:00Z") Instant expiresAt,
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "ISO-8601 UTC", example = "2026-09-25T12:00:00Z") Instant expiresAt,
         @Schema(
+                        requiredMode = Schema.RequiredMode.REQUIRED,
                         example = "ADVISOR",
                         allowableValues = {"CUSTOMER", "ADVISOR", "SUPERVISOR", "ADMIN"})
                 String role) {}

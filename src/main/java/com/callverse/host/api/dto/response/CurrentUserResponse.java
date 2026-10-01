@@ -15,6 +15,6 @@ import java.util.UUID;
  */
 @Schema(description = "The authenticated caller, read from the verified access token")
 public record CurrentUserResponse(
-        @Schema(example = "7d3f0c52-6a4e-4b8e-9d1f-2c5a8e9b0f13") UUID userId,
-        @Schema(example = "advisor@callverse.local") String email,
-        @Schema(example = "ADVISOR") String role) {}
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED, example = "7d3f0c52-6a4e-4b8e-9d1f-2c5a8e9b0f13") UUID userId,
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED, example = "advisor@callverse.local") String email,
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED, example = "ADVISOR") String role) {}

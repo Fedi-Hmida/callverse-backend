@@ -15,4 +15,9 @@ public class InvalidStateTransitionException extends DomainException {
     public InvalidStateTransitionException(ConversationStatus from, ConversationStatus to) {
         super(CODE, "A conversation in state %s cannot move to %s".formatted(from, to));
     }
+
+    /** The same refusal for any other state machine, named by {@code subject} ("card", ...). */
+    public InvalidStateTransitionException(String subject, Enum<?> from, Enum<?> to) {
+        super(CODE, "A %s in state %s cannot move to %s".formatted(subject, from, to));
+    }
 }

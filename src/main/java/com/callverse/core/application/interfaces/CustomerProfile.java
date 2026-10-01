@@ -1,6 +1,9 @@
 package com.callverse.core.application.interfaces;
 
 import com.callverse.core.domain.enums.AccountStatus;
+import com.callverse.core.domain.enums.CardNetwork;
+import com.callverse.core.domain.enums.CardStatus;
+import com.callverse.core.domain.enums.CardType;
 import com.callverse.core.domain.enums.CustomerSegment;
 import com.callverse.core.domain.enums.ProductCategory;
 import java.math.BigDecimal;
@@ -37,7 +40,12 @@ public record CustomerProfile(
             AccountStatus status,
             LocalDate openedAt,
             LocalDate closedAt,
-            Product product) {}
+            Product product,
+            List<Card> cards) {}
+
+    /** A card on the account: never more of the card number than its last four digits. */
+    public record Card(
+            UUID id, String panLast4, CardNetwork network, CardType type, CardStatus status, LocalDate expiresOn) {}
 
     public record Product(String code, String name, ProductCategory category) {}
 }

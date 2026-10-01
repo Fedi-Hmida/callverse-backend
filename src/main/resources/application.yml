@@ -104,3 +104,15 @@ callverse:
   # which keeps the version reported by the API in lockstep with the artifact.
   # The quotes are required: a bare @ starts a reserved indicator in YAML.
   version: "@project.version@"
+
+# The OpenAPI document is a published contract (openapi.yaml is its committed copy). Sorted keys
+# make it byte-stable, so a contract change is a readable diff rather than a reshuffle.
+springdoc:
+  writer-with-order-by-keys: true
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+    # Keep the token entered in Authorize across a page reload, so testing a route does not
+    # mean logging in again every time.
+    persist-authorization: true

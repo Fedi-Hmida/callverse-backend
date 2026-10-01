@@ -16,9 +16,8 @@ import java.util.Objects;
  * Opens a ticket — formerly the agent tool {@code POST /internal/tickets}
  * ({@code OWNERSHIP_RULES.md} E5).
  *
- * <p><strong>Parked.</strong> The {@code /internal} route that called this was withdrawn on 2026-09-30
- * pending the AI-integration phase (git tag {@code internal-tools-http-surface}). No HTTP route calls
- * it until it is re-exposed under {@code /api/v1}; the rules below still hold for that caller.
+ * <p>Serves {@code POST /api/v1/tickets} (advisors and supervisors). The AI tool that once called it was withdrawn on
+ * 2026-09-30.
  *
  * <p><strong>What the backend decides, not the agent.</strong> Every new ticket is {@code OPEN};
  * the agent cannot file one already closed. Severity defaults to 3 and must be 1 to 5 — checked here
