@@ -6,6 +6,7 @@ dependance a un LLM externe pour la recherche KB elle-meme.
 """
 from __future__ import annotations
 
+import asyncio
 import asyncpg
 from sentence_transformers import SentenceTransformer
 
@@ -36,10 +37,15 @@ async def close_pool() -> None:
         _pool = None
 
 
-def embed_text(text: str) -> list[float]:
+def _sync_embed_text(text: str) -> list[float]:
     """Encode un texte en vecteur 384-d. Synchrone et local (pas d'appel reseau)."""
     model = _get_model()
     return model.encode(text).tolist()
+
+
+async def embed_text(text: str) -> list[float]:
+    """Encode un texte sans bloquer l'event loop asyncio."""
+    return await asyncio.to_thread(_sync_embed_text, text)
 
 
 async def similarity_search(query: str, top_k: int = 3) -> list[dict]:
@@ -47,7 +53,7 @@ async def similarity_search(query: str, top_k: int = 3) -> list[dict]:
     Recherche par similarite cosinus dans kb_chunk, jointe a kb_article
     pour recuperer le titre. Utilise l'index HNSW deja cree sur Neon.
     """
-    query_embedding = embed_text(query)
+    query_embedding = await embed_text(query)
     embedding_str = "[" + ",".join(str(x) for x in query_embedding) + "]"
 
     pool = await get_pool()
@@ -108,7 +114,7 @@ async def find_article_by_title(title: str) -> str | None:
 
 async def insert_chunk(article_id: str, chunk_index: int, content: str) -> None:
     """Insere un chunk avec son embedding calcule localement."""
-    embedding = embed_text(content)
+    embedding = await embed_text(content)
     embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
 
     pool = await get_pool()

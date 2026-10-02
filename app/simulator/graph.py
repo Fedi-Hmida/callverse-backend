@@ -94,7 +94,15 @@ def evaluer_reponse_recue(state: SimulatorState) -> SimulatorState:
         return state
 
     last_reply = advisor_messages[-1]["content"]
-    is_vague = len(last_reply) < 40 or not any(c.isdigit() for c in last_reply)
+    lower_reply = last_reply.lower()
+
+    # Signaux concrets : données chiffrées (montants, délais, dates) OU verbes/termes d'action/résolution bancaire
+    action_keywords = (
+        "bloqu", "oppos", "rembours", "contest", "crédit", "dossier", "virement",
+        "justif", "résili", "clôtur", "confirm", "effectu", "valid", "délai", "contrat", "frais",
+    )
+    has_concrete_signal = any(c.isdigit() for c in last_reply) or any(k in lower_reply for k in action_keywords)
+    is_vague = len(last_reply) < 40 or not has_concrete_signal
 
     patience = state["patience"]
     satisfaction = state["satisfaction"]
