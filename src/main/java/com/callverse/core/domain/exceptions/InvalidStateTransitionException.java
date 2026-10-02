@@ -20,4 +20,17 @@ public class InvalidStateTransitionException extends DomainException {
     public InvalidStateTransitionException(String subject, Enum<?> from, Enum<?> to) {
         super(CODE, "A %s in state %s cannot move to %s".formatted(subject, from, to));
     }
+
+    private InvalidStateTransitionException(String message) {
+        super(CODE, message);
+    }
+
+    /**
+     * A message refused by the conversation's state: ownership rule A10 names this code for a
+     * message posted into a closed conversation.
+     */
+    public static InvalidStateTransitionException noMessagesIn(ConversationStatus status, String sender) {
+        return new InvalidStateTransitionException(
+                "A conversation in state %s accepts no %s message".formatted(status, sender));
+    }
 }

@@ -16,6 +16,7 @@ public interface ConversationDirectory {
      * @param customerId the customer the conversation belongs to — what a ticket's claimed customer
      *     is checked against
      * @param status the current state, which decides whether an escalation is allowed
+     * @param advisorUserId the login behind the assigned advisor; null while unassigned
      */
-    record ConversationRef(UUID id, UUID customerId, ConversationStatus status) {}
+    record ConversationRef(UUID id, UUID customerId, ConversationStatus status, UUID advisorUserId) {}
 }

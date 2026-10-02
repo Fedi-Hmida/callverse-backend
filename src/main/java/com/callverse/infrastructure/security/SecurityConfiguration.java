@@ -136,6 +136,19 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.POST, "/api/v1/tickets").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/cards/*/block").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/conversations/*/escalations").authenticated()
+                        // The conversation core. Same two-layer rule; on top of the role, each use
+                        // case checks that the caller is the conversation's customer, its advisor or
+                        // a supervisor, and answers anyone else 404.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/conversations").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/conversations/mine").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/conversations/*").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/conversations/*/messages").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/conversations/*/messages").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/conversations/*/resolve").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/conversations/*/abandon").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/queues").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/queues/*/next").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/supervision/kpi").authenticated()
                         .anyRequest().denyAll())
                 .build();
     }

@@ -19,8 +19,13 @@ class ConversationDirectoryAdapter implements ConversationDirectory {
     @Override
     public Optional<ConversationRef> find(UUID conversationId) {
         // getCustomer().getId() reads the foreign key without loading the customer.
+        // Live conversations only: a simulation run's conversations are never acted on from these routes.
         return repository
                 .findById(conversationId)
-                .map(c -> new ConversationRef(c.getId(), c.getCustomer().getId(), c.getStatus()));
+                .filter(c -> c.getRunId() == null)
+                .map(c -> new ConversationRef(c.getId(), c.getCustomer().getId(), c.getStatus(),
+                        c.getAdvisor() == null || c.getAdvisor().getUser() == null
+                                ? null
+                                : c.getAdvisor().getUser().getId()));
     }
 }

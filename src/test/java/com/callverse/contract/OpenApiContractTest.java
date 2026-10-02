@@ -47,7 +47,17 @@ class OpenApiContractTest extends AbstractPersistenceTest {
             "searchKnowledgeArticles",
             "openTicket",
             "blockCard",
-            "escalateConversation");
+            "escalateConversation",
+            "openConversation",
+            "listMyConversations",
+            "getConversation",
+            "listMessages",
+            "postMessage",
+            "resolveConversation",
+            "abandonConversation",
+            "listQueues",
+            "takeNextConversation",
+            "getLiveKpi");
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
@@ -85,6 +95,14 @@ class OpenApiContractTest extends AbstractPersistenceTest {
         assertThat(required(schemas, "ErrorResponse")).contains("timestamp", "status", "code", "message", "path");
         assertThat(required(schemas, "CardResponse")).contains("id", "panLast4", "status");
         assertThat(schemas.has("CustomerAccount")).as("nested schemas carry a qualified name").isTrue();
+        assertThat(required(schemas, "Conversation")).contains("id", "customerId", "skill", "channel", "status", "queuedAt");
+        assertThat(required(schemas, "Message")).contains("id", "conversationId", "sender", "content", "sentAt");
+        assertThat(required(schemas, "Transcript")).contains("conversationId", "messages");
+        assertThat(required(schemas, "Queue")).contains("skill", "waiting");
+        assertThat(required(schemas, "LiveKpi")).contains("schemaVersion", "at", "since", "queues", "waitingTotal",
+                "inService", "resolvedToday", "abandonedToday");
+        assertThat(schemas.get("Conversation").get("properties").has("priorityScore"))
+                .as("internal operating data never reaches the contract").isFalse();
     }
 
     @Test

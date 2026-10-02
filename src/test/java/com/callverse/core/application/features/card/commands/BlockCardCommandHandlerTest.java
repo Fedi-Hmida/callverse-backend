@@ -2,8 +2,8 @@ package com.callverse.core.application.features.card.commands;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.callverse.core.application.RecordingPublisher;
 import com.callverse.core.application.interfaces.Cards;
-import com.callverse.core.application.interfaces.RealtimeEventPublisher;
 import com.callverse.core.application.interfaces.SupervisionAlert;
 import com.callverse.core.domain.enums.CardBlockReason;
 import com.callverse.core.domain.enums.CardNetwork;
@@ -13,8 +13,6 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
@@ -56,15 +54,6 @@ class BlockCardCommandHandlerTest {
             reason = why;
             blockedAt = at;
             return new BlockOutcome(record(), true);
-        }
-    }
-
-    private static final class RecordingPublisher implements RealtimeEventPublisher {
-        final List<SupervisionAlert> alerts = new ArrayList<>();
-
-        @Override
-        public void publishSupervisionAlert(SupervisionAlert alert) {
-            alerts.add(alert);
         }
     }
 

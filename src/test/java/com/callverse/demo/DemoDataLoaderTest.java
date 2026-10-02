@@ -2,6 +2,7 @@ package com.callverse.demo;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.callverse.core.domain.entities.Advisor;
 import com.callverse.core.domain.entities.BankTransaction;
 import com.callverse.core.domain.entities.Card;
 import com.callverse.core.domain.entities.Conversation;
@@ -89,6 +90,38 @@ class DemoDataLoaderTest extends AbstractPersistenceTest {
     }
 
     @Test
+    @DisplayName("the dev advisor login is Karim, holding the four skills, and Amina's call is his; Amina is the dev customer login")
+    void staffingMatchesTheScenario() {
+        List<Advisor> karim = em.createQuery(
+                        "select a from Advisor a where a.user.email = 'advisor@callverse.local'", Advisor.class)
+                .getResultList();
+        assertThat(karim).hasSize(1);
+        List<String> skills = em.createQuery(
+                        "select s.skill.code from AdvisorSkill s where s.advisor.id = :id", String.class)
+                .setParameter("id", karim.get(0).getId())
+                .getResultList();
+        assertThat(skills).containsExactlyInAnyOrder("ACCOUNTS", "CARDS", "CREDIT", "FRAUD");
+
+        Conversation call = em.createQuery(
+                        "select c from Conversation c where c.customer.externalRef = 'DEMO-00418'", Conversation.class)
+                .getSingleResult();
+        assertThat(call.getAdvisor().getId()).isEqualTo(karim.get(0).getId());
+        assertThat(call.getAssignedAt()).isNotNull();
+
+        String aminaLogin = em.createQuery(
+                        "select c.user.email from Customer c where c.externalRef = 'DEMO-00418'", String.class)
+                .getSingleResult();
+        assertThat(aminaLogin).isEqualTo("customer@callverse.local");
+
+        Long waiting = em.createQuery(
+                        "select count(c) from Conversation c where c.customer.externalRef like 'DEMO-%'"
+                                + " and c.status = com.callverse.core.domain.enums.ConversationStatus.QUEUED",
+                        Long.class)
+                .getSingleResult();
+        assertThat(waiting).as("contacts waiting, so an advisor can take one live").isGreaterThanOrEqualTo(2);
+    }
+
+    @Test
     @DisplayName("running the loader again adds nothing")
     void loaderIsIdempotent() throws Exception {
         ApplicationArguments none = new DefaultApplicationArguments();
@@ -99,5 +132,8 @@ class DemoDataLoaderTest extends AbstractPersistenceTest {
         }
         em.clear();
         assertThat(amina()).hasSize(1);
+        assertThat(em.createQuery(
+                        "select count(a) from Advisor a where a.user.email = 'advisor@callverse.local'", Long.class)
+                .getSingleResult()).isEqualTo(1);
     }
 }

@@ -5,6 +5,8 @@ import static com.callverse.auth.AuthenticatedRequests.validToken;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.callverse.core.domain.entities.Account;
+import com.callverse.core.domain.entities.Advisor;
+import com.callverse.core.domain.entities.AppUser;
 import com.callverse.core.domain.entities.BankingProduct;
 import com.callverse.core.domain.entities.Card;
 import com.callverse.core.domain.entities.Conversation;
@@ -226,7 +228,8 @@ class StompSupervisionTest extends AbstractPersistenceTest {
         return http.send(request, HttpResponse.BodyHandlers.ofString()).statusCode();
     }
 
-    private record Seed(UUID customerId, UUID conversationId, UUID cardId) {}
+    /** @param advisorToken a token for the advisor the conversation is assigned to */
+    private record Seed(UUID customerId, UUID conversationId, UUID cardId, String advisorToken) {}
 
     /** Committed rows: the test talks to a real server in another thread, so nothing may roll back. */
     private Seed seed() {
@@ -238,9 +241,23 @@ class StompSupervisionTest extends AbstractPersistenceTest {
             customer.setRegion("Marseille");
             em.persist(customer);
 
+            // Only the conversation's own advisor may escalate it, so the seed makes a real one.
+            AppUser karim = new AppUser();
+            karim.setEmail("karim-" + UUID.randomUUID().toString().substring(0, 8) + "@test.local");
+            karim.setPasswordHash("$2a$10$abcdefghijklmnopqrstuuJ4H1y9oD6kBz1V5Q2yQ1w5bLb6xXyZ2");
+            karim.setFirstName("Karim");
+            karim.setLastName("Advisor");
+            karim.setRole(UserRole.ADVISOR);
+            em.persist(karim);
+            Advisor advisor = new Advisor();
+            advisor.setUser(karim);
+            advisor.setDisplayName("Karim");
+            em.persist(advisor);
+
             Conversation conversation = new Conversation();
             conversation.setCustomer(customer);
             conversation.setStatus(ConversationStatus.ACTIVE);
+            conversation.setAdvisor(advisor);
             em.persist(conversation);
 
             Account account = new Account();
@@ -262,7 +279,8 @@ class StompSupervisionTest extends AbstractPersistenceTest {
             card.setExpiresOn(LocalDate.of(2029, 12, 31));
             card.setDailyLimit(new BigDecimal("1000.00"));
             em.persist(card);
-            return new Seed(customer.getId(), conversation.getId(), card.getId());
+            return new Seed(customer.getId(), conversation.getId(), card.getId(),
+                    validToken(karim.getId(), karim.getEmail(), UserRole.ADVISOR));
         });
     }
 
@@ -299,10 +317,13 @@ class StompSupervisionTest extends AbstractPersistenceTest {
     }
 
     @Test
-    @DisplayName("queues are for staff: an ADVISOR may listen to a skill queue, a CUSTOMER may not")
+    @DisplayName("queues are for staff: a SUPERVISOR may listen to any skill queue, a CUSTOMER to none, and an "
+            + "ADVISOR only to a skill they hold (proven with real advisors in StompConversationTest)")
     void queuesAreForStaff() throws Exception {
-        assertThat(subscriptionRefused(UserRole.ADVISOR, "/topic/queue/CARDS")).isFalse();
+        assertThat(subscriptionRefused(UserRole.SUPERVISOR, "/topic/queue/CARDS")).isFalse();
         assertThat(subscriptionRefused(UserRole.CUSTOMER, "/topic/queue/CARDS")).isTrue();
+        assertThat(subscriptionRefused(UserRole.ADVISOR, "/topic/queue/CARDS"))
+                .as("a token with no advisor profile holds no skill").isTrue();
     }
 
     @Test
@@ -341,7 +362,7 @@ class StompSupervisionTest extends AbstractPersistenceTest {
         Seed seed = seed();
         BlockingQueue<JsonNode> received = subscribe(session(token(UserRole.SUPERVISOR)), ALERTS);
 
-        String advisor = token(UserRole.ADVISOR);
+        String advisor = seed.advisorToken();
         String body = "{\"reason\": \"Fraude suspectee, besoin d'un superviseur\"}";
         assertThat(post("/api/v1/conversations/" + seed.conversationId() + "/escalations", advisor, body)).isEqualTo(201);
 

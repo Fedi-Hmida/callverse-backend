@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.callverse.auth.ErrorEnvelope;
 import com.callverse.core.domain.entities.Account;
+import com.callverse.core.domain.entities.AppUser;
 import com.callverse.core.domain.entities.Card;
 import com.callverse.core.domain.entities.Conversation;
 import com.callverse.core.domain.entities.Customer;
@@ -64,6 +65,11 @@ class AdvisorWorkspaceEndpointTest extends AbstractPersistenceTest {
 
     static RequestPostProcessor as(UserRole role) {
         return bearer(validToken(UUID.randomUUID(), role.name().toLowerCase() + "@callverse.local", role));
+    }
+
+    /** A token for a login that exists, so ownership checks have someone to match. */
+    static RequestPostProcessor as(AppUser user) {
+        return bearer(validToken(user.getId(), user.getEmail(), user.getRole()));
     }
 
     static RequestPostProcessor anonymous() {
@@ -459,14 +465,16 @@ class AdvisorWorkspaceEndpointTest extends AbstractPersistenceTest {
         private static final String REASON = "{\"reason\": \"Fraude suspectee, besoin d'un superviseur\"}";
 
         @Test
-        @DisplayName("an ADVISOR escalates: 201, raised by ADVISOR, really stored; a repeat is 200 with the same id")
+        @DisplayName("the conversation's ADVISOR escalates: 201, stored, conversation now ESCALATED; a repeat is 200")
         void advisorEscalatesIdempotently() throws Exception {
             Customer customer = fixtures.customer("ESC-" + WorkspaceFixtures.suffix(), "Marseille");
-            Conversation conversation = fixtures.conversation(customer, ConversationStatus.ACTIVE);
+            AppUser karim = fixtures.user(UserRole.ADVISOR);
+            Conversation conversation =
+                    fixtures.conversation(customer, ConversationStatus.ACTIVE, fixtures.advisor(karim));
             flushAndClear();
 
             JsonNode first = call(post("/api/v1/conversations/{id}/escalations", conversation.getId())
-                    .contentType(MediaType.APPLICATION_JSON).content(REASON).with(as(UserRole.ADVISOR)), 201);
+                    .contentType(MediaType.APPLICATION_JSON).content(REASON).with(as(karim)), 201);
             assertThat(first.get("raisedBy").asText()).isEqualTo("ADVISOR");
             flushAndClear();
 
@@ -474,9 +482,12 @@ class AdvisorWorkspaceEndpointTest extends AbstractPersistenceTest {
                     .setParameter("id", UUID.fromString(first.get("id").asText()))
                     .getSingleResult();
             assertThat(storedBy.toString()).isEqualTo("ADVISOR");
+            assertThat(em.find(Conversation.class, conversation.getId()).getStatus())
+                    .as("raising the escalation moves the conversation, in the same transaction")
+                    .isEqualTo(ConversationStatus.ESCALATED);
 
             JsonNode second = call(post("/api/v1/conversations/{id}/escalations", conversation.getId())
-                    .contentType(MediaType.APPLICATION_JSON).content(REASON).with(as(UserRole.ADVISOR)), 200);
+                    .contentType(MediaType.APPLICATION_JSON).content(REASON).with(as(karim)), 200);
             assertThat(second.get("id").asText()).isEqualTo(first.get("id").asText());
         }
 
@@ -484,14 +495,73 @@ class AdvisorWorkspaceEndpointTest extends AbstractPersistenceTest {
         @DisplayName("a resolved conversation cannot be escalated: 409")
         void resolvedConversationIsRefused() throws Exception {
             Customer customer = fixtures.customer("ESC-" + WorkspaceFixtures.suffix(), "Marseille");
-            Conversation conversation = fixtures.conversation(customer, ConversationStatus.RESOLVED);
+            AppUser karim = fixtures.user(UserRole.ADVISOR);
+            Conversation conversation =
+                    fixtures.conversation(customer, ConversationStatus.RESOLVED, fixtures.advisor(karim));
             flushAndClear();
 
             ErrorEnvelope.assertConforms(
                     call(post("/api/v1/conversations/{id}/escalations", conversation.getId())
-                            .contentType(MediaType.APPLICATION_JSON).content(REASON).with(as(UserRole.ADVISOR)), 409),
+                            .contentType(MediaType.APPLICATION_JSON).content(REASON).with(as(karim)), 409),
                     409,
                     "INVALID_STATE_TRANSITION");
+        }
+
+        @Test
+        @DisplayName("an ACTIVE conversation already holding a pending escalation is moved to ESCALATED on retry: 200")
+        void legacyPendingEscalationHeals() throws Exception {
+            Customer customer = fixtures.customer("ESC-" + WorkspaceFixtures.suffix(), "Marseille");
+            AppUser karim = fixtures.user(UserRole.ADVISOR);
+            Conversation conversation =
+                    fixtures.conversation(customer, ConversationStatus.ACTIVE, fixtures.advisor(karim));
+            com.callverse.core.domain.entities.Escalation old = new com.callverse.core.domain.entities.Escalation();
+            old.setConversation(conversation);
+            old.setReason("raised before escalating moved the conversation");
+            old.setRaisedBy(com.callverse.core.domain.enums.EscalationRaisedBy.ADVISOR);
+            em.persist(old);
+            flushAndClear();
+
+            JsonNode body = call(post("/api/v1/conversations/{id}/escalations", conversation.getId())
+                    .contentType(MediaType.APPLICATION_JSON).content(REASON).with(as(karim)), 200);
+            assertThat(body.get("id").asText()).isEqualTo(old.getId().toString());
+            flushAndClear();
+            assertThat(em.find(Conversation.class, conversation.getId()).getStatus())
+                    .isEqualTo(ConversationStatus.ESCALATED);
+        }
+
+        @Test
+        @DisplayName("a simulation run's conversation cannot be escalated from the live route: 404")
+        void simulatedConversationIsNotFound() throws Exception {
+            Customer customer = fixtures.customer("ESC-" + WorkspaceFixtures.suffix(), "Marseille");
+            AppUser karim = fixtures.user(UserRole.ADVISOR);
+            Conversation conversation =
+                    fixtures.conversation(customer, ConversationStatus.ACTIVE, fixtures.advisor(karim));
+            conversation.setRunId(UUID.randomUUID());
+            flushAndClear();
+
+            call(post("/api/v1/conversations/{id}/escalations", conversation.getId())
+                    .contentType(MediaType.APPLICATION_JSON).content(REASON).with(as(karim)), 404);
+            assertThat(em.find(Conversation.class, conversation.getId()).getStatus())
+                    .isEqualTo(ConversationStatus.ACTIVE);
+        }
+
+        @Test
+        @DisplayName("another advisor escalating someone else's conversation is 404: not theirs to see")
+        void anotherAdvisorIsNotFound() throws Exception {
+            Customer customer = fixtures.customer("ESC-" + WorkspaceFixtures.suffix(), "Marseille");
+            Conversation conversation = fixtures.conversation(
+                    customer, ConversationStatus.ACTIVE, fixtures.advisor(fixtures.user(UserRole.ADVISOR)));
+            AppUser lina = fixtures.user(UserRole.ADVISOR);
+            fixtures.advisor(lina);
+            flushAndClear();
+
+            ErrorEnvelope.assertConforms(
+                    call(post("/api/v1/conversations/{id}/escalations", conversation.getId())
+                            .contentType(MediaType.APPLICATION_JSON).content(REASON).with(as(lina)), 404),
+                    404,
+                    "RESOURCE_NOT_FOUND");
+            assertThat(em.find(Conversation.class, conversation.getId()).getStatus())
+                    .isEqualTo(ConversationStatus.ACTIVE);
         }
 
         @Test
@@ -511,11 +581,13 @@ class AdvisorWorkspaceEndpointTest extends AbstractPersistenceTest {
         private Customer customer;
         private Conversation conversation;
         private Card card;
+        private AppUser karim;
 
         @BeforeEach
         void seed() {
             customer = fixtures.customer("ROLE-" + WorkspaceFixtures.suffix(), "Marseille");
-            conversation = fixtures.conversation(customer, ConversationStatus.ACTIVE);
+            karim = fixtures.user(UserRole.ADVISOR);
+            conversation = fixtures.conversation(customer, ConversationStatus.ACTIVE, fixtures.advisor(karim));
             card = fixtures.card(fixtures.account(customer, WorkspaceFixtures.iban()), CardStatus.ACTIVE);
             flushAndClear();
         }
@@ -548,7 +620,7 @@ class AdvisorWorkspaceEndpointTest extends AbstractPersistenceTest {
         void onlyAdvisorEscalates() throws Exception {
             call(escalate(as(UserRole.SUPERVISOR)), 403);
             call(escalate(as(UserRole.ADMIN)), 403);
-            call(escalate(as(UserRole.ADVISOR)), 201);
+            call(escalate(as(karim)), 201);
         }
 
         @Test

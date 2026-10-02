@@ -1,5 +1,6 @@
 package com.callverse.host.api.errorhandling;
 
+import com.callverse.core.application.exceptions.ActionNotPermittedException;
 import com.callverse.core.application.exceptions.ApplicationException;
 import com.callverse.core.application.exceptions.AuthenticationRequiredException;
 import com.callverse.core.application.exceptions.InvalidCredentialsException;
@@ -187,6 +188,27 @@ public class GlobalExceptionHandler {
         if (!TRUST.isAuthenticated(SecurityContextHolder.getContext().getAuthentication())) {
             return unauthenticated(request);
         }
+        return build(
+                HttpStatus.FORBIDDEN,
+                SecurityErrorWriter.ACCESS_DENIED,
+                SecurityErrorWriter.ACCESS_DENIED_MESSAGE,
+                request);
+    }
+
+    /**
+     * A use case refused an action the caller's role allows in general but not on this resource — an
+     * advisor resolving a conversation a supervisor now owns. Answered exactly like a
+     * {@code @PreAuthorize} denial: same status, code and message, so a client handles one 403. The
+     * use case's reason goes to the log, not to the client.
+     *
+     * <p>Declared separately from {@link ApplicationException}, which it extends, so that Spring
+     * dispatches here rather than to the 400 below. Documented by the 403 {@code @ApiResponse} on
+     * {@link #handleAccessDenied}.
+     */
+    @ExceptionHandler(ActionNotPermittedException.class)
+    public ResponseEntity<ErrorResponse> handleActionNotPermitted(
+            ActionNotPermittedException exception, HttpServletRequest request) {
+        log.warn("{} {} refused: {}", request.getMethod(), request.getRequestURI(), exception.getMessage());
         return build(
                 HttpStatus.FORBIDDEN,
                 SecurityErrorWriter.ACCESS_DENIED,

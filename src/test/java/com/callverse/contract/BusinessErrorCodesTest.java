@@ -70,6 +70,23 @@ class BusinessErrorCodesTest {
     }
 
     @Test
+    @DisplayName("ADVISOR_PROFILE_NOT_FOUND — a 404 with its own code, telling an administrator what to fix")
+    void advisorProfileNotFound() {
+        com.callverse.core.application.exceptions.AdvisorProfileNotFoundException e =
+                new com.callverse.core.application.exceptions.AdvisorProfileNotFoundException(UUID.randomUUID());
+        assertThat(e.code()).isEqualTo("ADVISOR_PROFILE_NOT_FOUND");
+        assertThat(e).isInstanceOf(com.callverse.core.application.exceptions.ResourceNotFoundException.class);
+    }
+
+    @Test
+    @DisplayName("ADVISOR_UNAVAILABLE at capacity names the count, so the refusal is actionable")
+    void advisorAtCapacity() {
+        AdvisorUnavailableException e = AdvisorUnavailableException.atCapacity(UUID.randomUUID(), 2, 2);
+        assertThat(e.code()).isEqualTo("ADVISOR_UNAVAILABLE");
+        assertThat(e.getMessage()).contains("2 of 2");
+    }
+
+    @Test
     @DisplayName("SLA_POLICY_NOT_FOUND — its own code, not the generic RESOURCE_NOT_FOUND")
     void slaPolicyNotFound() {
         SlaPolicyNotFoundException e = new SlaPolicyNotFoundException(UUID.randomUUID());

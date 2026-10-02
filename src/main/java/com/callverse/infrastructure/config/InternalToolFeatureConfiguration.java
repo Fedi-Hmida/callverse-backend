@@ -1,5 +1,6 @@
 package com.callverse.infrastructure.config;
 
+import com.callverse.core.application.features.conversation.ConversationEvents;
 import com.callverse.core.application.features.conversation.commands.EscalateConversationCommandHandler;
 import com.callverse.core.application.features.incident.queries.GetServiceStatusQueryHandler;
 import com.callverse.core.application.features.knowledge.queries.SearchKnowledgeBaseQueryHandler;
@@ -46,7 +47,10 @@ public class InternalToolFeatureConfiguration {
 
     @Bean
     EscalateConversationCommandHandler escalateConversationCommandHandler(
-            ConversationDirectory conversations, Escalations escalations, RealtimeEventPublisher events) {
-        return new EscalateConversationCommandHandler(conversations, escalations, events);
+            ConversationDirectory conversations,
+            Escalations escalations,
+            RealtimeEventPublisher events,
+            ConversationEvents conversationEvents) {
+        return new EscalateConversationCommandHandler(conversations, escalations, events, conversationEvents);
     }
 }

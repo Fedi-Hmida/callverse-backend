@@ -21,4 +21,14 @@ public class AdvisorUnavailableException extends DomainException {
     public AdvisorUnavailableException(UUID advisorId, AdvisorStatus status) {
         super(CODE, "Advisor %s cannot take work while %s.".formatted(advisorId, status));
     }
+
+    private AdvisorUnavailableException(String message) {
+        super(CODE, message);
+    }
+
+    /** The advisor already holds as many conversations as {@code advisor.max_concurrent} allows. */
+    public static AdvisorUnavailableException atCapacity(UUID advisorId, long held, int maxConcurrent) {
+        return new AdvisorUnavailableException(
+                "Advisor %s is at capacity: %d of %d conversations.".formatted(advisorId, held, maxConcurrent));
+    }
 }

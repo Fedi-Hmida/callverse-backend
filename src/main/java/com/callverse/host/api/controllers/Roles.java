@@ -23,6 +23,12 @@ final class Roles {
      */
     static final String ADVISOR = "hasRole('ADVISOR')";
 
+    /** The two parties to a conversation: its advisor and its customer. Supervisors read, they do not write. */
+    static final String PARTIES = "hasAnyRole('ADVISOR','CUSTOMER')";
+
+    /** Who watches the floor: supervisors, and administrators who run the platform. */
+    static final String SUPERVISION = "hasAnyRole('SUPERVISOR','ADMIN')";
+
     /** Anyone signed in, customers included. */
     static final String ANYONE = "isAuthenticated()";
 

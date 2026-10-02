@@ -1,6 +1,9 @@
 package com.callverse.infrastructure.demo;
 
 import com.callverse.core.domain.entities.Account;
+import com.callverse.core.domain.entities.Advisor;
+import com.callverse.core.domain.entities.AdvisorSkill;
+import com.callverse.core.domain.entities.AppUser;
 import com.callverse.core.domain.entities.BankTransaction;
 import com.callverse.core.domain.entities.BankingProduct;
 import com.callverse.core.domain.entities.Card;
@@ -10,6 +13,7 @@ import com.callverse.core.domain.entities.KbArticle;
 import com.callverse.core.domain.entities.ServiceIncident;
 import com.callverse.core.domain.entities.Skill;
 import com.callverse.core.domain.enums.AccountStatus;
+import com.callverse.core.domain.enums.AdvisorStatus;
 import com.callverse.core.domain.enums.BankingService;
 import com.callverse.core.domain.enums.CardNetwork;
 import com.callverse.core.domain.enums.CardStatus;
@@ -20,12 +24,14 @@ import com.callverse.core.domain.enums.CustomerSegment;
 import com.callverse.core.domain.enums.Intent;
 import com.callverse.core.domain.enums.TransactionStatus;
 import com.callverse.core.domain.enums.TransactionType;
+import com.callverse.core.domain.services.PriorityCalculator;
 import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
@@ -50,6 +56,11 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <p><strong>No real data.</strong> Names are invented; IBANs follow the documentation format; card
  * numbers do not exist anywhere, only last-four digits.
+ *
+ * <p><strong>The people.</strong> The development advisor login becomes Karim, an advisor holding
+ * the four skills, and Amina's call is his; the development customer login becomes Amina's. This
+ * step checks each link on every boot, so a database loaded before it existed is completed rather
+ * than reloaded.
  */
 @Component
 @Profile("dev")
@@ -59,6 +70,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 class DemoDataLoader implements ApplicationRunner {
 
     static final String SCENARIO_CUSTOMER = "DEMO-00418";
+    private static final String ADVISOR_LOGIN = "advisor@callverse.local";
+    private static final String CUSTOMER_LOGIN = "customer@callverse.local";
 
     private final EntityManager em;
     private final TransactionTemplate transactions;
@@ -79,6 +92,71 @@ class DemoDataLoader implements ApplicationRunner {
             load(clock.instant());
             log.info("Demo data loaded: scenario customer {}", SCENARIO_CUSTOMER);
         });
+        transactions.executeWithoutResult(status -> staff(clock.instant()));
+    }
+
+    /** Karim for the advisor login, Amina for the customer login; idempotent, link by link. */
+    private void staff(Instant now) {
+        AppUser advisorLogin = login(ADVISOR_LOGIN);
+        AppUser customerLogin = login(CUSTOMER_LOGIN);
+        Customer amina = em.createQuery("select c from Customer c where c.externalRef = :ref", Customer.class)
+                .setParameter("ref", SCENARIO_CUSTOMER)
+                .getResultStream()
+                .findFirst()
+                .orElse(null);
+        if (advisorLogin == null || customerLogin == null || amina == null) {
+            log.warn("Demo staffing skipped: a development login or the scenario customer is missing");
+            return;
+        }
+
+        List<Advisor> existing = em.createQuery("select a from Advisor a where a.user = :u", Advisor.class)
+                .setParameter("u", advisorLogin)
+                .getResultList();
+        if (existing.size() > 1) {
+            // The advisor directory refuses an ambiguous login; the demo does not pick one either.
+            log.warn("Demo staffing skipped: the development advisor login is linked to {} advisors", existing.size());
+            return;
+        }
+        Advisor karim = existing.isEmpty() ? karim(advisorLogin) : existing.get(0);
+
+        if (amina.getUser() == null) {
+            amina.setUser(customerLogin);
+        }
+        for (Conversation call : em.createQuery(
+                        "select c from Conversation c where c.customer = :c and c.status = :s and c.advisor is null",
+                        Conversation.class)
+                .setParameter("c", amina)
+                .setParameter("s", ConversationStatus.ACTIVE)
+                .getResultList()) {
+            call.setAdvisor(karim);
+            call.setAssignedAt(now.minus(Duration.ofMinutes(2)));
+        }
+    }
+
+    private Advisor karim(AppUser login) {
+        Advisor karim = new Advisor();
+        karim.setUser(login);
+        karim.setDisplayName("Karim Benali");
+        karim.setStatus(AdvisorStatus.AVAILABLE);
+        karim.setMaxConcurrent(2);
+        em.persist(karim);
+        for (String code : List.of("ACCOUNTS", "CARDS", "CREDIT", "FRAUD")) {
+            AdvisorSkill held = new AdvisorSkill();
+            held.setAdvisor(karim);
+            held.setSkill(skill(code));
+            held.setLevel((short) 2);
+            em.persist(held);
+        }
+        log.info("Demo advisor created for the development advisor login");
+        return karim;
+    }
+
+    private AppUser login(String email) {
+        return em.createQuery("select u from AppUser u where u.email = :e", AppUser.class)
+                .setParameter("e", email)
+                .getResultStream()
+                .findFirst()
+                .orElse(null);
     }
 
     private void load(Instant now) {
@@ -113,6 +191,10 @@ class DemoDataLoader implements ApplicationRunner {
         account(lucas, "CUR_ESSENTIAL", "FR7630006000015555666677701", "212.75", "200.00", LocalDate.of(2025, 8, 1));
         Customer sofia = customer("DEMO-00733", "Sofia", "Rossi", "Paris", CustomerSegment.PROFESSIONAL, 40, ChurnRisk.HIGH);
         account(sofia, "CUR_PREMIUM", "FR7630006000014444333322204", "-35.10", "1500.00", LocalDate.of(2022, 1, 10));
+
+        // --- Two contacts waiting, so an advisor can take one live ---------------------------
+        waiting(lucas, "ACCOUNTS", Intent.BALANCE, now.minus(Duration.ofSeconds(40)));
+        waiting(sofia, "CARDS", Intent.CARD, now.minus(Duration.ofSeconds(75)));
 
         // --- An outage elsewhere: Marseille has none, so the scenario takes the fraud path -----
         ServiceIncident lyon = new ServiceIncident();
@@ -195,6 +277,17 @@ class DemoDataLoader implements ApplicationRunner {
         t.setStatus(status);
         t.setBookedAt(bookedAt);
         em.persist(t);
+    }
+
+    private void waiting(Customer customer, String skillCode, Intent intent, Instant queuedAt) {
+        Conversation contact = new Conversation();
+        contact.setCustomer(customer);
+        contact.setSkill(skill(skillCode));
+        contact.setIntent(intent);
+        contact.setStatus(ConversationStatus.QUEUED);
+        contact.setPriorityScore(PriorityCalculator.score(customer.getChurnRisk(), customer.getSegment(), intent));
+        contact.setQueuedAt(queuedAt);
+        em.persist(contact);
     }
 
     private Skill skill(String code) {

@@ -11,4 +11,13 @@ package com.callverse.core.application.interfaces;
 public interface RealtimeEventPublisher {
 
     void publishSupervisionAlert(SupervisionAlert alert);
+
+    /** To {@code /topic/queue/{event.skill}}. */
+    void publishQueueEvent(QueueEvent event);
+
+    /** To {@code /topic/conversation/{event.conversationId}}. */
+    void publishConversationEvent(ConversationEvent event);
+
+    /** To {@code /topic/supervision/kpi}. */
+    void publishLiveKpi(LiveKpiSnapshot snapshot);
 }

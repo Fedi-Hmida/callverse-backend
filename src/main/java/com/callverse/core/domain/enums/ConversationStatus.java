@@ -24,9 +24,8 @@ import java.util.Set;
  * with the type, rather than being reinvented in the router, the SLA sweep and the simulation
  * runner independently and inconsistently.
  *
- * <p>No use case consumes this yet — enforcement arrives with the conversation feature slice, which
- * will reject an illegal transition with {@code INVALID_STATE_TRANSITION}. It is defined now so
- * that when three callers need it, they find it instead of writing it.
+ * <p>Consumed by {@code ConversationRules}, which every lifecycle use case goes through, and by
+ * the escalation use case; an illegal transition is refused with {@code INVALID_STATE_TRANSITION}.
  *
  * <p>Persisted as {@code EnumType.STRING}, never ORDINAL. These constants must match the column's
  * SQL CHECK constraint character for character.

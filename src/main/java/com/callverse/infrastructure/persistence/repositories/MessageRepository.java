@@ -25,6 +25,9 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
 
     long countByConversationId(UUID conversationId);
 
+    /** The newest messages first, ties broken by insertion order; the caller reverses the page. */
+    List<Message> findByConversationIdOrderBySentAtDescIdDesc(UUID conversationId, Pageable pageable);
+
     /**
      * Agent turns only. Feeds the Quality Analyst, which scores what the AI said rather than what
      * the customer said.

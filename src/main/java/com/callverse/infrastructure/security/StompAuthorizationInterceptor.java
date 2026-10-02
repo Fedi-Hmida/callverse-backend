@@ -1,5 +1,6 @@
 package com.callverse.infrastructure.security;
 
+import com.callverse.core.application.features.conversation.queries.ConversationSubscriptionPolicy;
 import com.callverse.core.application.interfaces.AuthenticatedPrincipal;
 import com.callverse.core.domain.enums.UserRole;
 import java.util.List;
@@ -43,8 +44,12 @@ import org.springframework.util.AntPathMatcher;
  * <p>A refusal throws, so Spring answers with a STOMP ERROR frame ("Access denied") and closes the
  * session. The log line names the command and the sanitized destination, never the token.
  *
- * <p><strong>Not yet ownership.</strong> Staff may subscribe to any skill queue or any single
- * conversation; narrowing that to their own needs schema change S-1, as for the REST routes.
+ * <p><strong>Ownership, after the role.</strong> A role allowed on a topic is necessary, not
+ * sufficient. On {@code /topic/conversation/{id}} the caller must be allowed to read that very
+ * conversation — its customer, its assigned advisor, or a supervisor (rule A15). On
+ * {@code /topic/queue/{skill}} an advisor must hold the skill (rule B14). Both questions are asked of
+ * {@link ConversationSubscriptionPolicy}, the same rules the REST reads use, so the live topic can
+ * never be a second, wider door.
  */
 @Component
 @Slf4j
@@ -52,14 +57,21 @@ public class StompAuthorizationInterceptor implements ChannelInterceptor {
 
     private static final Set<UserRole> SUPERVISION = Set.of(UserRole.SUPERVISOR, UserRole.ADMIN);
     private static final Set<UserRole> STAFF = Set.of(UserRole.ADVISOR, UserRole.SUPERVISOR, UserRole.ADMIN);
+    private static final Set<UserRole> ANYONE = Set.of(UserRole.values());
 
-    /** The five frozen topics (brief 01 :67) and who may listen to each. Nothing else exists. */
+    private static final String QUEUE = "/topic/queue/*";
+    private static final String CONVERSATION = "/topic/conversation/*";
+
+    /**
+     * The five frozen topics (brief 01 :67) and who may listen to each. Nothing else exists. The queue
+     * and conversation topics then check ownership on top of the role.
+     */
     private static final Map<String, Set<UserRole>> TOPICS = Map.of(
             "/topic/supervision/alerts", SUPERVISION,
             "/topic/supervision/kpi", SUPERVISION,
             "/topic/runs/*", SUPERVISION,
-            "/topic/queue/*", STAFF,
-            "/topic/conversation/*", STAFF);
+            QUEUE, STAFF,
+            CONVERSATION, ANYONE);
 
     /**
      * Literal segments only: letters, digits, '-' and '_'. No '*', '?', '{', '}' (which the broker
@@ -70,10 +82,13 @@ public class StompAuthorizationInterceptor implements ChannelInterceptor {
     private final AntPathMatcher paths = new AntPathMatcher();
     private final JwtTokenService tokens;
     private final StompSessionRegistry sessions;
+    private final ConversationSubscriptionPolicy subscriptions;
 
-    public StompAuthorizationInterceptor(JwtTokenService tokens, StompSessionRegistry sessions) {
+    public StompAuthorizationInterceptor(
+            JwtTokenService tokens, StompSessionRegistry sessions, ConversationSubscriptionPolicy subscriptions) {
         this.tokens = tokens;
         this.sessions = sessions;
+        this.subscriptions = subscriptions;
     }
 
     @Override
@@ -141,6 +156,13 @@ public class StompAuthorizationInterceptor implements ChannelInterceptor {
         }
         if (!allowed.contains(principal.role())) {
             throw refuse(stomp, "role " + principal.role() + " may not subscribe here");
+        }
+        String lastSegment = destination.substring(destination.lastIndexOf('/') + 1);
+        if (paths.match(CONVERSATION, destination) && !subscriptions.mayListenToConversation(principal, lastSegment)) {
+            throw refuse(stomp, "not a reader of this conversation");
+        }
+        if (paths.match(QUEUE, destination) && !subscriptions.mayListenToQueue(principal, lastSegment)) {
+            throw refuse(stomp, "holds no skill for this queue");
         }
     }
 

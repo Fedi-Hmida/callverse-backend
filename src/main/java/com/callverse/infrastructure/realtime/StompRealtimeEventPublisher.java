@@ -1,5 +1,8 @@
 package com.callverse.infrastructure.realtime;
 
+import com.callverse.core.application.interfaces.ConversationEvent;
+import com.callverse.core.application.interfaces.LiveKpiSnapshot;
+import com.callverse.core.application.interfaces.QueueEvent;
 import com.callverse.core.application.interfaces.RealtimeEventPublisher;
 import com.callverse.core.application.interfaces.SupervisionAlert;
 import lombok.extern.slf4j.Slf4j;
@@ -25,6 +28,9 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 public class StompRealtimeEventPublisher implements RealtimeEventPublisher {
 
     static final String SUPERVISION_ALERTS = "/topic/supervision/alerts";
+    static final String SUPERVISION_KPI = "/topic/supervision/kpi";
+    static final String QUEUE_PREFIX = "/topic/queue/";
+    static final String CONVERSATION_PREFIX = "/topic/conversation/";
 
     private final SimpMessageSendingOperations messaging;
 
@@ -35,6 +41,21 @@ public class StompRealtimeEventPublisher implements RealtimeEventPublisher {
     @Override
     public void publishSupervisionAlert(SupervisionAlert alert) {
         afterCommit(() -> messaging.convertAndSend(SUPERVISION_ALERTS, alert));
+    }
+
+    @Override
+    public void publishQueueEvent(QueueEvent event) {
+        afterCommit(() -> messaging.convertAndSend(QUEUE_PREFIX + event.skill(), event));
+    }
+
+    @Override
+    public void publishConversationEvent(ConversationEvent event) {
+        afterCommit(() -> messaging.convertAndSend(CONVERSATION_PREFIX + event.conversationId(), event));
+    }
+
+    @Override
+    public void publishLiveKpi(LiveKpiSnapshot snapshot) {
+        afterCommit(() -> messaging.convertAndSend(SUPERVISION_KPI, snapshot));
     }
 
     private static void afterCommit(Runnable send) {

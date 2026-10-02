@@ -20,8 +20,11 @@ public interface Escalations {
     Optional<EscalationRecord> findPending(UUID conversationId);
 
     /**
-     * Raises an escalation unless the conversation already has a pending one, atomically.
+     * Raises an escalation unless the conversation already has a pending one, atomically, and moves
+     * the conversation to {@code ESCALATED} in the same transaction.
      *
+     * @throws com.callverse.core.domain.exceptions.InvalidStateTransitionException when, under the
+     *     lock, the conversation can no longer be escalated
      * @return the new escalation with {@code created = true}, or the existing pending one with
      *     {@code created = false}
      */

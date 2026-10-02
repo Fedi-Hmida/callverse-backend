@@ -19,6 +19,9 @@ public interface EscalationRepository extends JpaRepository<Escalation, UUID> {
 
     List<Escalation> findByConversationId(UUID conversationId);
 
+    /** Every escalation of a conversation in a status: all pending ones are resolved together. */
+    List<Escalation> findByConversationIdAndStatus(UUID conversationId, EscalationStatus status);
+
     /**
      * The conversation's pending escalation, if any. "First" because the schema cannot guarantee
      * there is only one — no unique constraint on {@code (conversation_id, status)} — even though

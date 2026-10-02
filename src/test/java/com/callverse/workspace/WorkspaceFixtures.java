@@ -1,6 +1,8 @@
 package com.callverse.workspace;
 
 import com.callverse.core.domain.entities.Account;
+import com.callverse.core.domain.entities.Advisor;
+import com.callverse.core.domain.entities.AppUser;
 import com.callverse.core.domain.entities.BankTransaction;
 import com.callverse.core.domain.entities.BankingProduct;
 import com.callverse.core.domain.entities.Card;
@@ -16,6 +18,7 @@ import com.callverse.core.domain.enums.CardType;
 import com.callverse.core.domain.enums.ConversationStatus;
 import com.callverse.core.domain.enums.TransactionStatus;
 import com.callverse.core.domain.enums.TransactionType;
+import com.callverse.core.domain.enums.UserRole;
 import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -114,6 +117,35 @@ final class WorkspaceFixtures {
         article.setPublished(published);
         em.persist(article);
         return article;
+    }
+
+    /** A login, so that a token can carry a user id the database knows. */
+    AppUser user(UserRole role) {
+        AppUser user = new AppUser();
+        user.setEmail(role.name().toLowerCase() + "-" + suffix() + "@test.local");
+        user.setPasswordHash("$2a$10$abcdefghijklmnopqrstuuJ4H1y9oD6kBz1V5Q2yQ1w5bLb6xXyZ2");
+        user.setFirstName("Test");
+        user.setLastName(role.name());
+        user.setRole(role);
+        em.persist(user);
+        return user;
+    }
+
+    /** An advisor behind {@code user}: the only kind of advisor who may act on a conversation. */
+    Advisor advisor(AppUser user) {
+        Advisor advisor = new Advisor();
+        advisor.setUser(user);
+        advisor.setDisplayName("Karim " + suffix());
+        em.persist(advisor);
+        return advisor;
+    }
+
+    /** A conversation assigned to {@code advisor}. */
+    Conversation conversation(Customer customer, ConversationStatus status, Advisor advisor) {
+        Conversation conversation = conversation(customer, status);
+        conversation.setAdvisor(advisor);
+        conversation.setAssignedAt(Instant.now());
+        return conversation;
     }
 
     Conversation conversation(Customer customer, ConversationStatus status) {

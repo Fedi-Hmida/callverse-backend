@@ -66,13 +66,13 @@ public final class AuthenticatedRequests {
         return claims(userId, email, role, now, now.plus(LIFETIME)).signWith(KEY, Jwts.SIG.HS512).compact();
     }
 
-    /** Correctly signed, but its {@code exp} passed an hour ago. */
     /** A valid token that expires after {@code lifetime}: for sessions that outlive their token. */
     public static String tokenExpiringIn(Duration lifetime, UUID userId, String email, UserRole role) {
         Instant now = Instant.now();
         return claims(userId, email, role, now, now.plus(lifetime)).signWith(KEY, Jwts.SIG.HS512).compact();
     }
 
+    /** Correctly signed, but its {@code exp} passed an hour ago. */
     public static String expiredToken(UUID userId, String email, UserRole role) {
         Instant issued = Instant.now().minus(LIFETIME.multipliedBy(2));
         return claims(userId, email, role, issued, issued.plus(LIFETIME))

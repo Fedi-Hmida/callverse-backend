@@ -3,6 +3,7 @@ package com.callverse.infrastructure.persistence.repositories;
 import com.callverse.core.domain.entities.Conversation;
 import com.callverse.core.domain.enums.ConversationStatus;
 import jakarta.persistence.LockModeType;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -61,6 +62,62 @@ public interface ConversationRepository extends JpaRepository<Conversation, UUID
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select c from Conversation c where c.id = :id")
     Optional<Conversation> findByIdForUpdate(@Param("id") UUID id);
+
+    /**
+     * The head of a live skill queue, locked, skipping rows another transaction already holds.
+     *
+     * <p>Native because {@code SKIP LOCKED} is the point: two advisors taking at the same moment
+     * each lock a <em>different</em> conversation instead of the second one blocking on the first
+     * and then finding it gone. The filter and the sort follow {@code idx_conv_status_queue}
+     * column for column; {@code run_id IS NULL} keeps simulation runs out of the live queue.
+     */
+    @Query(value = """
+           select *
+             from conversation
+            where status = 'QUEUED'
+              and skill_id = :skillId
+              and run_id is null
+            order by priority_score desc, queued_at asc
+            limit 1
+              for update skip locked
+           """, nativeQuery = true)
+    Optional<Conversation> lockNextLiveQueued(@Param("skillId") UUID skillId);
+
+    /**
+     * A live conversation with what an ownership check needs already loaded: the customer (whose
+     * {@code user_id} decides a CUSTOMER's access), the advisor and the skill.
+     */
+    @Query("""
+           select c
+             from Conversation c
+             join fetch c.customer
+             left join fetch c.advisor
+             left join fetch c.skill
+            where c.id = :id
+              and c.runId is null
+           """)
+    Optional<Conversation> findLive(@Param("id") UUID id);
+
+    /**
+     * What an advisor holds. No index leads with {@code advisor_id} (schema request S-6); at
+     * demonstration volume the scan is negligible, and the request stands for production volume.
+     */
+    @Query("""
+           select c
+             from Conversation c
+             join fetch c.customer
+             join fetch c.advisor
+             left join fetch c.skill
+            where c.advisor.id = :advisorId
+              and c.status in :statuses
+              and c.runId is null
+            order by c.assignedAt asc, c.queuedAt asc
+           """)
+    List<Conversation> findLiveHeldBy(
+            @Param("advisorId") UUID advisorId, @Param("statuses") Collection<ConversationStatus> statuses);
+
+    /** How many conversations an advisor holds now: the {@code max_concurrent} check. */
+    long countByAdvisorIdAndStatusIn(UUID advisorId, Collection<ConversationStatus> statuses);
 
     /** Queue depth per skill, the Workforce Manager's primary observation. */
     long countByStatusAndSkillId(ConversationStatus status, UUID skillId);

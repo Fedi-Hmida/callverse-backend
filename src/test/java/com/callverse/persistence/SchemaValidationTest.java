@@ -649,14 +649,33 @@ class SchemaValidationTest extends AbstractPersistenceTest {
     @DisplayName("V2 reference seed, as re-coded by V3")
     class ReferenceSeed {
 
+        private static final String TEST_SKILLS =
+                com.callverse.conversation.ConversationFixtures.TEST_SKILL_PREFIX.replace("_", "\\_") + "%";
+
+        private long seededSkills() {
+            return ((Number) em.createNativeQuery("select count(*) from skill where code not like :test")
+                    .setParameter("test", TEST_SKILLS)
+                    .getSingleResult()).longValue();
+        }
+
+        private long seededSlaPolicies() {
+            return ((Number) em.createNativeQuery(
+                            "select count(*) from sla_policy p left join skill s on s.id = p.skill_id"
+                                    + " where s.code is null or s.code not like :test")
+                    .setParameter("test", TEST_SKILLS)
+                    .getSingleResult()).longValue();
+        }
+
         @Test
         @DisplayName("every reference table is seeded with the documented rows")
         void seedCountsAreCorrect() {
             assertThat(count("BankingProduct")).isEqualTo(5);
             // Native counts for tables whose entities arrive in a later block; replaced with JPQL
             // as those entities land.
-            assertThat(nativeCount("skill")).isEqualTo(4);
-            assertThat(nativeCount("sla_policy")).isEqualTo(4);
+            // The conversation tests create private skills (and their policies) in the shared
+            // container; they all start with TEST_SKILL_PREFIX, which no migration ever seeds.
+            assertThat(seededSkills()).isEqualTo(4);
+            assertThat(seededSlaPolicies()).isEqualTo(4);
             assertThat(nativeCount("quality_criterion")).isEqualTo(6);
             assertThat(nativeCount("control_strategy")).isEqualTo(3);
             assertThat(nativeCount("app_user")).isGreaterThanOrEqualTo(4);
@@ -671,7 +690,9 @@ class SchemaValidationTest extends AbstractPersistenceTest {
         @Test
         @DisplayName("the skills are the banking ones, and FRAUD carries the strictest SLA")
         void skillsAreBanking() {
-            List<Object> codes = em.createNativeQuery("select code from skill order by code").getResultList();
+            List<Object> codes = em.createNativeQuery("select code from skill where code not like :test order by code")
+                    .setParameter("test", TEST_SKILLS)
+                    .getResultList();
             assertThat(codes).containsExactly("ACCOUNTS", "CARDS", "CREDIT", "FRAUD");
 
             Object[] fraud = (Object[]) em.createNativeQuery(
