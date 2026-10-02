@@ -346,7 +346,7 @@ database) comes first; the AI-service integration comes after it.
 
 **Exists:** the layer structure and its ArchUnit enforcement; configuration profiles; the error
 envelope; JWT (HS512) login and authentication with a permissive `dev` chain and deny-by-default
-elsewhere; eleven operations, listed under *Advisor workspace* below; 27 domain enums
+elsewhere; twenty-one operations, listed under *Advisor workspace* and *Conversation core* below; 27 domain enums
 including the conversation state machine; three migrations — `V1__init.sql`, `V2__seed_reference.sql`
 and `V3__banking_domain.sql` — giving 27 tables; 27 entities, 23 repositories, and the
 `MetricSampleBatchWriter` port; and a Testcontainers suite proving migrations and entities agree.
@@ -368,7 +368,7 @@ the user, until the schema has actor columns.
 | `searchKnowledgeArticles` | `GET /api/v1/kb/articles?q=&limit=` | staff |
 | `openTicket` | `POST /api/v1/tickets` | advisor, supervisor |
 | `blockCard` | `POST /api/v1/cards/{id}/block` | advisor, supervisor |
-| `escalateConversation` | `POST /api/v1/conversations/{id}/escalations` | advisor |
+| `escalateConversation` | `POST /api/v1/conversations/{id}/escalations` | the conversation's advisor |
 
 *Staff* is ADVISOR, SUPERVISOR or ADMIN. **Staff can read any customer** until ownership rules land
 (they need a `UNIQUE` constraint on `customer.user_id`); this is documented on each route, not an
@@ -380,6 +380,45 @@ The contract is committed as `openapi.yaml` and pinned by `OpenApiContractTest`:
 operation id or field fails the build until `make openapi` regenerates the file and the diff is
 committed. A demo dataset for the call scenario loads in `dev` only, and only with
 `CALLVERSE_DEMODATA_ENABLED=true` (`callverse.demo-data.enabled`); it is never a migration.
+
+**Conversation core** (2026-10-02): the life of a call, from the queue to its end, every step
+through the state machine (`QUEUED → ASSIGNED → ACTIVE → ESCALATED/RESOLVED/ABANDONED`; an illegal
+step is 409 `INVALID_STATE_TRANSITION`).
+
+| Operation | Route | Who |
+|---|---|---|
+| `openConversation` | `POST /api/v1/conversations` | staff, on the customer's behalf |
+| `listQueues` | `GET /api/v1/queues` | staff (an advisor sees their own skills only) |
+| `takeNextConversation` | `POST /api/v1/queues/{skill}/next` | advisor holding the skill |
+| `listMyConversations` | `GET /api/v1/conversations/mine` | advisor |
+| `getConversation` | `GET /api/v1/conversations/{id}` | its customer, its advisor, supervisor, admin |
+| `listMessages` | `GET /api/v1/conversations/{id}/messages?limit=` | same |
+| `postMessage` | `POST /api/v1/conversations/{id}/messages` | its advisor, its customer |
+| `resolveConversation` | `POST /api/v1/conversations/{id}/resolve` | its advisor; a supervisor once escalated |
+| `abandonConversation` | `POST /api/v1/conversations/{id}/abandon` | its customer, its advisor, supervisor, admin |
+| `getLiveKpi` | `GET /api/v1/supervision/kpi` | supervisor, admin |
+
+- **Ownership:** a customer reaches a conversation through `customer.user_id`, an advisor through
+  `advisor.user_id` and the assignment. Anyone else gets **404**, as if it did not exist; a caller
+  who may see it but not do this to it (a supervisor writing in a chat, an advisor resolving an
+  escalated one) gets **403**. A queued conversation belongs to no advisor until one takes it.
+- **Taking work is a pull:** the head of the skill queue, highest priority then longest wait.
+  Two advisors taking at once get two different conversations (`SKIP LOCKED`); an advisor at
+  `max_concurrent` gets 409 `ADVISOR_UNAVAILABLE`; a login with no advisor row gets 404
+  `ADVISOR_PROFILE_NOT_FOUND`.
+- **Priority** (stored at arrival): churn risk (0/20/40) + client value (0/10/15/25 by segment) +
+  criticality (fraud 30, account closure 20, card 10, credit 5). Equal scores are served first come,
+  first served.
+- **Measured at the transition, never on read:** wait and SLA met when taken (the skill's strictest
+  active policy), handle time when closed, wait when a customer leaves the queue. Responses never
+  carry these, nor the priority score: supervision reads them as aggregates.
+- **Escalating** moves the conversation to `ESCALATED` in the same transaction as the escalation;
+  only a supervisor resolves it then, which also resolves the escalation and records who did.
+- **The sender of a message is decided by the server**, never read from the body. Messages are
+  1–2000 characters; a closed conversation accepts none.
+- **Not here yet:** a customer opening a contact for themselves (needs `UNIQUE` on
+  `customer.user_id`), SLA-breach alerts (need a scheduler), advisor presence and supervisor
+  reassignment.
 
 **Real-time events** (2026-10-01): STOMP over a native WebSocket at `ws://localhost:8080/ws`.
 
@@ -394,10 +433,10 @@ committed. A demo dataset for the call scenario loads in `dev` only, and only wi
 | Topic | Who | Status |
 |---|---|---|
 | `/topic/supervision/alerts` | supervisor, admin | live |
-| `/topic/supervision/kpi` | supervisor, admin | rule in place; events in the conversation-core phase |
+| `/topic/supervision/kpi` | supervisor, admin | live: a snapshot after each lifecycle change |
 | `/topic/runs/{runId}` | supervisor, admin | rule in place; events in the experiment phase |
-| `/topic/queue/{skill}` | advisor, supervisor, admin | rule in place; events in the conversation-core phase |
-| `/topic/conversation/{id}` | advisor, supervisor, admin | rule in place; events in the conversation-core phase |
+| `/topic/queue/{skill}` | an advisor holding the skill, supervisor, admin | live: arrivals and departures |
+| `/topic/conversation/{id}` | its customer, its advisor, supervisor, admin | live: messages and status changes |
 
 - **Supervision alerts** are JSON with one fixed shape (`schemaVersion` 1): `type`, `occurredAt`,
   `customerId`, `conversationId`, `escalationId`, `cardId`, `cardLast4`; unused fields are null.
@@ -407,10 +446,17 @@ committed. A demo dataset for the call scenario loads in `dev` only, and only wi
   commits. The broker is in memory: one backend instance. Do not enable TRACE or DEBUG logging for
   `org.springframework.web.socket` or `org.springframework.messaging` outside development: Spring
   then prints frame headers, including the CONNECT token.
+- **Queue, conversation and KPI events** (`schemaVersion` 1). Queue: `type`
+  (`CONVERSATION_QUEUED`/`CONVERSATION_LEFT_QUEUE`), `occurredAt`, `skill`, `conversationId`,
+  `status`, `waiting`. Conversation: `type` (`MESSAGE_POSTED`/`STATUS_CHANGED`), `occurredAt`,
+  `conversationId`, `status`, and for a message `messageId`, `sender`, `content`, `sentAt`. KPI: the
+  same shape as `GET /api/v1/supervision/kpi`, "today" starting at local midnight in
+  `callverse.operations.zone` (default `Europe/Paris`). The ownership rules of the REST routes apply
+  at subscription time, through the same policy.
 
-**Does not exist yet:** routing, SLA and priority-scoring logic (the state machine is declared on
-`ConversationStatus` but only escalation consults it); the conversation lifecycle and message routes;
-events on the queue, conversation, KPI and run topics; customer self-service; simulation-run and KPI routes; quality routes; the `MetricSampleBatchWriter` implementation;
+**Does not exist yet:** the SLA sweep and its breach alerts; routing rules beyond the skill queue;
+advisor presence and reassignment; events on the run topic; customer self-service; simulation-run
+and experiment KPI routes; quality routes; the `MetricSampleBatchWriter` implementation;
 the RAG embedding pipeline; and every call to or from the AI service.
 
 **Neon:** the application booted against Neon on 2026-09-17 and again on 2026-09-24, with Flyway at
