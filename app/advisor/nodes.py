@@ -75,17 +75,23 @@ def _to_openai_tool(spec: dict) -> dict:
     }
 
 
+_decide_llm = None
+
+
 def _get_decide_llm():
-    llm = ChatGroq(
-        model=settings.llm_model_advanced,
-        api_key=settings.llm_api_key,
-        temperature=0.2,
-        max_retries=1,
-        timeout=20,
-    )
-    all_specs = TOOL_SPECS + [_FINALIZE_TOOL_SPEC]
-    tools = [_to_openai_tool(s) for s in all_specs]
-    return llm.bind_tools(tools, tool_choice="required")
+    global _decide_llm
+    if _decide_llm is None:
+        llm = ChatGroq(
+            model=settings.llm_model_advanced,
+            api_key=settings.llm_api_key,
+            temperature=0.2,
+            max_retries=1,
+            timeout=20,
+        )
+        all_specs = TOOL_SPECS + [_FINALIZE_TOOL_SPEC]
+        tools = [_to_openai_tool(s) for s in all_specs]
+        _decide_llm = llm.bind_tools(tools, tool_choice="required")
+    return _decide_llm
 
 
 def _build_messages(state: AdvisorGraphState) -> list:

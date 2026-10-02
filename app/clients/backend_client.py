@@ -22,18 +22,33 @@ class BackendClient:
     def __init__(self, base_url: str | None = None, timeout: float = 5.0) -> None:
         self._base_url = base_url or settings.backend_base_url
         self._timeout = timeout
+        self._client: httpx.AsyncClient | None = None
+
+    def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                base_url=self._base_url,
+                timeout=self._timeout,
+                limits=httpx.Limits(max_keepalive_connections=20, max_connections=50),
+            )
+        return self._client
+
+    async def aclose(self) -> None:
+        if self._client is not None and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None
 
     async def _get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-        async with httpx.AsyncClient(base_url=self._base_url, timeout=self._timeout) as client:
-            resp = await client.get(path, params=params)
-            resp.raise_for_status()
-            return resp.json()
+        client = self._get_client()
+        resp = await client.get(path, params=params)
+        resp.raise_for_status()
+        return resp.json()
 
     async def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
-        async with httpx.AsyncClient(base_url=self._base_url, timeout=self._timeout) as client:
-            resp = await client.post(path, json=payload)
-            resp.raise_for_status()
-            return resp.json()
+        client = self._get_client()
+        resp = await client.post(path, json=payload)
+        resp.raise_for_status()
+        return resp.json()
 
     async def get_customer(self, customer_id: str) -> dict[str, Any]:
         return await self._get(f"/api/v1/internal/customers/{customer_id}")
