@@ -25,7 +25,13 @@ class InvalidTokenException extends AuthenticationException {
         /** Any {@code alg} other than HS512, including {@code none}. */
         UNSUPPORTED_ALGORITHM,
         /** Signed correctly, but a required claim is missing or unparseable. */
-        INVALID_CLAIMS
+        INVALID_CLAIMS,
+        /** A valid token for an account that does not exist. */
+        ACCOUNT_UNKNOWN,
+        /** A valid token for an account an administrator has blocked. */
+        ACCOUNT_BLOCKED,
+        /** A valid token claiming a role the account no longer holds. */
+        ROLE_CHANGED
     }
 
     private final Reason reason;

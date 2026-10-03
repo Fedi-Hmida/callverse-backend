@@ -1,5 +1,11 @@
 package com.callverse.persistence;
 
+import com.callverse.core.domain.enums.UserRole;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
+import java.util.UUID;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -53,6 +59,38 @@ public abstract class AbstractPersistenceTest {
 
     static {
         POSTGRES.start();
+    }
+
+    /**
+     * Makes sure an active account with this id and role exists, so that a token minted for it is
+     * accepted: the application re-reads the account on every authenticated request, and refuses a
+     * token whose account is unknown, blocked or holds another role.
+     *
+     * <p>Plain JDBC on its own auto-committed connection, so the row is visible to the request
+     * whether or not the calling test runs inside a transaction. An existing row is left untouched,
+     * which is how a test proves that a blocked or re-roled account is refused.
+     */
+    public static void ensureAccount(UUID userId, UserRole role) {
+        try (Connection connection = DriverManager.getConnection(
+                        POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+                PreparedStatement insert = connection.prepareStatement("""
+                        insert into app_user (id, email, password_hash, first_name, last_name, role, active)
+                        values (?, ?, '$2a$10$abcdefghijklmnopqrstuuJ4H1y9oD6kBz1V5Q2yQ1w5bLb6xXyZ2', 'Test', ?, ?, true)
+                        on conflict (id) do nothing
+                        """)) {
+            try (var timeout = connection.createStatement()) {
+                // Fail fast rather than hang if the calling test holds this id in its own open
+                // transaction; such a test mints its token with tokenForExistingAccount instead.
+                timeout.execute("set lock_timeout = '2s'");
+            }
+            insert.setObject(1, userId);
+            insert.setString(2, userId + "@accounts.test");
+            insert.setString(3, role.name());
+            insert.setString(4, role.name());
+            insert.executeUpdate();
+        } catch (SQLException e) {
+            throw new IllegalStateException("could not register the test account " + userId, e);
+        }
     }
 
     @DynamicPropertySource

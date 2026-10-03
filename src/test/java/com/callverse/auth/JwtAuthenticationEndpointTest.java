@@ -134,7 +134,8 @@ class JwtAuthenticationEndpointTest extends AbstractPersistenceTest {
     @Test
     @DisplayName("the Bearer scheme is matched case-insensitively (RFC 7235)")
     void lowerCaseSchemeIsAccepted() throws Exception {
-        String token = AuthenticatedRequests.validToken(USER_ID, EMAIL, UserRole.CUSTOMER);
+        // The account holds one role; the scheme, not the role, is under test.
+        String token = AuthenticatedRequests.validToken(USER_ID, EMAIL, UserRole.SUPERVISOR);
 
         call(get(ME).header(HttpHeaders.AUTHORIZATION, "bearer " + token), 200);
     }

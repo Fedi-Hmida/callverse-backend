@@ -87,6 +87,16 @@ class BusinessErrorCodesTest {
     }
 
     @Test
+    @DisplayName("SELF_LOCKOUT and EMAIL_ALREADY_USED — account administration's two refusals, both 409")
+    void accountAdministration() {
+        assertThat(new com.callverse.core.domain.exceptions.SelfLockoutException().code()).isEqualTo("SELF_LOCKOUT");
+        assertThat(new com.callverse.core.domain.exceptions.EmailAlreadyUsedException().code())
+                .isEqualTo("EMAIL_ALREADY_USED");
+        assertThat(new com.callverse.core.domain.exceptions.SelfLockoutException())
+                .isInstanceOf(com.callverse.core.domain.exceptions.DomainException.class);
+    }
+
+    @Test
     @DisplayName("SLA_POLICY_NOT_FOUND — its own code, not the generic RESOURCE_NOT_FOUND")
     void slaPolicyNotFound() {
         SlaPolicyNotFoundException e = new SlaPolicyNotFoundException(UUID.randomUUID());

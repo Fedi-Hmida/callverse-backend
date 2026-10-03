@@ -1,6 +1,7 @@
 package com.callverse.workspace;
 
 import static com.callverse.auth.AuthenticatedRequests.bearer;
+import static com.callverse.auth.AuthenticatedRequests.tokenForExistingAccount;
 import static com.callverse.auth.AuthenticatedRequests.validToken;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -69,7 +70,7 @@ class AdvisorWorkspaceEndpointTest extends AbstractPersistenceTest {
 
     /** A token for a login that exists, so ownership checks have someone to match. */
     static RequestPostProcessor as(AppUser user) {
-        return bearer(validToken(user.getId(), user.getEmail(), user.getRole()));
+        return bearer(tokenForExistingAccount(user.getId(), user.getEmail(), user.getRole()));
     }
 
     static RequestPostProcessor anonymous() {

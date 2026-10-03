@@ -1,5 +1,6 @@
 package com.callverse.infrastructure.security;
 
+import com.callverse.core.application.interfaces.PasswordHasher;
 import com.callverse.core.application.interfaces.PasswordVerifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -40,5 +41,11 @@ public class PasswordEncoderConfiguration {
     @Bean
     PasswordVerifier passwordVerifier(PasswordEncoder encoder) {
         return encoder::matches;
+    }
+
+    /** Adapts the same encoder to the {@link PasswordHasher} port, for accounts an administrator creates. */
+    @Bean
+    PasswordHasher passwordHasher(PasswordEncoder encoder) {
+        return encoder::encode;
     }
 }

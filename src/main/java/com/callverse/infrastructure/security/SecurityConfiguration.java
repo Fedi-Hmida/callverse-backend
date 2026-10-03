@@ -68,10 +68,11 @@ public class SecurityConfiguration {
     SecurityFilterChain developmentFilterChain(
             HttpSecurity http,
             JwtTokenService tokens,
+            AccountGate accounts,
             AuthenticationEntryPoint entryPoint,
             AccessDeniedHandler accessDeniedHandler)
             throws Exception {
-        return common(http, tokens, entryPoint, accessDeniedHandler)
+        return common(http, tokens, accounts, entryPoint, accessDeniedHandler)
                 .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
                 .build();
     }
@@ -103,10 +104,11 @@ public class SecurityConfiguration {
     SecurityFilterChain defaultFilterChain(
             HttpSecurity http,
             JwtTokenService tokens,
+            AccountGate accounts,
             AuthenticationEntryPoint entryPoint,
             AccessDeniedHandler accessDeniedHandler)
             throws Exception {
-        return common(http, tokens, entryPoint, accessDeniedHandler)
+        return common(http, tokens, accounts, entryPoint, accessDeniedHandler)
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/health/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/login").permitAll()
@@ -149,6 +151,12 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.GET, "/api/v1/queues").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/queues/*/next").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/v1/supervision/kpi").authenticated()
+                        // Account administration. ADMIN on each method; the chain only admits callers.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/admin/users", "/api/v1/admin/users/*").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/admin/users").authenticated()
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/admin/users/*/role").authenticated()
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/v1/admin/users/*/block", "/api/v1/admin/users/*/unblock").authenticated()
                         .anyRequest().denyAll())
                 .build();
     }
@@ -156,6 +164,7 @@ public class SecurityConfiguration {
     private static HttpSecurity common(
             HttpSecurity http,
             JwtTokenService tokens,
+            AccountGate accounts,
             AuthenticationEntryPoint entryPoint,
             AccessDeniedHandler accessDeniedHandler)
             throws Exception {
@@ -168,7 +177,7 @@ public class SecurityConfiguration {
                         .authenticationEntryPoint(entryPoint)
                         .accessDeniedHandler(accessDeniedHandler))
                 .addFilterBefore(
-                        new JwtAuthenticationFilter(tokens, entryPoint),
+                        new JwtAuthenticationFilter(tokens, accounts, entryPoint),
                         UsernamePasswordAuthenticationFilter.class);
     }
 }

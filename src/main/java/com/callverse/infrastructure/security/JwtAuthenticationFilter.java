@@ -38,13 +38,10 @@ import org.springframework.web.filter.OncePerRequestFilter;
  *       same response; the reason is logged at WARN, without the email.
  * </ul>
  *
- * <p><strong>No database lookup, and the exposure that buys.</strong> The principal is built from
- * the verified claims alone. Re-reading {@code app_user} on every request would cost a round trip
- * to Neon per call against a pool capped at 8 connections. The price is explicit: <strong>an account
- * deactivated, deleted or demoted after its token was issued keeps its old access until that token
- * expires</strong> — {@code jwt.expiration-ms}, one hour by default — and there is no revocation
- * mechanism of any kind. That window closes with sub-phase 2.4 (short-lived access tokens behind a
- * revocable refresh) or with a cached {@code active} check here; neither exists yet.
+ * <p><strong>The account is re-read on every request</strong> ({@link AccountGate}): a token for an
+ * account that is unknown, blocked, or now holds another role is refused like any invalid token.
+ * That is what makes an administrator's block or role change take effect on the very next request
+ * instead of when the token expires. It costs one primary-key read per authenticated request.
  *
  * <p><strong>The login route is skipped.</strong> A client whose session expired may still attach
  * its stale token to the login call; refusing that call would lock the user out of the one route
@@ -63,10 +60,12 @@ class JwtAuthenticationFilter extends OncePerRequestFilter {
             new AntPathRequestMatcher("/api/v1/auth/login", HttpMethod.POST.name());
 
     private final JwtTokenService tokens;
+    private final AccountGate accounts;
     private final AuthenticationEntryPoint entryPoint;
 
-    JwtAuthenticationFilter(JwtTokenService tokens, AuthenticationEntryPoint entryPoint) {
+    JwtAuthenticationFilter(JwtTokenService tokens, AccountGate accounts, AuthenticationEntryPoint entryPoint) {
         this.tokens = tokens;
+        this.accounts = accounts;
         this.entryPoint = entryPoint;
     }
 
@@ -88,6 +87,7 @@ class JwtAuthenticationFilter extends OncePerRequestFilter {
         AuthenticatedPrincipal principal;
         try {
             principal = tokens.verify(header.substring(SCHEME.length()).trim());
+            accounts.confirm(principal);
         } catch (InvalidTokenException refused) {
             SecurityContextHolder.clearContext();
             log.warn(

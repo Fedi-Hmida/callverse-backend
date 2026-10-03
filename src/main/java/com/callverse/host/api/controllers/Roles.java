@@ -29,6 +29,9 @@ final class Roles {
     /** Who watches the floor: supervisors, and administrators who run the platform. */
     static final String SUPERVISION = "hasAnyRole('SUPERVISOR','ADMIN')";
 
+    /** Administrators only: account and access management. */
+    static final String ADMIN = "hasRole('ADMIN')";
+
     /** Anyone signed in, customers included. */
     static final String ANYONE = "isAuthenticated()";
 

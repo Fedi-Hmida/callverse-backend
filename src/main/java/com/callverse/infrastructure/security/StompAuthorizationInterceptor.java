@@ -30,7 +30,8 @@ import org.springframework.util.AntPathMatcher;
  * <ul>
  *   <li><strong>CONNECT</strong> and its STOMP 1.2 alias <strong>STOMP</strong> must carry
  *       {@code Authorization: Bearer <jwt>} as a STOMP header, verified by the same
- *       {@link JwtTokenService} as REST. The user and the token's expiry are attached to the session.
+ *       {@link JwtTokenService} as REST, for an account that is still active with that role
+ *       ({@link AccountGate}). The user and the token's expiry are attached to the session.
  *   <li><strong>SUBSCRIBE</strong> needs an authenticated, unexpired session and a destination from
  *       the fixed table of the five frozen topics, for a role allowed on it. A destination containing
  *       a wildcard or a path trick is refused: one subscription may not cover many conversations.
@@ -83,12 +84,17 @@ public class StompAuthorizationInterceptor implements ChannelInterceptor {
     private final JwtTokenService tokens;
     private final StompSessionRegistry sessions;
     private final ConversationSubscriptionPolicy subscriptions;
+    private final AccountGate accounts;
 
     public StompAuthorizationInterceptor(
-            JwtTokenService tokens, StompSessionRegistry sessions, ConversationSubscriptionPolicy subscriptions) {
+            JwtTokenService tokens,
+            StompSessionRegistry sessions,
+            ConversationSubscriptionPolicy subscriptions,
+            AccountGate accounts) {
         this.tokens = tokens;
         this.sessions = sessions;
         this.subscriptions = subscriptions;
+        this.accounts = accounts;
     }
 
     @Override
@@ -127,11 +133,20 @@ public class StompAuthorizationInterceptor implements ChannelInterceptor {
         } catch (InvalidTokenException refused) {
             throw refuse(stomp, "token refused: " + refused.reason());
         }
+        // Registered before the account is read: a block that commits after this read still finds
+        // the session and cuts it. Read first, register second would leave a gap where the block's
+        // revocation runs before the session exists, and the session would live until its token expires.
+        sessions.register(stomp.getSessionId(), verified.principal().userId(), verified.expiresAt());
+        try {
+            accounts.confirm(verified.principal());
+        } catch (InvalidTokenException refused) {
+            sessions.unregister(stomp.getSessionId());
+            throw refuse(stomp, "token refused: " + refused.reason());
+        }
         stomp.setUser(UsernamePasswordAuthenticationToken.authenticated(
                 verified.principal(),
                 null,
                 List.of(new SimpleGrantedAuthority("ROLE_" + verified.principal().role().name()))));
-        sessions.register(stomp.getSessionId(), verified.expiresAt());
     }
 
     private void authorizeSubscription(StompHeaderAccessor stomp) {

@@ -57,7 +57,13 @@ class OpenApiContractTest extends AbstractPersistenceTest {
             "abandonConversation",
             "listQueues",
             "takeNextConversation",
-            "getLiveKpi");
+            "getLiveKpi",
+            "listUsers",
+            "getUser",
+            "createUser",
+            "changeUserRole",
+            "blockUser",
+            "unblockUser");
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
@@ -101,6 +107,10 @@ class OpenApiContractTest extends AbstractPersistenceTest {
         assertThat(required(schemas, "Queue")).contains("skill", "waiting");
         assertThat(required(schemas, "LiveKpi")).contains("schemaVersion", "at", "since", "queues", "waitingTotal",
                 "inService", "resolvedToday", "abandonedToday");
+        assertThat(required(schemas, "User")).contains("id", "email", "firstName", "lastName", "role", "active", "createdAt");
+        assertThat(required(schemas, "PageInfo")).contains("number", "size", "totalElements", "totalPages");
+        assertThat(schemas.get("User").get("properties").has("passwordHash"))
+                .as("a password hash never reaches the contract").isFalse();
         assertThat(schemas.get("Conversation").get("properties").has("priorityScore"))
                 .as("internal operating data never reaches the contract").isFalse();
     }

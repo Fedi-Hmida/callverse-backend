@@ -1,6 +1,7 @@
 package com.callverse.realtime;
 
 import static com.callverse.auth.AuthenticatedRequests.expiredToken;
+import static com.callverse.auth.AuthenticatedRequests.tokenForExistingAccount;
 import static com.callverse.auth.AuthenticatedRequests.validToken;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -280,7 +281,7 @@ class StompSupervisionTest extends AbstractPersistenceTest {
             card.setDailyLimit(new BigDecimal("1000.00"));
             em.persist(card);
             return new Seed(customer.getId(), conversation.getId(), card.getId(),
-                    validToken(karim.getId(), karim.getEmail(), UserRole.ADVISOR));
+                    tokenForExistingAccount(karim.getId(), karim.getEmail(), UserRole.ADVISOR));
         });
     }
 

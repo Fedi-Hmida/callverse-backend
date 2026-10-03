@@ -137,6 +137,25 @@ final class LiveClient implements AutoCloseable {
         return true;
     }
 
+    /** Whether the server refuses to even open a session for this token (closed at CONNECT). */
+    boolean connectRefused(String token) {
+        Probe probe = new Probe();
+        StompHeaders connect = new StompHeaders();
+        connect.add("Authorization", "Bearer " + token);
+        try {
+            StompSession session = client.connectAsync(url, new WebSocketHttpHeaders(), connect, probe)
+                    .get(5, TimeUnit.SECONDS);
+            sessions.add(session);
+        } catch (Exception closedAtConnect) {
+            return true;
+        }
+        long deadline = System.currentTimeMillis() + 1500;
+        while (!probe.refused.get() && System.currentTimeMillis() < deadline) {
+            pause(50);
+        }
+        return probe.refused.get();
+    }
+
     static void pause(long millis) {
         try {
             Thread.sleep(millis);

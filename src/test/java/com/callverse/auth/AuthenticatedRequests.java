@@ -1,6 +1,7 @@
 package com.callverse.auth;
 
 import static com.callverse.persistence.AbstractPersistenceTest.TEST_JWT_SECRET;
+import static com.callverse.persistence.AbstractPersistenceTest.ensureAccount;
 
 import com.callverse.core.domain.enums.UserRole;
 import io.jsonwebtoken.JwtBuilder;
@@ -60,16 +61,41 @@ public final class AuthenticatedRequests {
         };
     }
 
-    /** A token the application must accept. */
+    /**
+     * A token the application must accept. The account is registered if it does not exist yet: the
+     * application re-reads it on every request, exactly as in production.
+     */
     public static String validToken(UUID userId, String email, UserRole role) {
+        ensureAccount(userId, role);
         Instant now = Instant.now();
         return claims(userId, email, role, now, now.plus(LIFETIME)).signWith(KEY, Jwts.SIG.HS512).compact();
     }
 
     /** A valid token that expires after {@code lifetime}: for sessions that outlive their token. */
     public static String tokenExpiringIn(Duration lifetime, UUID userId, String email, UserRole role) {
+        ensureAccount(userId, role);
         Instant now = Instant.now();
         return claims(userId, email, role, now, now.plus(lifetime)).signWith(KEY, Jwts.SIG.HS512).compact();
+    }
+
+    /**
+     * A token for an account the test created itself — inside its own transaction, where
+     * {@link #validToken} could not see it. Registers nothing.
+     */
+    public static String tokenForExistingAccount(UUID userId, String email, UserRole role) {
+        Instant now = Instant.now();
+        return claims(userId, email, role, now, now.plus(LIFETIME)).signWith(KEY, Jwts.SIG.HS512).compact();
+    }
+
+    /**
+     * Correctly signed and unexpired, for an account that does not exist: refused like any other
+     * token whose holder the application cannot confirm.
+     */
+    public static String tokenForUnknownAccount(UserRole role) {
+        Instant now = Instant.now();
+        return claims(UUID.randomUUID(), "nobody@accounts.test", role, now, now.plus(LIFETIME))
+                .signWith(KEY, Jwts.SIG.HS512)
+                .compact();
     }
 
     /** Correctly signed, but its {@code exp} passed an hour ago. */
