@@ -20,10 +20,11 @@
 | Simulation studio (runs, experiment KPIs, comparison) | ❌ not yet | mock it; AI phase, later |
 | Quality review screen | ❌ not yet | next backend phase (FS-4) |
 | Customer self-service (a customer opening their own chat, their own accounts) | ❌ not yet | blocked on a schema change |
-| Back-office CRUD (KB, products, advisors, rules) | ❌ not yet | mock it |
+| **Account administration**: create users, change roles, block / unblock | ✅ yes | 6 operations, new 2026-10-03 |
+| Back-office CRUD (KB, products, advisor skills, rules) | ❌ not yet | mock it |
 | Advisor presence (available/break/offline) and supervisor reassignment | ❌ not yet | mock it |
 
-**21 REST operations** in total, every one with a fixed `operationId` that the build pins: a renamed
+**27 REST operations** in total, every one with a fixed `operationId` that the build pins: a renamed
 route or field breaks the backend build before it can break you.
 
 ---
@@ -146,7 +147,7 @@ Every failure, on every route, has the same body:
 | 403 | Logged in but not allowed: show "not permitted", **do not** re-login | `ACCESS_DENIED` |
 | 404 | It doesn't exist, **or it isn't yours** (deliberately the same answer) | `RESOURCE_NOT_FOUND`, `ADVISOR_PROFILE_NOT_FOUND`, `SLA_POLICY_NOT_FOUND`, `ENDPOINT_NOT_FOUND` |
 | 405 / 415 | Wrong method or content type (a bug on our side) | `METHOD_NOT_ALLOWED`, `UNSUPPORTED_MEDIA_TYPE` |
-| 409 | The business state forbids it now: show the message and refresh the data | `INVALID_STATE_TRANSITION`, `ADVISOR_UNAVAILABLE` |
+| 409 | The business state forbids it now: show the message and refresh the data | `INVALID_STATE_TRANSITION`, `ADVISOR_UNAVAILABLE`, `SELF_LOCKOUT`, `EMAIL_ALREADY_USED` |
 | 500 | Our bug: show a generic error | `INTERNAL_ERROR` |
 
 ---
@@ -448,7 +449,55 @@ end state: 409.
 
 The three ratios are **`null` when there is nothing to measure yet**; show "—", not 0%.
 
-### 6.4 Platform
+### 6.4 Account administration (ADMIN only)
+
+**`User` object:** `{ "id", "email", "firstName", "lastName", "role", "active", "createdAt" }`. There
+is never a password or a hash.
+
+#### `listUsers`
+
+`GET /api/v1/admin/users?role=ADVISOR&active=true&q=karim&page=0&size=20`
+
+- Every filter is optional. `q` matches email, first name and last name.
+- `size` is 1–100 (default 20).
+- **200:** `{ "content": [User…], "page": { "number": 0, "size": 20, "totalElements": 42, "totalPages": 3 } }`.
+  Newest first.
+
+#### `getUser`
+
+`GET /api/v1/admin/users/{id}`: **200** `User`, or 404.
+
+#### `createUser` — give someone access
+
+`POST /api/v1/admin/users`
+
+```json
+{ "email": "karim.benali@bank.fr", "firstName": "Karim", "lastName": "Benali", "role": "ADVISOR",
+  "password": "temporary password, 12 chars minimum" }
+```
+
+- **201:** `User`, plus a `Location` header. The email is stored in lower case.
+- **400:** a weak password (under 12 characters, over 72 bytes, or containing the email's name), a bad
+  email or a missing field.
+- **409 `EMAIL_ALREADY_USED`:** the address is taken.
+
+#### `changeUserRole`
+
+`PUT /api/v1/admin/users/{id}/role` with `{ "role": "SUPERVISOR" }`. **200:** `User`.
+
+- The user's current token stops working at once; their next login carries the new role.
+- **409 `SELF_LOCKOUT`:** you tried to change your own role.
+
+#### `blockUser` / `unblockUser`
+
+`POST /api/v1/admin/users/{id}/block` and `POST /api/v1/admin/users/{id}/unblock`, no body. **200:** `User`.
+
+- A blocked user can't log in. Their current token gets **401** on the next request, and their open
+  live connection stops receiving.
+- Blocking yourself: **409 `SELF_LOCKOUT`**.
+- Repeating a block or unblock returns 200 with nothing changed.
+
+### 6.5 Platform
 
 #### `getHealthStatus`
 
@@ -638,6 +687,8 @@ export interface SupervisionAlert {
 7. **Message IDs are numbers; every other ID is a UUID string.**
 8. **One STOMP connection per tab**, many subscriptions on it. Unsubscribe when the chat closes.
 9. **Swagger's "Authorize" button** takes the token without the word `Bearer`.
+10. **A 401 can arrive in the middle of a session.** If an admin blocks the user or changes their role,
+    the very next call is 401: send them to login, where a blocked account gets `INVALID_CREDENTIALS`.
 
 ---
 
@@ -655,3 +706,4 @@ export interface SupervisionAlert {
 |---|---|
 | 2026-10-01 | Advisor workspace (9 operations), secured live channel, supervision alerts |
 | 2026-10-02 | Conversation core (10 operations): queues, take next, chat, resolve, abandon; escalation now moves the conversation to ESCALATED and only its own advisor may escalate; live queue, conversation and KPI topics |
+| 2026-10-03 | Account administration (6 operations): create users, change roles, block and unblock, effective at once (REST and live channel) |

@@ -346,7 +346,7 @@ database) comes first; the AI-service integration comes after it.
 
 **Exists:** the layer structure and its ArchUnit enforcement; configuration profiles; the error
 envelope; JWT (HS512) login and authentication with a permissive `dev` chain and deny-by-default
-elsewhere; twenty-one operations, listed under *Advisor workspace* and *Conversation core* below; 27 domain enums
+elsewhere; twenty-seven operations, listed under *Advisor workspace*, *Conversation core* and *Account administration* below; 27 domain enums
 including the conversation state machine; three migrations — `V1__init.sql`, `V2__seed_reference.sql`
 and `V3__banking_domain.sql` — giving 27 tables; 27 entities, 23 repositories, and the
 `MetricSampleBatchWriter` port; and a Testcontainers suite proving migrations and entities agree.
@@ -420,13 +420,40 @@ step is 409 `INVALID_STATE_TRANSITION`).
   `customer.user_id`), SLA-breach alerts (need a scheduler), advisor presence and supervisor
   reassignment.
 
+**Account administration** (2026-10-03): an ADMIN gives, changes and withdraws access.
+
+| Operation | Route | Who |
+|---|---|---|
+| `listUsers` | `GET /api/v1/admin/users?role=&active=&q=&page=&size=` | admin |
+| `getUser` | `GET /api/v1/admin/users/{id}` | admin |
+| `createUser` | `POST /api/v1/admin/users` | admin |
+| `changeUserRole` | `PUT /api/v1/admin/users/{id}/role` | admin |
+| `blockUser` / `unblockUser` | `POST /api/v1/admin/users/{id}/block` · `/unblock` | admin |
+
+- **Effective at once.** Every authenticated request and every STOMP CONNECT re-reads the account
+  (one primary-key read): a token whose account is unknown, blocked or now holds another role is
+  refused with 401 on the next call, and a block or role change cuts the account's open live sessions.
+  A user whose role changed logs in again to get it. Unblocking makes the account's unexpired tokens
+  valid again (revocation follows the account's status; the schema has no "changed at" column).
+- **No lockout.** An admin never blocks themselves or changes their own role (409 `SELF_LOCKOUT`). Only
+  an active admin acts, re-checked under a row lock, so two admins removing each other at the same
+  instant cannot both succeed and an active admin always remains.
+- **Accounts are blocked, never deleted:** escalations, credits and decisions keep their author.
+- **Temporary password** set by the admin: 12 characters to 72 bytes (BCrypt's limit), not containing
+  the email's name; hashed at once, never returned or logged. Emails are stored in lower case; a taken
+  address is 409 `EMAIL_ALREADY_USED`. The list is paged (`{content, page{number,size,totalElements,totalPages}}`,
+  size 1–100) and never carries a hash.
+- **Not here:** permissions finer than the four roles (needs a new table), advisor profiles and skills,
+  password reset. Each change writes an `AUDIT` log line naming the admin and the account.
+
 **Real-time events** (2026-10-01): STOMP over a native WebSocket at `ws://localhost:8080/ws`.
 
 - **Connect** with a STOMP header `Authorization: Bearer <token>` (the token from login). No token,
   a bad token or an expired one is refused.
 - **Subscribe only.** Clients never publish: SEND, MESSAGE and every other client frame except
   CONNECT/STOMP, SUBSCRIBE, UNSUBSCRIBE and DISCONNECT is refused. Destinations must be literal — no
-  wildcards. When the token expires the socket stops receiving and new subscriptions are refused;
+  wildcards. When the token expires, or an admin blocks the account or changes its role, the socket
+  stops receiving and new subscriptions are refused;
   the client reconnects with a fresh token.
 - **Topics and who may listen** — anything else is refused:
 
