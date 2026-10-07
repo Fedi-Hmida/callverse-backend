@@ -8,7 +8,8 @@ import com.callverse.core.domain.entities.KbArticle;
 import com.callverse.core.domain.entities.KbChunk;
 import com.callverse.core.domain.entities.MetricSample;
 import com.callverse.core.domain.entities.MetricSampleId;
-import com.callverse.core.domain.entities.NetworkIncident;
+import com.callverse.core.domain.entities.ServiceIncident;
+import com.callverse.core.domain.enums.BankingService;
 import com.callverse.core.domain.entities.QualityEvaluation;
 import com.callverse.core.domain.entities.RoutingRule;
 import com.callverse.core.domain.entities.RunKpi;
@@ -40,13 +41,20 @@ import com.callverse.core.domain.enums.TicketStatus;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import com.callverse.core.domain.entities.AppUser;
-import com.callverse.core.domain.entities.Contract;
+import com.callverse.core.domain.entities.Account;
+import com.callverse.core.domain.entities.BankTransaction;
+import com.callverse.core.domain.entities.BankingProduct;
+import com.callverse.core.domain.entities.Card;
 import com.callverse.core.domain.entities.Customer;
-import com.callverse.core.domain.entities.Invoice;
-import com.callverse.core.domain.entities.Plan;
 import com.callverse.core.domain.enums.ChurnRisk;
-import com.callverse.core.domain.enums.ContractStatus;
-import com.callverse.core.domain.enums.InvoiceStatus;
+import com.callverse.core.domain.enums.AccountStatus;
+import com.callverse.core.domain.enums.CardBlockReason;
+import com.callverse.core.domain.enums.CardNetwork;
+import com.callverse.core.domain.enums.CardStatus;
+import com.callverse.core.domain.enums.CardType;
+import com.callverse.core.domain.enums.CustomerSegment;
+import com.callverse.core.domain.enums.TransactionStatus;
+import com.callverse.core.domain.enums.TransactionType;
 import com.callverse.core.domain.enums.UserRole;
 import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
@@ -59,13 +67,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Proves that {@code V1__init.sql} and the JPA entities agree, against a real PostgreSQL.
+ * Proves that the migrations ({@code V1} to {@code V3}) and the JPA entities agree, against a real
+ * PostgreSQL.
  *
  * <p><strong>What makes this test meaningful.</strong> The application runs with
  * {@code ddl-auto: validate}, so Hibernate compares every mapped column against the live schema at
  * startup. Until entities existed, that check passed by comparing nothing — a green light that
  * proved only that there was nothing to check. Every test here depends on the Spring context having
- * started, which means Flyway applied both migrations and validation passed against real tables.
+ * started, which means Flyway applied every migration and validation passed against real tables.
  *
  * <p>Validation is directional and it is worth knowing which way: Hibernate checks that everything
  * the entities map exists in the database. It does <em>not</em> check the reverse, so a column
@@ -95,7 +104,7 @@ class SchemaValidationTest extends AbstractPersistenceTest {
     class IdentityAndCustomer {
 
         @Test
-        @DisplayName("a customer, its contract and that contract's invoice round-trip")
+        @DisplayName("a customer, an account, a card and a card payment round-trip")
         void customerAggregateRoundTrips() {
             AppUser user = new AppUser();
             user.setEmail(unique("round.trip") + "@callverse.local");
@@ -110,45 +119,70 @@ class SchemaValidationTest extends AbstractPersistenceTest {
             customer.setExternalRef(unique("CUST"));
             customer.setFirstName("Round");
             customer.setLastName("Trip");
-            customer.setZone("north");
+            customer.setRegion("north");
+            customer.setSegment(CustomerSegment.PRIVATE);
             customer.setChurnRisk(ChurnRisk.HIGH);
             customer.setTenureMonths(18);
             em.persist(customer);
 
-            Plan plan = em.createQuery("select p from Plan p where p.code = :c", Plan.class)
-                    .setParameter("c", "FIB_1G")
+            BankingProduct product = em.createQuery(
+                            "select p from BankingProduct p where p.code = :c", BankingProduct.class)
+                    .setParameter("c", "CUR_PREMIUM")
                     .getSingleResult();
 
-            Contract contract = new Contract();
-            contract.setCustomer(customer);
-            contract.setPlan(plan);
-            contract.setStatus(ContractStatus.ACTIVE);
-            contract.setStartedAt(LocalDate.of(2025, 1, 15));
-            em.persist(contract);
+            Account account = new Account();
+            account.setCustomer(customer);
+            account.setProduct(product);
+            account.setIban("FR76" + unique("ACC").replace("-", "").toUpperCase());
+            account.setBalance(new BigDecimal("-120.50"));
+            account.setOverdraftLimit(new BigDecimal("500.00"));
+            account.setStatus(AccountStatus.ACTIVE);
+            account.setOpenedAt(LocalDate.of(2025, 1, 15));
+            em.persist(account);
 
-            Invoice invoice = new Invoice();
-            invoice.setContract(contract);
-            invoice.setPeriodStart(LocalDate.of(2025, 1, 1));
-            invoice.setPeriodEnd(LocalDate.of(2025, 1, 31));
-            invoice.setAmount(new BigDecimal("44.99"));
-            invoice.setStatus(InvoiceStatus.DISPUTED);
-            em.persist(invoice);
+            Card card = new Card();
+            card.setAccount(account);
+            card.setPanLast4("4242");
+            card.setNetwork(CardNetwork.VISA);
+            card.setType(CardType.DEBIT);
+            card.setStatus(CardStatus.BLOCKED);
+            card.setBlockedAt(Instant.now());
+            card.setBlockReason(CardBlockReason.FRAUD_SUSPECTED);
+            card.setExpiresOn(LocalDate.of(2029, 12, 31));
+            card.setDailyLimit(new BigDecimal("1000.00"));
+            em.persist(card);
+
+            BankTransaction payment = new BankTransaction();
+            payment.setAccount(account);
+            payment.setCard(card);
+            payment.setType(TransactionType.CARD_PAYMENT);
+            payment.setAmount(new BigDecimal("-89.90"));
+            payment.setLabel("CB MARKET 29/09");
+            payment.setStatus(TransactionStatus.DISPUTED);
+            em.persist(payment);
 
             em.flush();
             em.clear();
 
-            // Traverse the whole chain back: invoice -> contract -> customer -> user, plus the
-            // aggregate's own collection in the other direction.
-            Invoice loaded = em.find(Invoice.class, invoice.getId());
-            assertThat(loaded.getAmount()).isEqualByComparingTo("44.99");
-            assertThat(loaded.getStatus()).isEqualTo(InvoiceStatus.DISPUTED);
-            assertThat(loaded.getContract().getPlan().getCode()).isEqualTo("FIB_1G");
-            assertThat(loaded.getContract().getCustomer().getChurnRisk()).isEqualTo(ChurnRisk.HIGH);
-            assertThat(loaded.getContract().getCustomer().getUser().getRole())
+            // Traverse the whole chain back: transaction -> card/account -> customer -> user, plus
+            // the aggregate's own collection in the other direction.
+            BankTransaction loaded = em.createQuery(
+                            "select t from BankTransaction t where t.id = :id", BankTransaction.class)
+                    .setParameter("id", payment.getId())
+                    .getSingleResult();
+            assertThat(loaded.getAmount()).isEqualByComparingTo("-89.90");
+            assertThat(loaded.getStatus()).isEqualTo(TransactionStatus.DISPUTED);
+            assertThat(loaded.getCard().getPanLast4()).isEqualTo("4242");
+            assertThat(loaded.getCard().getBlockReason()).isEqualTo(CardBlockReason.FRAUD_SUSPECTED);
+            assertThat(loaded.getAccount().getProduct().getCode()).isEqualTo("CUR_PREMIUM");
+            assertThat(loaded.getAccount().getBalance()).isEqualByComparingTo("-120.50");
+            assertThat(loaded.getAccount().getCustomer().getSegment()).isEqualTo(CustomerSegment.PRIVATE);
+            assertThat(loaded.getAccount().getCustomer().getChurnRisk()).isEqualTo(ChurnRisk.HIGH);
+            assertThat(loaded.getAccount().getCustomer().getUser().getRole())
                     .isEqualTo(UserRole.CUSTOMER);
-            assertThat(loaded.getContract().getCustomer().getContracts())
-                    .extracting(Contract::getId)
-                    .contains(contract.getId());
+            assertThat(loaded.getAccount().getCustomer().getAccounts())
+                    .extracting(Account::getId)
+                    .contains(account.getId());
         }
 
         @Test
@@ -158,7 +192,7 @@ class SchemaValidationTest extends AbstractPersistenceTest {
             simulated.setExternalRef(unique("SIM"));
             simulated.setFirstName("Synthetic");
             simulated.setLastName("Customer");
-            simulated.setZone("south");
+            simulated.setRegion("south");
             simulated.setSimulated(true);
             em.persist(simulated);
             em.flush();
@@ -168,17 +202,26 @@ class SchemaValidationTest extends AbstractPersistenceTest {
             assertThat(loaded.getUser()).isNull();
             assertThat(loaded.isSimulated()).isTrue();
             assertThat(loaded.getChurnRisk()).isEqualTo(ChurnRisk.LOW);
+            assertThat(loaded.getSegment()).isEqualTo(CustomerSegment.MASS);
         }
 
         @Test
         @DisplayName("BigDecimal money keeps its scale through a round trip")
         void moneyKeepsScale() {
-            Plan plan = em.createQuery("select p from Plan p where p.code = :c", Plan.class)
-                    .setParameter("c", "MOB_ESSENTIAL")
+            BankingProduct product = em.createQuery(
+                            "select p from BankingProduct p where p.code = :c", BankingProduct.class)
+                    .setParameter("c", "CUR_PREMIUM")
                     .getSingleResult();
             // NUMERIC(8,2): the value must come back as stored, not as a binary-float approximation.
-            assertThat(plan.getMonthlyPrice()).isEqualByComparingTo("19.99");
-            assertThat(plan.getMonthlyPrice().scale()).isEqualTo(2);
+            assertThat(product.getMonthlyFee()).isEqualByComparingTo("9.90");
+            assertThat(product.getMonthlyFee().scale()).isEqualTo(2);
+            BankingProduct savings = em.createQuery(
+                            "select p from BankingProduct p where p.code = :c", BankingProduct.class)
+                    .setParameter("c", "SAV_LIVRET")
+                    .getSingleResult();
+            // NUMERIC(6,4): a rate is a fraction with four decimals, never a rounded percentage.
+            assertThat(savings.getInterestRate()).isEqualByComparingTo("0.0300");
+            assertThat(savings.getInterestRate().scale()).isEqualTo(4);
         }
     }
 
@@ -197,7 +240,7 @@ class SchemaValidationTest extends AbstractPersistenceTest {
             c.setExternalRef(unique("CUST"));
             c.setFirstName("Block");
             c.setLastName("Four");
-            c.setZone("east");
+            c.setRegion("east");
             em.persist(c);
             return c;
         }
@@ -212,10 +255,10 @@ class SchemaValidationTest extends AbstractPersistenceTest {
             advisor.setSimulated(true);
             em.persist(advisor);
 
-            Skill technical = skill("TECHNICAL");
+            Skill cards = skill("CARDS");
             AdvisorSkill link = new AdvisorSkill();
             link.setAdvisor(advisor);
-            link.setSkill(technical);
+            link.setSkill(cards);
             link.setLevel((short) 3);
             em.persist(link);
 
@@ -224,9 +267,9 @@ class SchemaValidationTest extends AbstractPersistenceTest {
 
             // The payload is what forces this to be an entity rather than a @ManyToMany.
             AdvisorSkill loaded = em.find(
-                    AdvisorSkill.class, new AdvisorSkillId(advisor.getId(), technical.getId()));
+                    AdvisorSkill.class, new AdvisorSkillId(advisor.getId(), cards.getId()));
             assertThat(loaded.getLevel()).isEqualTo((short) 3);
-            assertThat(loaded.getSkill().getCode()).isEqualTo("TECHNICAL");
+            assertThat(loaded.getSkill().getCode()).isEqualTo("CARDS");
 
             // And the routing engine's direction: advisor -> skills.
             Advisor reloaded = em.find(Advisor.class, advisor.getId());
@@ -239,16 +282,16 @@ class SchemaValidationTest extends AbstractPersistenceTest {
         void conversationWithMessagesRoundTrips() throws Exception {
             Conversation conversation = new Conversation();
             conversation.setCustomer(persistCustomer());
-            conversation.setSkill(skill("BILLING"));
+            conversation.setSkill(skill("ACCOUNTS"));
             conversation.setStatus(ConversationStatus.ACTIVE);
-            conversation.setIntent(Intent.BILLING);
+            conversation.setIntent(Intent.BALANCE);
             conversation.setPriorityScore(new BigDecimal("42.50"));
             em.persist(conversation);
 
             Message customerTurn = new Message();
             customerTurn.setConversation(conversation);
             customerTurn.setSender(MessageSender.CUSTOMER);
-            customerTurn.setContent("Ma facture est incorrecte.");
+            customerTurn.setContent("Mon solde est incorrect.");
             em.persist(customerTurn);
 
             Message agentTurn = new Message();
@@ -259,7 +302,7 @@ class SchemaValidationTest extends AbstractPersistenceTest {
             // Top-level arrays: the shape a Map<String,Object> mapping could not have held.
             agentTurn.setSources(objectMapper.readTree("[{\"article\":\"KB-114\",\"score\":0.91}]"));
             agentTurn.setToolCalls(objectMapper.readTree(
-                    "[{\"tool\":\"get_invoice\",\"args\":{\"period\":\"2025-01\"}}]"));
+                    "[{\"tool\":\"get_transactions\",\"args\":{\"n\":10}}]"));
             em.persist(agentTurn);
 
             em.flush();
@@ -269,7 +312,7 @@ class SchemaValidationTest extends AbstractPersistenceTest {
             assertThat(loaded.getRunId()).as("live mode conversation").isNull();
             assertThat(loaded.getChannel()).isEqualTo(Channel.CHAT);
             assertThat(loaded.getPriorityScore()).isEqualByComparingTo("42.50");
-            assertThat(loaded.getSkill().getCode()).isEqualTo("BILLING");
+            assertThat(loaded.getSkill().getCode()).isEqualTo("ACCOUNTS");
 
             // No collection on Conversation by design; messages are queried, not traversed.
             List<Message> transcript = em.createQuery(
@@ -281,7 +324,7 @@ class SchemaValidationTest extends AbstractPersistenceTest {
             assertThat(transcript.get(1).getSources().get(0).get("article").asText())
                     .isEqualTo("KB-114");
             assertThat(transcript.get(1).getToolCalls().get(0).get("tool").asText())
-                    .isEqualTo("get_invoice");
+                    .isEqualTo("get_transactions");
             assertThat(transcript.get(1).getId()).isNotNull(); // BIGSERIAL identity assigned
         }
 
@@ -305,7 +348,7 @@ class SchemaValidationTest extends AbstractPersistenceTest {
             CommercialCredit credit = new CommercialCredit();
             credit.setCustomer(customer);
             credit.setAmount(new BigDecimal("25.00")); // above the 15.00 default ceiling
-            credit.setReason("Panne prolongee zone est");
+            credit.setReason("Remboursement frais de rejet");
             credit.setGrantedBy(advisor);
             credit.setApprovedBy(supervisor);
             em.persist(credit);
@@ -349,8 +392,8 @@ class SchemaValidationTest extends AbstractPersistenceTest {
             Customer customer = persistCustomer();
             Ticket ticket = new Ticket();
             ticket.setCustomer(customer);
-            ticket.setCategory("NETWORK");
-            ticket.setTitle("Perte de connexion recurrente");
+            ticket.setCategory("CARD");
+            ticket.setTitle("Carte refusee a l etranger");
             ticket.setStatus(TicketStatus.OPEN);
             ticket.setSeverity((short) 2);
             em.persist(ticket);
@@ -376,11 +419,11 @@ class SchemaValidationTest extends AbstractPersistenceTest {
             scenario.setDurationMinutes(60);
             scenario.setAdvisorCount(12);
             scenario.setSkillDistribution(
-                    objectMapper.readTree("{\"TECHNICAL\":0.5,\"BILLING\":0.3,\"COMMERCIAL\":0.2}"));
+                    objectMapper.readTree("{\"CARDS\":0.4,\"ACCOUNTS\":0.3,\"CREDIT\":0.2,\"FRAUD\":0.1}"));
             scenario.setCustomerProfileMix(
                     objectMapper.readTree("{\"LOW\":0.7,\"MEDIUM\":0.2,\"HIGH\":0.1}"));
             scenario.setInjectedEvents(
-                    objectMapper.readTree("[{\"at\":900,\"type\":\"OUTAGE\",\"zone\":\"north\"}]"));
+                    objectMapper.readTree("[{\"at\":900,\"type\":\"OUTAGE\",\"service\":\"CARD_PAYMENTS\"}]"));
             em.persist(scenario);
 
             ControlStrategy strategy = new ControlStrategy();
@@ -403,24 +446,24 @@ class SchemaValidationTest extends AbstractPersistenceTest {
         @DisplayName("a KB article with TEXT[] tags and its chunks round-trip")
         void knowledgeBaseRoundTrips() {
             KbArticle article = new KbArticle();
-            article.setCategory("BILLING");
-            article.setTitle("Comprendre votre facture");
-            article.setContent("Le detail de votre facture...");
-            article.setTags(new String[] {"facture", "prelevement", "litige"});
+            article.setCategory("CARDS");
+            article.setTitle("Faire opposition a votre carte");
+            article.setContent("En cas de perte ou de vol de votre carte...");
+            article.setTags(new String[] {"carte", "opposition", "fraude"});
             article.setPublished(true);
             em.persist(article);
 
             KbChunk chunk = new KbChunk();
             chunk.setArticle(article);
             chunk.setChunkIndex(0);
-            chunk.setContent("Le detail de votre facture...");
+            chunk.setContent("En cas de perte ou de vol de votre carte...");
             em.persist(chunk);
 
             em.flush();
             em.clear();
 
             KbArticle loaded = em.find(KbArticle.class, article.getId());
-            assertThat(loaded.getTags()).containsExactly("facture", "prelevement", "litige");
+            assertThat(loaded.getTags()).containsExactly("carte", "opposition", "fraude");
             assertThat(loaded.getUpdatedAt()).as("@UpdateTimestamp populated").isNotNull();
 
             List<KbChunk> chunks = em.createQuery(
@@ -429,27 +472,28 @@ class SchemaValidationTest extends AbstractPersistenceTest {
                     .getResultList();
             // embedding is unmapped by design; the column exists and validate does not care.
             assertThat(chunks).hasSize(1);
-            assertThat(chunks.get(0).getArticle().getTitle()).isEqualTo("Comprendre votre facture");
+            assertThat(chunks.get(0).getArticle().getTitle()).isEqualTo("Faire opposition a votre carte");
         }
 
         @Test
         @DisplayName("operational control entities round-trip, including a JSONB rule condition")
         void operationalControlRoundTrips() throws Exception {
-            Skill billing = em.createQuery("select s from Skill s where s.code = 'BILLING'", Skill.class)
+            Skill fraud = em.createQuery("select s from Skill s where s.code = 'FRAUD'", Skill.class)
                     .getSingleResult();
 
             RoutingRule rule = new RoutingRule();
-            rule.setName("Billing disputes to BILLING");
-            rule.setIntent(Intent.BILLING);
-            rule.setSkill(billing);
+            rule.setName("Disputed card payments to FRAUD");
+            rule.setIntent(Intent.FRAUD);
+            rule.setSkill(fraud);
             rule.setPriority(10);
-            rule.setConditions(objectMapper.readTree("{\"invoiceStatus\":\"DISPUTED\"}"));
+            rule.setConditions(objectMapper.readTree("{\"transactionStatus\":\"DISPUTED\"}"));
             em.persist(rule);
 
-            NetworkIncident incident = new NetworkIncident();
-            incident.setZone("north");
-            incident.setType("FIBER_CUT");
+            ServiceIncident incident = new ServiceIncident();
+            incident.setService(BankingService.CARD_PAYMENTS);
+            incident.setRegion("north");
             incident.setSeverity((short) 1);
+            incident.setDescription("Card authorisations failing");
             incident.setStartedAt(Instant.now());
             incident.setAffectedCount(4200);
             em.persist(incident);
@@ -458,16 +502,16 @@ class SchemaValidationTest extends AbstractPersistenceTest {
             em.clear();
 
             RoutingRule loadedRule = em.find(RoutingRule.class, rule.getId());
-            assertThat(loadedRule.getConditions().get("invoiceStatus").asText()).isEqualTo("DISPUTED");
-            assertThat(loadedRule.getSkill().getCode()).isEqualTo("BILLING");
+            assertThat(loadedRule.getConditions().get("transactionStatus").asText()).isEqualTo("DISPUTED");
+            assertThat(loadedRule.getSkill().getCode()).isEqualTo("FRAUD");
 
-            // Matches idx_incident_zone_active, partial on resolved_at IS NULL.
-            List<NetworkIncident> active = em.createQuery(
-                            "select i from NetworkIncident i where i.zone = :z and i.resolvedAt is null",
-                            NetworkIncident.class)
-                    .setParameter("z", "north")
+            // Served by idx_service_incident_active (region, partial on resolved_at IS NULL).
+            List<ServiceIncident> active = em.createQuery(
+                            "select i from ServiceIncident i where i.region = :r and i.resolvedAt is null",
+                            ServiceIncident.class)
+                    .setParameter("r", "north")
                     .getResultList();
-            assertThat(active).isNotEmpty();
+            assertThat(active).extracting(ServiceIncident::getService).contains(BankingService.CARD_PAYMENTS);
         }
 
         @Test
@@ -501,8 +545,8 @@ class SchemaValidationTest extends AbstractPersistenceTest {
         @DisplayName("metric samples round-trip through their composite key")
         void metricSampleRoundTrips() throws Exception {
             SimulationRun run = persistRun(1002L);
-            Skill technical = em.createQuery(
-                            "select s from Skill s where s.code = 'TECHNICAL'", Skill.class)
+            Skill cards = em.createQuery(
+                            "select s from Skill s where s.code = 'CARDS'", Skill.class)
                     .getSingleResult();
 
             // Written natively, mirroring the batch JDBC path the entity is deliberately unable to
@@ -513,16 +557,16 @@ class SchemaValidationTest extends AbstractPersistenceTest {
                             values (:rid, 10, :sid, 14, 62.50, 3, 9)
                             """)
                     .setParameter("rid", run.getId())
-                    .setParameter("sid", technical.getId())
+                    .setParameter("sid", cards.getId())
                     .executeUpdate();
             em.flush();
             em.clear();
 
             MetricSample sample = em.find(
-                    MetricSample.class, new MetricSampleId(run.getId(), 10, technical.getId()));
+                    MetricSample.class, new MetricSampleId(run.getId(), 10, cards.getId()));
             assertThat(sample.getQueueLength()).isEqualTo(14);
             assertThat(sample.getAvgWait()).isEqualByComparingTo("62.50");
-            assertThat(sample.getSkill().getCode()).isEqualTo("TECHNICAL");
+            assertThat(sample.getSkill().getCode()).isEqualTo("CARDS");
         }
 
         @Test
@@ -535,10 +579,10 @@ class SchemaValidationTest extends AbstractPersistenceTest {
             decision.setAgentType(AgentType.WORKFORCE_MANAGER);
             decision.setSimTime(120);
             decision.setObservation(objectMapper.readTree(
-                    "{\"queue\":{\"TECHNICAL\":14,\"BILLING\":3},\"available\":2}"));
+                    "{\"queue\":{\"FRAUD\":14,\"ACCOUNTS\":3},\"available\":2}"));
             decision.setAction(objectMapper.readTree(
-                    "{\"type\":\"REASSIGN\",\"from\":\"BILLING\",\"to\":\"TECHNICAL\",\"count\":1}"));
-            decision.setReason("Technical queue above threshold while billing is idle");
+                    "{\"type\":\"REASSIGN\",\"from\":\"ACCOUNTS\",\"to\":\"FRAUD\",\"count\":1}"));
+            decision.setReason("Fraud queue above threshold while accounts is idle");
             em.persist(decision);
 
             em.flush();
@@ -546,7 +590,7 @@ class SchemaValidationTest extends AbstractPersistenceTest {
 
             AgentDecision loaded = em.find(AgentDecision.class, decision.getId());
             // The XAI contract: what it saw and what it did are both replayable.
-            assertThat(loaded.getObservation().get("queue").get("TECHNICAL").asInt()).isEqualTo(14);
+            assertThat(loaded.getObservation().get("queue").get("FRAUD").asInt()).isEqualTo(14);
             assertThat(loaded.getAction().get("type").asText()).isEqualTo("REASSIGN");
             assertThat(loaded.getAgentType()).isEqualTo(AgentType.WORKFORCE_MANAGER);
             assertThat(loaded.getApprovedBy()).as("acted unsupervised").isNull();
@@ -559,7 +603,7 @@ class SchemaValidationTest extends AbstractPersistenceTest {
             customer.setExternalRef(unique("QC"));
             customer.setFirstName("Quality");
             customer.setLastName("Subject");
-            customer.setZone("north");
+            customer.setRegion("north");
             em.persist(customer);
 
             Conversation conversation = new Conversation();
@@ -602,17 +646,36 @@ class SchemaValidationTest extends AbstractPersistenceTest {
     }
 
     @Nested
-    @DisplayName("V2 reference seed")
+    @DisplayName("V2 reference seed, as re-coded by V3")
     class ReferenceSeed {
+
+        private static final String TEST_SKILLS =
+                com.callverse.conversation.ConversationFixtures.TEST_SKILL_PREFIX.replace("_", "\\_") + "%";
+
+        private long seededSkills() {
+            return ((Number) em.createNativeQuery("select count(*) from skill where code not like :test")
+                    .setParameter("test", TEST_SKILLS)
+                    .getSingleResult()).longValue();
+        }
+
+        private long seededSlaPolicies() {
+            return ((Number) em.createNativeQuery(
+                            "select count(*) from sla_policy p left join skill s on s.id = p.skill_id"
+                                    + " where s.code is null or s.code not like :test")
+                    .setParameter("test", TEST_SKILLS)
+                    .getSingleResult()).longValue();
+        }
 
         @Test
         @DisplayName("every reference table is seeded with the documented rows")
         void seedCountsAreCorrect() {
-            assertThat(count("Plan")).isEqualTo(5);
+            assertThat(count("BankingProduct")).isEqualTo(5);
             // Native counts for tables whose entities arrive in a later block; replaced with JPQL
             // as those entities land.
-            assertThat(nativeCount("skill")).isEqualTo(3);
-            assertThat(nativeCount("sla_policy")).isEqualTo(3);
+            // The conversation tests create private skills (and their policies) in the shared
+            // container; they all start with TEST_SKILL_PREFIX, which no migration ever seeds.
+            assertThat(seededSkills()).isEqualTo(4);
+            assertThat(seededSlaPolicies()).isEqualTo(4);
             assertThat(nativeCount("quality_criterion")).isEqualTo(6);
             assertThat(nativeCount("control_strategy")).isEqualTo(3);
             assertThat(nativeCount("app_user")).isGreaterThanOrEqualTo(4);
@@ -622,6 +685,25 @@ class SchemaValidationTest extends AbstractPersistenceTest {
             return ((Number) em.createNativeQuery("select count(*) from " + table)
                     .getSingleResult())
                     .longValue();
+        }
+
+        @Test
+        @DisplayName("the skills are the banking ones, and FRAUD carries the strictest SLA")
+        void skillsAreBanking() {
+            List<Object> codes = em.createNativeQuery("select code from skill where code not like :test order by code")
+                    .setParameter("test", TEST_SKILLS)
+                    .getResultList();
+            assertThat(codes).containsExactly("ACCOUNTS", "CARDS", "CREDIT", "FRAUD");
+
+            Object[] fraud = (Object[]) em.createNativeQuery(
+                            """
+                            select p.target_seconds, p.target_ratio
+                              from sla_policy p join skill s on s.id = p.skill_id
+                             where s.code = 'FRAUD'
+                            """)
+                    .getSingleResult();
+            assertThat(((Number) fraud[0]).intValue()).isEqualTo(30);
+            assertThat((BigDecimal) fraud[1]).isEqualByComparingTo("0.900");
         }
 
         @Test

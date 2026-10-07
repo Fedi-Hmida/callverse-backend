@@ -14,6 +14,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -71,7 +72,8 @@ public class Escalation {
     private EscalationStatus status = EscalationStatus.PENDING;
 
     @Column(name = "created_at", nullable = false, updatable = false)
-    private Instant createdAt = Instant.now();
+    /** Microseconds, what PostgreSQL stores: the first response and every later read agree. */
+    private Instant createdAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
 
     @Column(name = "resolved_at")
     private Instant resolvedAt;

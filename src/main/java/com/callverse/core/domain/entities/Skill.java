@@ -33,7 +33,7 @@ public class Skill {
     @Setter(AccessLevel.NONE)
     private UUID id;
 
-    /** TECHNICAL, BILLING, COMMERCIAL. Stable; routing rules are written against it. */
+    /** ACCOUNTS, CARDS, CREDIT, FRAUD. Stable; routing rules are written against it. */
     @Column(name = "code", nullable = false, unique = true, length = 30)
     private String code;
 

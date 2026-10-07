@@ -65,6 +65,15 @@ export JAVA_HOME
 MVNW := $(BASH) ./mvnw
 PORT ?= 8080
 
+# The profile "make api" runs under. Set here rather than inherited from .env,
+# because .env.example deliberately ships no SPRING_PROFILES_ACTIVE: docker compose
+# interpolates that same file, and a value in it silently defeated the fail-closed
+# "prod" default in docker-compose.yml. The two paths are separate on purpose now -
+# this target is local development and picks dev; a deployment gets prod unless it
+# says otherwise. To see what a deployment actually serves:
+#     make api PROFILE=prod
+PROFILE ?= dev
+
 # --- Environment -------------------------------------------------------------
 # .env is sourced by the recipes themselves (not `include`d) so that values
 # containing '#', ':' or spaces cannot be mangled by make's parser.
@@ -103,9 +112,9 @@ help: ## Show this help
 .PHONY: api
 api: ## Run the backend against Neon (dev profile, reads .env)
 	$(require_env)
-	@echo "  Starting CallVerse on port $(PORT) ..."
+	@echo "  Starting CallVerse on port $(PORT), profile $(PROFILE) ..."
 	@echo "  Neon cold start can take ~30s on first request after idle."
-	@$(LOAD_ENV); $(MVNW) spring-boot:run
+	@$(LOAD_ENV); SPRING_PROFILES_ACTIVE=$(PROFILE) $(MVNW) spring-boot:run
 
 .PHONY: api-jar
 api-jar: build ## Run the packaged jar instead of the Maven plugin (faster restart)
@@ -130,6 +139,11 @@ verify: ## Full build + all tests - run this before pushing (REQUIRES Docker)
 	@docker info >/dev/null 2>&1 || { \
 	  echo "  ERROR: Docker is not running. Start Docker Desktop first."; exit 1; }
 	@$(MVNW) clean install
+
+.PHONY: openapi
+openapi: ## Regenerate the committed openapi.yaml from the live document (REQUIRES Docker)
+	@docker info >/dev/null 2>&1 || { echo "  ERROR: Docker is not running."; exit 1; }
+	@$(MVNW) test -Dtest=OpenApiContractTest -Dopenapi.update=true
 
 .PHONY: arch
 arch: ## Run only the architecture rules (fast, no Docker needed)
@@ -179,9 +193,16 @@ env-check: ## Verify every variable the application needs is present in .env
 	@$(LOAD_ENV); missing=0; \
 	  for v in DB_HOST DB_DIRECT_HOST DB_PORT DB_NAME DB_USERNAME DB_PASSWORD \
 	           DB_SSLMODE JWT_SECRET JWT_EXPIRATION_MS AI_SERVICE_BASE_URL \
-	           SERVER_PORT SPRING_PROFILES_ACTIVE; do \
+	           SERVER_PORT; do \
 	    if [ -z "$${!v}" ]; then echo "    MISSING  $$v"; missing=1; \
 	    else echo "    ok       $$v"; fi; \
 	  done; \
+	  echo ""; \
+	  if [ -n "$$SPRING_PROFILES_ACTIVE" ]; then \
+	    echo "    profile   SPRING_PROFILES_ACTIVE=$$SPRING_PROFILES_ACTIVE (from .env)"; \
+	  else \
+	    echo "    profile   unset - docker compose falls back to prod (deny-by-default)"; \
+	    echo "              make api still uses dev; override with PROFILE=prod"; \
+	  fi; \
 	  test $$missing -eq 0 && echo "" && echo "    .env is complete." || \
 	    { echo ""; echo "    .env is incomplete - see .env.example."; exit 1; }

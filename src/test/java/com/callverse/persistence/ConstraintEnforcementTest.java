@@ -45,7 +45,7 @@ class ConstraintEnforcementTest extends AbstractPersistenceTest {
         customer.setExternalRef("CHK-" + UUID.randomUUID().toString().substring(0, 8));
         customer.setFirstName("Check");
         customer.setLastName("Constraint");
-        customer.setZone("north");
+        customer.setRegion("north");
         em.persist(customer);
         em.flush();
 
@@ -74,7 +74,7 @@ class ConstraintEnforcementTest extends AbstractPersistenceTest {
         scenario.setDurationMinutes(60);
         scenario.setAdvisorCount(12);
         scenario.setSkillDistribution(objectMapper.readTree(
-                "{\"TECHNICAL\":0.5,\"BILLING\":0.3,\"COMMERCIAL\":0.2}"));
+                "{\"CARDS\":0.4,\"ACCOUNTS\":0.3,\"CREDIT\":0.2,\"FRAUD\":0.1}"));
         scenario.setCustomerProfileMix(objectMapper.readTree(
                 "{\"LOW\":0.7,\"MEDIUM\":0.2,\"HIGH\":0.1}"));
         em.persist(scenario);
@@ -109,31 +109,101 @@ class ConstraintEnforcementTest extends AbstractPersistenceTest {
     }
 
     @Test
-    @DisplayName("chk_contract_dates rejects an end date before the start date")
-    void contractEndBeforeStartIsRejected() {
-        Customer customer = new Customer();
-        customer.setExternalRef("DATE-" + UUID.randomUUID().toString().substring(0, 8));
-        customer.setFirstName("Date");
-        customer.setLastName("Constraint");
-        customer.setZone("west");
-        em.persist(customer);
-        em.flush();
-
-        UUID planId = (UUID) em.createNativeQuery("select id from plan where code = 'FIB_1G'")
-                .getSingleResult();
+    @DisplayName("chk_account_dates rejects a closing date before the opening date")
+    void accountClosedBeforeOpenedIsRejected() {
+        UUID customerId = persistCustomer("DATE");
+        UUID productId = productId();
 
         assertThatThrownBy(() -> {
                     em.createNativeQuery(
                                     """
-                                    insert into contract (id, customer_id, plan_id, status, started_at, ended_at)
-                                    values (gen_random_uuid(), :cid, :pid, 'ACTIVE', date '2025-06-01', date '2025-01-01')
+                                    insert into account (id, customer_id, product_id, iban, status, opened_at, closed_at)
+                                    values (gen_random_uuid(), :cid, :pid, :iban, 'CLOSED', date '2025-06-01', date '2025-01-01')
                                     """)
-                            .setParameter("cid", customer.getId())
-                            .setParameter("pid", planId)
+                            .setParameter("cid", customerId)
+                            .setParameter("pid", productId)
+                            .setParameter("iban", uniqueIban())
                             .executeUpdate();
                     em.flush();
                 })
-            .hasStackTraceContaining("chk_contract_dates");
+            .hasStackTraceContaining("chk_account_dates");
+    }
+
+    @Test
+    @DisplayName("card.pan_last4 refuses anything but four digits")
+    void nonDigitLastFourIsRejected() {
+        UUID accountId = persistAccount();
+
+        // PCI-DSS: the schema itself makes a stored PAN impossible, whatever the application does.
+        // A longer value is already refused by VARCHAR(4) before any CHECK runs, so this uses four
+        // characters that are not all digits: only the named CHECK can refuse it, and the assertion
+        // names the constraint rather than a column that also appears in the SQL text.
+        assertThatThrownBy(() -> {
+                    em.createNativeQuery(
+                                    """
+                                    insert into card (id, account_id, pan_last4, network, type, status, expires_on, daily_limit)
+                                    values (gen_random_uuid(), :aid, '12a4', 'VISA', 'DEBIT', 'ACTIVE', date '2029-12-31', 500)
+                                    """)
+                            .setParameter("aid", accountId)
+                            .executeUpdate();
+                    em.flush();
+                })
+            .hasStackTraceContaining("card_pan_last4_check");
+    }
+
+    @Test
+    @DisplayName("chk_card_blocked refuses a blocked card that says neither when nor why")
+    void blockedCardWithoutReasonIsRejected() {
+        UUID accountId = persistAccount();
+
+        assertThatThrownBy(() -> {
+                    em.createNativeQuery(
+                                    """
+                                    insert into card (id, account_id, pan_last4, network, type, status, expires_on, daily_limit)
+                                    values (gen_random_uuid(), :aid, '4242', 'VISA', 'DEBIT', 'BLOCKED', date '2029-12-31', 500)
+                                    """)
+                            .setParameter("aid", accountId)
+                            .executeUpdate();
+                    em.flush();
+                })
+            .hasStackTraceContaining("chk_card_blocked");
+    }
+
+    private UUID persistCustomer(String prefix) {
+        Customer customer = new Customer();
+        customer.setExternalRef(prefix + "-" + UUID.randomUUID().toString().substring(0, 8));
+        customer.setFirstName("Check");
+        customer.setLastName("Constraint");
+        customer.setRegion("west");
+        em.persist(customer);
+        em.flush();
+        return customer.getId();
+    }
+
+    private UUID productId() {
+        return (UUID) em.createNativeQuery("select id from banking_product where code = 'CUR_ESSENTIAL'")
+                .getSingleResult();
+    }
+
+    private UUID persistAccount() {
+        UUID customerId = persistCustomer("CARD");
+        UUID accountId = UUID.randomUUID();
+        em.createNativeQuery(
+                        """
+                        insert into account (id, customer_id, product_id, iban, status, opened_at)
+                        values (:id, :cid, :pid, :iban, 'ACTIVE', date '2024-01-01')
+                        """)
+                .setParameter("id", accountId)
+                .setParameter("cid", customerId)
+                .setParameter("pid", productId())
+                .setParameter("iban", uniqueIban())
+                .executeUpdate();
+        em.flush();
+        return accountId;
+    }
+
+    private static String uniqueIban() {
+        return "FR76" + UUID.randomUUID().toString().replace("-", "").substring(0, 23).toUpperCase();
     }
 
     @Test
@@ -144,7 +214,7 @@ class ConstraintEnforcementTest extends AbstractPersistenceTest {
         scenario.setLoadProfile(LoadProfile.LOW);
         scenario.setDurationMinutes(10);
         scenario.setAdvisorCount(2);
-        scenario.setSkillDistribution(objectMapper.readTree("{\"TECHNICAL\":1.0}"));
+        scenario.setSkillDistribution(objectMapper.readTree("{\"CARDS\":1.0}"));
         scenario.setCustomerProfileMix(objectMapper.readTree("{\"LOW\":1.0}"));
         em.persist(scenario);
 
@@ -185,7 +255,7 @@ class ConstraintEnforcementTest extends AbstractPersistenceTest {
         customer.setExternalRef("AMT-" + UUID.randomUUID().toString().substring(0, 8));
         customer.setFirstName("Amount");
         customer.setLastName("Constraint");
-        customer.setZone("south");
+        customer.setRegion("south");
         em.persist(customer);
         em.flush();
 

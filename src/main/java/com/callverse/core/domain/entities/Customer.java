@@ -1,6 +1,7 @@
 package com.callverse.core.domain.entities;
 
 import com.callverse.core.domain.enums.ChurnRisk;
+import com.callverse.core.domain.enums.CustomerSegment;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -23,8 +24,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 /**
- * A telecom subscriber. Maps {@code customer}. Aggregate root; {@link Contract} is reached through
- * it.
+ * A bank customer. Maps {@code customer}. Aggregate root; {@link Account} is reached through it.
  *
  * <p>{@code user} is nullable and {@code simulated} exists because <strong>simulated customers have
  * no account</strong>. That pair of fields is what lets live mode and simulation mode share one
@@ -63,9 +63,14 @@ public class Customer {
     @Column(name = "phone", length = 30)
     private String phone;
 
-    /** Geographic zone, joined against {@code network_incident.zone} during technical triage. */
-    @Column(name = "zone", nullable = false, length = 40)
-    private String zone;
+    /** Home region, matched against {@code service_incident.region} when triaging an outage. */
+    @Column(name = "region", nullable = false, length = 40)
+    private String region;
+
+    /** The "client value" factor of the queue priority score. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "segment", nullable = false, length = 20)
+    private CustomerSegment segment = CustomerSegment.MASS;
 
     @Column(name = "tenure_months", nullable = false)
     private int tenureMonths = 0;
@@ -82,13 +87,13 @@ public class Customer {
     private Instant createdAt = Instant.now();
 
     /**
-     * The one collection in this block, and it earns its place: {@code Contract} has no repository
-     * of its own because it lives inside this aggregate, so "show me this customer's contracts" —
-     * the first thing an advisor desktop renders — has to be reachable from here.
+     * The one collection in this block, and it earns its place: "show me this customer's accounts"
+     * is the first thing an advisor desktop renders, so it has to be reachable from here.
      *
-     * <p>{@link Invoice} deliberately gets no such collection: it has its own repository, because
-     * the billing lifecycle runs without any customer context.
+     * <p>{@link BankTransaction} deliberately gets no such collection: it has its own repository,
+     * because statements and disputes are read by account, and a customer's full history is far
+     * too large to hang off the aggregate.
      */
     @OneToMany(mappedBy = "customer", fetch = FetchType.LAZY)
-    private List<Contract> contracts = new ArrayList<>();
+    private List<Account> accounts = new ArrayList<>();
 }

@@ -29,7 +29,7 @@ import org.hibernate.type.SqlTypes;
  * existing one without renumbering.
  *
  * <p>{@code conditions} is JSONB because the predicate shape is open-ended — a rule may key on a
- * customer's churn risk, an active incident in their zone, or a time window — and columns cannot be
+ * customer's churn risk, an active incident in their region, or a time window — and columns cannot be
  * added for each. It is never joined on, only evaluated after loading, which is the case JSONB fits.
  */
 @Entity

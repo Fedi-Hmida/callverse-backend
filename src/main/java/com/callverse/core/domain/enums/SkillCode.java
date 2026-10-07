@@ -8,19 +8,22 @@ package com.callverse.core.domain.enums;
  * because a skill carries a label and will eventually carry routing metadata, and because an
  * operator must be able to add one without a migration.
  *
- * <p>It exists for two narrow purposes: naming the rows created by {@code V2__seed_reference.sql},
- * and giving application code a type-safe way to look a skill up by code rather than passing a bare
- * string. If a skill is ever added at runtime that has no constant here, that is expected and not
+ * <p>It exists for two narrow purposes: naming the rows created by {@code V2__seed_reference.sql}
+ * and re-coded by {@code V3__banking_domain.sql}, and giving application code a type-safe way to
+ * look a skill up by code rather than passing a bare string. If a skill is ever added at runtime that has no constant here, that is expected and not
  * an error — which is exactly why this must never become a persisted column type.
  */
 public enum SkillCode {
 
-    /** Network, device and connectivity problems. */
-    TECHNICAL,
+    /** Balances, statements, transfers and direct debits. */
+    ACCOUNTS,
 
-    /** Invoices, payments, disputes. */
-    BILLING,
+    /** Card orders, limits, blocking and replacement. */
+    CARDS,
 
-    /** Offers, upgrades and retention. */
-    COMMERCIAL
+    /** Consumer loans, mortgages and overdraft facilities. */
+    CREDIT,
+
+    /** Suspected fraud and disputed card payments: the strictest SLA. */
+    FRAUD
 }

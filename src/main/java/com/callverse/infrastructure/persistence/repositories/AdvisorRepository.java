@@ -2,9 +2,12 @@ package com.callverse.infrastructure.persistence.repositories;
 
 import com.callverse.core.domain.entities.Advisor;
 import com.callverse.core.domain.enums.AdvisorStatus;
+import jakarta.persistence.LockModeType;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -41,6 +44,28 @@ public interface AdvisorRepository extends JpaRepository<Advisor, UUID> {
             @Param("status") AdvisorStatus status);
 
     List<Advisor> findByStatus(AdvisorStatus status);
+
+    /**
+     * The advisor, row-locked until the transaction ends. Taking work locks the advisor first, so
+     * one advisor's two simultaneous requests are serialized and {@code max_concurrent} holds.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select a from Advisor a where a.id = :id")
+    Optional<Advisor> findByIdForUpdate(@Param("id") UUID id);
+
+    /**
+     * The real (not simulated) advisors linked to a login, with their skills. A list, because
+     * {@code advisor.user_id} is not unique: the caller decides what more than one means.
+     */
+    @Query("""
+           select distinct a
+             from Advisor a
+             left join fetch a.skills s
+             left join fetch s.skill
+            where a.user.id = :userId
+              and a.simulated = false
+           """)
+    List<Advisor> findRealByUserId(@Param("userId") UUID userId);
 
     /** Excludes the synthetic workforce an experiment creates, for business reporting. */
     List<Advisor> findBySimulatedFalse();

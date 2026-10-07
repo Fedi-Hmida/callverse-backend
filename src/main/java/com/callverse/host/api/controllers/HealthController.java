@@ -39,6 +39,7 @@ public class HealthController {
 
     @GetMapping("/status")
     @Operation(
+            operationId = "getHealthStatus",
             summary = "Read platform status",
             description =
                     "Returns the service name, build version, business-level status, UTC timestamp "

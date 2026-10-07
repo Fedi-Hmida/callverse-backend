@@ -1,15 +1,17 @@
 # CallVerse — Backend
 
-CallVerse is a digital twin of a telecom customer relation center. Four autonomous agents operate
+CallVerse is a digital twin of a retail bank's customer relation center. Four autonomous agents operate
 inside it — a Client Simulator, a Customer Advisor, a Workforce Manager driven by reinforcement
 learning, and a Quality Analyst — and the platform runs in two modes on one codebase: **live**, with
 a real person on the customer portal, and **simulation**, with thousands of synthetic customers used
 to train the RL policy and to produce measured results against a baseline. This repository is the
-**backend**: it owns the business domain (customers, contracts, invoices, conversations, tickets,
-advisors, skills), the queue engine and skill-based routing, the SLA and escalation rules, the
-commercial-credit ceilings, security and roles, simulation-run orchestration, the KPI engine, and the
-`/internal` tool API the Python AI service calls. The Angular frontend and the Python/FastAPI service
-running the LangGraph agents live in their own repositories.
+**backend**: it owns the business domain (customers, accounts, cards, transactions, conversations,
+tickets, advisors, skills), the queue engine and skill-based routing, the SLA and escalation rules, the
+commercial-credit ceilings, security and roles, simulation-run orchestration, and the KPI engine.
+The Next.js frontend and the Python/FastAPI service running the LangGraph agents live in their own
+repositories. The AI-service integration is deliberately deferred until the frontend–backend–database
+path is complete: the `/internal` tool API the agents called was withdrawn on 2026-09-30 and is kept
+under the git tag `internal-tools-http-surface`.
 
 One rule is worth stating up front, because it is the reason several design decisions here look
 conservative: **the backend, never the agent, is the authority on business rules.** An agent that
@@ -135,7 +137,7 @@ its classpath, importing it is impossible. A single module trades that guarantee
 rules:
 
 1. `core` must not depend on `host` or `infrastructure`.
-2. `core` must not depend on `org.springframework.web`, `.security`, or `.boot`.
+2. `core` must not depend on anything under `org.springframework` — no `@Service`, `@Component`, `@Autowired` or `@Transactional`.
 3. `core.domain` must not depend on `core.application`.
 4. Only `core.domain.entities` may depend on `jakarta.persistence`.
 5. `host` must not depend on `infrastructure.persistence` — controllers talk to handlers, never to
@@ -187,7 +189,7 @@ concession is one package wide, and the build enforces it.
 
 | | |
 |---|---|
-| **Routes** | `/api/v1/...` for the public API; `/internal/...` for the AI service's tool API. Version in the path, plural nouns, no verbs. |
+| **Routes** | `/api/v1/...` for the public API. The AI service's tool API (`/internal/...`) is withdrawn until the AI-integration phase re-agrees its prefix and casing. Version in the path, plural nouns, no verbs. |
 | **Identifiers** | UUIDs are exposed publicly. Database sequence IDs never appear in a payload or a URL — they leak row counts and are guessable. |
 | **Dates** | ISO-8601, always UTC, always with the `Z` suffix. The backend does not do timezones; the frontend formats for the user. A KPI compared across two simulation runs must not be measuring a daylight-saving transition. |
 | **Errors** | Every failure returns the same envelope: `timestamp`, `status`, `code`, `message`, `path`. Clients branch on `code`; `message` is for humans and may be reworded or translated. |
@@ -196,12 +198,12 @@ concession is one package wide, and the build enforces it.
 
 ### Frontend type generation
 
-The Angular client generates its TypeScript types from the OpenAPI document rather than hand-writing
+The Next.js client generates its TypeScript types from the OpenAPI document rather than hand-writing
 them, which makes a backend contract change a compile error in the frontend instead of a runtime
 surprise. With the backend running:
 
 ```bash
-npx openapi-typescript http://localhost:8080/v3/api-docs -o src/app/core/api/callverse-api.d.ts
+npx openapi-typescript http://localhost:8080/v3/api-docs -o src/shared/api-client/generated/callverse-api.d.ts
 ```
 
 Because of this, `host.api.dto.response` is a published contract. Renaming a field there is a
@@ -219,22 +221,30 @@ divergence between the migration and the provisioned database is silent and expe
 The rest of `docs/` is deliberately untracked (see `.gitignore`); only the schema reference is
 versioned, so that schema changes show up in diffs.
 
-### Entity map — 26 tables, 26 entities, 23 repositories
+### Entity map — 27 tables, 27 entities, 23 repositories
 
 | Block | Entities | Aggregate roots (have a repository) |
 |---|---|---|
 | 1 Identity | `AppUser` | `AppUser` |
-| 2 Customer | `Customer`, `Plan`, `Contract`, `Invoice` | `Customer`, `Plan`, `Invoice` |
+| 2 Customer | `Customer`, `BankingProduct`, `Account`, `Card`, `BankTransaction` | `Customer`, `Card`, `BankTransaction` |
 | 3 Resources | `Skill`, `Advisor`, `AdvisorSkill` | `Skill`, `Advisor` |
 | 4 Interaction | `Conversation`, `Message`, `Ticket`, `CommercialCredit`, `Escalation` | all five |
 | 5 Knowledge | `KbArticle`, `KbChunk` | both |
-| 6 Control | `SlaPolicy`, `RoutingRule`, `NetworkIncident` | all three |
+| 6 Control | `SlaPolicy`, `RoutingRule`, `ServiceIncident` | all three |
 | 7 Experiment | `ControlStrategy`, `Scenario`, `SimulationRun`, `RunKpi`, `MetricSample`, `AgentDecision` | all but `RunKpi` |
 | 8 Quality | `QualityCriterion`, `QualityEvaluation` | both |
 
 Three entities deliberately have **no** repository, because they live inside another aggregate and
-are reached through its root: `Contract` (via `Customer.getContracts()`), `AdvisorSkill` (via
+are reached through its root: `Account` (via `Customer.getAccounts()`), `AdvisorSkill` (via
 `Advisor.getSkills()`), and `RunKpi` (via `SimulationRun.getKpi()`, sharing its primary key).
+`BankingProduct` has none: no use case reads it on its own. `Card` has one since card blocking,
+which locks the row so two simultaneous blocks resolve to one.
+
+**The domain is retail banking.** It was telecom until 2026-09-30; `V3__banking_domain.sql` dropped
+the telecom tables (`plan`, `contract`, `invoice`, `network_incident`), renamed `customer.zone` to
+`region`, and created the banking ones. `V1` and `V2` are untouched because they are applied on
+Neon. **No card number, CVV or PIN is stored anywhere**: a card keeps its last four digits only, and
+the database refuses more.
 
 `MetricSampleRepository` is the odd one out: it extends Spring Data's bare `Repository`, **not**
 `JpaRepository`, so `save` and `saveAll` do not exist on the type. Writes to `metric_sample` go
@@ -244,7 +254,7 @@ is a compile error rather than a comment on purpose.
 
 ### Mapping conventions
 
-Decided once and applied to all 26 entities. Inconsistency across that many classes is worse than a
+Decided once and applied to all 27 entities. Inconsistency across that many classes is worse than a
 uniform but imperfect choice.
 
 | Decision | Choice | Why |
@@ -252,7 +262,7 @@ uniform but imperfect choice.
 | UUID primary keys | `@GeneratedValue(strategy = GenerationType.UUID)` | Hibernate-side generation needs no read-back; a DB-generated default forces a `RETURNING` fetch per row, defeating batching and costing a Neon round trip. The SQL `DEFAULT gen_random_uuid()` stays for direct SQL such as the seed. |
 | `BIGSERIAL` keys | `GenerationType.IDENTITY` | `message`, `kb_chunk`, `agent_decision` |
 | `TIMESTAMPTZ` | `java.time.Instant` | The column stores a UTC instant and discards the offset, so `OffsetDateTime` would advertise information it does not carry. |
-| `DATE` | `java.time.LocalDate` | Calendar dates, not instants — a contract starts on an agreed day, not at a moment. |
+| `DATE` | `java.time.LocalDate` | Calendar dates, not instants — an account opens on an agreed day, not at a moment. |
 | `NUMERIC` | `BigDecimal` with explicit `precision`/`scale` | Never `double`. These are money and ratios that get compared and summed. |
 | JSONB | `@JdbcTypeCode(SqlTypes.JSON)` on `JsonNode` | Handles object- *and* array-shaped columns uniformly with no POJO per column. Proven to round-trip before 11 columns depended on it. |
 | `TEXT[]` | `String[]` + `SqlTypes.ARRAY` + `columnDefinition` | Tags are read with their article, never queried across articles, so a join table would buy nothing. |
@@ -279,10 +289,11 @@ an HNSW index, so the image is part of the contract.
 
 ### Seeded development accounts
 
-`V2__seed_reference.sql` creates one account per role. All four share the development password:
+`V2__seed_reference.sql` creates one account per role, and `V4__rotate_dev_passwords.sql` set
+their shared development password (2026-10-01) to:
 
 ```
-CallVerse!Dev2026
+Admin111***
 ```
 
 Emails are `customer@`, `advisor@`, `supervisor@` and `admin@callverse.local`. Only BCrypt hashes are
@@ -330,23 +341,158 @@ read the failure message, which names the class, the line, and the reason the ru
 
 ## Project status
 
-Scaffold, walking skeleton, and the complete persistence layer.
+Security, authentication and the complete persistence layer. The full-stack path (frontend, backend,
+database) comes first; the AI-service integration comes after it.
 
 **Exists:** the layer structure and its ArchUnit enforcement; configuration profiles; the error
-envelope; one walking-skeleton endpoint (`GET /api/v1/health/status`); 19 domain enums including the
-conversation state machine; `V1__init.sql` with all 26 tables and `V2__seed_reference.sql`; 26
-entities, 23 repositories, and the `MetricSampleBatchWriter` port; and a Testcontainers suite proving
-migration and entities agree.
+envelope; JWT (HS512) login and authentication with a permissive `dev` chain and deny-by-default
+elsewhere; twenty-seven operations, listed under *Advisor workspace*, *Conversation core* and *Account administration* below; 27 domain enums
+including the conversation state machine; three migrations — `V1__init.sql`, `V2__seed_reference.sql`
+and `V3__banking_domain.sql` — giving 27 tables; 27 entities, 23 repositories, and the
+`MetricSampleBatchWriter` port; and a Testcontainers suite proving migrations and entities agree.
 
-**Does not exist yet:** routing, SLA and priority-scoring logic (the state machine is declared on
-`ConversationStatus` but nothing enforces it); the JWT implementation (`SecurityConfiguration` is a
-documented skeleton with a permissive dev-only chain and deny-by-default elsewhere); the `/internal`
-tool endpoints; the `MetricSampleBatchWriter` implementation; and the RAG embedding pipeline.
+**Advisor workspace** (2026-10-01): what an advisor needs to handle a banking call. Every route
+behind a login is gated twice — a filter-chain rule and `@PreAuthorize` — and tested for success
+and refusal by role. Successful writes (card block, ticket, escalation) log an `AUDIT` line naming
+the user, until the schema has actor columns.
 
-**Never verified against Neon.** Everything above was tested against a local container. The
-pooled/direct endpoint split, `sslmode=require`, serverless cold starts, and whether the Hikari cap
-of 8 suits the real connection ceiling all remain unproven until someone runs it with real
-credentials.
+| Operation | Route | Who |
+|---|---|---|
+| `login` | `POST /api/v1/auth/login` | anyone |
+| `getCurrentUser` | `GET /api/v1/auth/me` | signed in |
+| `getHealthStatus` | `GET /api/v1/health/status` | anyone |
+| `findCustomerByReference` | `GET /api/v1/customers?externalRef=` | staff |
+| `getCustomer` | `GET /api/v1/customers/{id}` | staff |
+| `listCustomerTransactions` | `GET /api/v1/customers/{id}/transactions?count=` | staff |
+| `listActiveServiceIncidents` | `GET /api/v1/service-incidents?region=` | signed in |
+| `searchKnowledgeArticles` | `GET /api/v1/kb/articles?q=&limit=` | staff |
+| `openTicket` | `POST /api/v1/tickets` | advisor, supervisor |
+| `blockCard` | `POST /api/v1/cards/{id}/block` | advisor, supervisor |
+| `escalateConversation` | `POST /api/v1/conversations/{id}/escalations` | the conversation's advisor |
+
+*Staff* is ADVISOR, SUPERVISOR or ADMIN. **Staff can read any customer** until ownership rules land
+(they need a `UNIQUE` constraint on `customer.user_id`); this is documented on each route, not an
+oversight. Account IBANs are masked, and so is any IBAN inside a transaction's label or
+counterparty; free text elsewhere (ticket descriptions, KB content) is not scanned. The public
+health route reports the build version and active profile, and nothing else.
+
+The contract is committed as `openapi.yaml` and pinned by `OpenApiContractTest`: a changed route,
+operation id or field fails the build until `make openapi` regenerates the file and the diff is
+committed. A demo dataset for the call scenario loads in `dev` only, and only with
+`CALLVERSE_DEMODATA_ENABLED=true` (`callverse.demo-data.enabled`); it is never a migration.
+
+**Conversation core** (2026-10-02): the life of a call, from the queue to its end, every step
+through the state machine (`QUEUED → ASSIGNED → ACTIVE → ESCALATED/RESOLVED/ABANDONED`; an illegal
+step is 409 `INVALID_STATE_TRANSITION`).
+
+| Operation | Route | Who |
+|---|---|---|
+| `openConversation` | `POST /api/v1/conversations` | staff, on the customer's behalf |
+| `listQueues` | `GET /api/v1/queues` | staff (an advisor sees their own skills only) |
+| `takeNextConversation` | `POST /api/v1/queues/{skill}/next` | advisor holding the skill |
+| `listMyConversations` | `GET /api/v1/conversations/mine` | advisor |
+| `getConversation` | `GET /api/v1/conversations/{id}` | its customer, its advisor, supervisor, admin |
+| `listMessages` | `GET /api/v1/conversations/{id}/messages?limit=` | same |
+| `postMessage` | `POST /api/v1/conversations/{id}/messages` | its advisor, its customer |
+| `resolveConversation` | `POST /api/v1/conversations/{id}/resolve` | its advisor; a supervisor once escalated |
+| `abandonConversation` | `POST /api/v1/conversations/{id}/abandon` | its customer, its advisor, supervisor, admin |
+| `getLiveKpi` | `GET /api/v1/supervision/kpi` | supervisor, admin |
+
+- **Ownership:** a customer reaches a conversation through `customer.user_id`, an advisor through
+  `advisor.user_id` and the assignment. Anyone else gets **404**, as if it did not exist; a caller
+  who may see it but not do this to it (a supervisor writing in a chat, an advisor resolving an
+  escalated one) gets **403**. A queued conversation belongs to no advisor until one takes it.
+- **Taking work is a pull:** the head of the skill queue, highest priority then longest wait.
+  Two advisors taking at once get two different conversations (`SKIP LOCKED`); an advisor at
+  `max_concurrent` gets 409 `ADVISOR_UNAVAILABLE`; a login with no advisor row gets 404
+  `ADVISOR_PROFILE_NOT_FOUND`.
+- **Priority** (stored at arrival): churn risk (0/20/40) + client value (0/10/15/25 by segment) +
+  criticality (fraud 30, account closure 20, card 10, credit 5). Equal scores are served first come,
+  first served.
+- **Measured at the transition, never on read:** wait and SLA met when taken (the skill's strictest
+  active policy), handle time when closed, wait when a customer leaves the queue. Responses never
+  carry these, nor the priority score: supervision reads them as aggregates.
+- **Escalating** moves the conversation to `ESCALATED` in the same transaction as the escalation;
+  only a supervisor resolves it then, which also resolves the escalation and records who did.
+- **The sender of a message is decided by the server**, never read from the body. Messages are
+  1–2000 characters; a closed conversation accepts none.
+- **Not here yet:** a customer opening a contact for themselves (needs `UNIQUE` on
+  `customer.user_id`), SLA-breach alerts (need a scheduler), advisor presence and supervisor
+  reassignment.
+
+**Account administration** (2026-10-03): an ADMIN gives, changes and withdraws access.
+
+| Operation | Route | Who |
+|---|---|---|
+| `listUsers` | `GET /api/v1/admin/users?role=&active=&q=&page=&size=` | admin |
+| `getUser` | `GET /api/v1/admin/users/{id}` | admin |
+| `createUser` | `POST /api/v1/admin/users` | admin |
+| `changeUserRole` | `PUT /api/v1/admin/users/{id}/role` | admin |
+| `blockUser` / `unblockUser` | `POST /api/v1/admin/users/{id}/block` · `/unblock` | admin |
+
+- **Effective at once.** Every authenticated request and every STOMP CONNECT re-reads the account
+  (one primary-key read): a token whose account is unknown, blocked or now holds another role is
+  refused with 401 on the next call, and a block or role change cuts the account's open live sessions.
+  A user whose role changed logs in again to get it. Unblocking makes the account's unexpired tokens
+  valid again (revocation follows the account's status; the schema has no "changed at" column).
+- **No lockout.** An admin never blocks themselves or changes their own role (409 `SELF_LOCKOUT`). Only
+  an active admin acts, re-checked under a row lock, so two admins removing each other at the same
+  instant cannot both succeed and an active admin always remains.
+- **Accounts are blocked, never deleted:** escalations, credits and decisions keep their author.
+- **Temporary password** set by the admin: 12 characters to 72 bytes (BCrypt's limit), not containing
+  the email's name; hashed at once, never returned or logged. Emails are stored in lower case; a taken
+  address is 409 `EMAIL_ALREADY_USED`. The list is paged (`{content, page{number,size,totalElements,totalPages}}`,
+  size 1–100) and never carries a hash.
+- **Not here:** permissions finer than the four roles (needs a new table), advisor profiles and skills,
+  password reset. Each change writes an `AUDIT` log line naming the admin and the account.
+
+**Real-time events** (2026-10-01): STOMP over a native WebSocket at `ws://localhost:8080/ws`.
+
+- **Connect** with a STOMP header `Authorization: Bearer <token>` (the token from login). No token,
+  a bad token or an expired one is refused.
+- **Subscribe only.** Clients never publish: SEND, MESSAGE and every other client frame except
+  CONNECT/STOMP, SUBSCRIBE, UNSUBSCRIBE and DISCONNECT is refused. Destinations must be literal — no
+  wildcards. When the token expires, or an admin blocks the account or changes its role, the socket
+  stops receiving and new subscriptions are refused;
+  the client reconnects with a fresh token.
+- **Topics and who may listen** — anything else is refused:
+
+| Topic | Who | Status |
+|---|---|---|
+| `/topic/supervision/alerts` | supervisor, admin | live |
+| `/topic/supervision/kpi` | supervisor, admin | live: a snapshot after each lifecycle change |
+| `/topic/runs/{runId}` | supervisor, admin | rule in place; events in the experiment phase |
+| `/topic/queue/{skill}` | an advisor holding the skill, supervisor, admin | live: arrivals and departures |
+| `/topic/conversation/{id}` | its customer, its advisor, supervisor, admin | live: messages and status changes |
+
+- **Supervision alerts** are JSON with one fixed shape (`schemaVersion` 1): `type`, `occurredAt`,
+  `customerId`, `conversationId`, `escalationId`, `cardId`, `cardLast4`; unused fields are null.
+  `ESCALATION_RAISED` fires when an advisor creates an escalation; `CARD_BLOCKED_FRAUD` when a card
+  is newly blocked for suspected fraud. Repeats raise nothing. Alerts carry identifiers only (the
+  customer's details come from the staff customer routes) and leave only after the database
+  commits. The broker is in memory: one backend instance. Do not enable TRACE or DEBUG logging for
+  `org.springframework.web.socket` or `org.springframework.messaging` outside development: Spring
+  then prints frame headers, including the CONNECT token.
+- **Queue, conversation and KPI events** (`schemaVersion` 1). Queue: `type`
+  (`CONVERSATION_QUEUED`/`CONVERSATION_LEFT_QUEUE`), `occurredAt`, `skill`, `conversationId`,
+  `status`, `waiting`. Conversation: `type` (`MESSAGE_POSTED`/`STATUS_CHANGED`), `occurredAt`,
+  `conversationId`, `status`, and for a message `messageId`, `sender`, `content`, `sentAt`. KPI: the
+  same shape as `GET /api/v1/supervision/kpi`, "today" starting at local midnight in
+  `callverse.operations.zone` (default `Europe/Paris`). The ownership rules of the REST routes apply
+  at subscription time, through the same policy.
+
+**Does not exist yet:** the SLA sweep and its breach alerts; routing rules beyond the skill queue;
+advisor presence and reassignment; events on the run topic; customer self-service; simulation-run
+and experiment KPI routes; quality routes; the `MetricSampleBatchWriter` implementation;
+the RAG embedding pipeline; and every call to or from the AI service.
+
+**Neon:** the application booted against Neon on 2026-09-17 and again on 2026-09-24, with Flyway at
+version 2 and Hibernate validating the entity model against the live schema. `V3` (the banking
+domain) is applied on Neon and was verified on 2026-10-01: Flyway validated three migrations and the
+application started. That proves tables,
+columns and types — not constraints or indexes, which `validate` does not check. The pooled/direct
+endpoint split under load, serverless cold starts, and whether the Hikari cap of 8 suits the real
+connection ceiling all remain unproven.
 
 The health slice is temporary and should be deleted once real features land — it is one directory per
 layer.

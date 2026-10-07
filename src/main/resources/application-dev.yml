@@ -22,7 +22,10 @@ management:
   endpoints:
     web:
       exposure:
-        include: "*"
+        # Not "*": the dev chain permits every request, and "*" would publish heapdump (whose
+        # memory holds the JWT signing key), env and a writable loggers endpoint, unauthenticated,
+        # on a port docker-compose publishes. These four are what development actually uses.
+        include: "health,info,metrics,flyway"
   endpoint:
     health:
       show-details: always
@@ -30,7 +33,7 @@ management:
 springdoc:
   api-docs:
     enabled: true
-    # The Angular team generates its TypeScript client from this document.
+    # The Next.js team generates its TypeScript client from this document.
     path: /v3/api-docs
   swagger-ui:
     enabled: true
@@ -39,3 +42,11 @@ springdoc:
     # /api/v1 surface stays navigable as controllers are added.
     operations-sorter: method
     tags-sorter: alpha
+
+spring.devtools:
+  restart:
+    # Restart only when .reloadtrigger is touched, never on every compiled class. A restart in the
+    # middle of `mvn clean install` comes up with half a classpath (without the security chains, so
+    # Spring serves its default "Please sign in" page), and every restart runs Flyway, so automatic
+    # restarts were pushing work-in-progress migrations to the shared database.
+    trigger-file: .reloadtrigger

@@ -30,7 +30,7 @@ public abstract class DomainException extends RuntimeException {
         this.code = code;
     }
 
-    /** Stable machine-readable identifier, for example {@code CREDIT_CEILING_EXCEEDED}. */
+    /** Stable machine-readable identifier, for example {@code INVALID_STATE_TRANSITION}. */
     public String code() {
         return code;
     }

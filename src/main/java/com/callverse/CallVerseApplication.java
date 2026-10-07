@@ -2,11 +2,12 @@ package com.callverse;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration;
 
 /**
  * Entry point for the CallVerse backend.
  *
- * <p>CallVerse is a digital twin of a telecom customer relation center. This service owns the
+ * <p>CallVerse is a digital twin of a retail bank's customer relation center. This service owns the
  * business domain, the queue and routing engine, the SLA rules and the simulation orchestration,
  * and it remains the authority on business rules even when the autonomous agents in the Python
  * service are the ones asking.
@@ -15,7 +16,9 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * covers {@code host} and {@code infrastructure}. It does not cover {@code core} in any meaningful
  * sense, because nothing in {@code core} carries a Spring annotation.
  */
-@SpringBootApplication
+// No default user store: accounts live in app_user and the API accepts only JWTs. Spring Boot's
+// in-memory user and its random "generated security password" would be a second, unusable way in.
+@SpringBootApplication(exclude = UserDetailsServiceAutoConfiguration.class)
 public class CallVerseApplication {
 
     public static void main(String[] args) {

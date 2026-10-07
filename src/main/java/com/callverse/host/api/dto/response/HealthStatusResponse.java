@@ -15,8 +15,8 @@ import java.time.Instant;
  */
 @Schema(description = "Business-level status of the CallVerse platform")
 public record HealthStatusResponse(
-        @Schema(example = "callverse-backend") String service,
-        @Schema(example = "0.1.0-SNAPSHOT") String version,
-        @Schema(example = "UP", allowableValues = {"UP", "DEGRADED", "DOWN"}) String status,
-        @Schema(description = "ISO-8601 UTC", example = "2026-09-14T08:31:07.412Z") Instant timestamp,
-        @Schema(example = "dev") String profile) {}
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED, example = "callverse-backend") String service,
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED, example = "0.1.0-SNAPSHOT") String version,
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED, example = "UP", allowableValues = {"UP", "DEGRADED", "DOWN"}) String status,
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "ISO-8601 UTC", example = "2026-09-14T08:31:07.412Z") Instant timestamp,
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED, example = "dev") String profile) {}
