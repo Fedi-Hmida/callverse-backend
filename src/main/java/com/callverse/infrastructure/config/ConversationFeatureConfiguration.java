@@ -11,9 +11,11 @@ import com.callverse.core.application.features.conversation.queries.GetHeldConve
 import com.callverse.core.application.features.conversation.queries.GetLiveKpiQueryHandler;
 import com.callverse.core.application.features.conversation.queries.GetQueuesQueryHandler;
 import com.callverse.core.application.features.conversation.queries.GetTranscriptQueryHandler;
+import com.callverse.core.application.features.conversation.queries.SearchConversationsQueryHandler;
 import com.callverse.core.application.interfaces.AdvisorDirectory;
 import com.callverse.core.application.interfaces.ConversationLifecycle;
 import com.callverse.core.application.interfaces.ConversationMessages;
+import com.callverse.core.application.interfaces.ConversationSupervision;
 import com.callverse.core.application.interfaces.LiveOperations;
 import com.callverse.core.application.interfaces.RealtimeEventPublisher;
 import java.time.Clock;
@@ -89,6 +91,11 @@ public class ConversationFeatureConfiguration {
     @Bean
     GetLiveKpiQueryHandler getLiveKpiQueryHandler(LiveOperations operations, ConversationEvents events, Clock clock) {
         return new GetLiveKpiQueryHandler(operations, events, clock);
+    }
+
+    @Bean
+    SearchConversationsQueryHandler searchConversationsQueryHandler(ConversationSupervision supervision) {
+        return new SearchConversationsQueryHandler(supervision);
     }
 
     @Bean

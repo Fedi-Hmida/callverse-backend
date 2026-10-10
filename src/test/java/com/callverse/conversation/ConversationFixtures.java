@@ -6,6 +6,7 @@ import com.callverse.core.domain.entities.AppUser;
 import com.callverse.core.domain.entities.Conversation;
 import com.callverse.core.domain.entities.Customer;
 import com.callverse.core.domain.entities.Escalation;
+import com.callverse.core.domain.entities.Message;
 import com.callverse.core.domain.entities.Skill;
 import com.callverse.core.domain.entities.SlaPolicy;
 import com.callverse.core.domain.enums.AdvisorStatus;
@@ -15,6 +16,7 @@ import com.callverse.core.domain.enums.CustomerSegment;
 import com.callverse.core.domain.enums.EscalationRaisedBy;
 import com.callverse.core.domain.enums.EscalationStatus;
 import com.callverse.core.domain.enums.Intent;
+import com.callverse.core.domain.enums.MessageSender;
 import com.callverse.core.domain.enums.UserRole;
 import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
@@ -121,6 +123,45 @@ public final class ConversationFixtures {
             customer.setUser(userId == null ? null : em.getReference(AppUser.class, userId));
             em.persist(customer);
             return customer.getId();
+        });
+    }
+
+    /** A customer with these names; returns its id. Its reference is read with {@link #reference}. */
+    public UUID namedCustomer(String firstName, String lastName) {
+        return tx.execute(status -> {
+            Customer customer = new Customer();
+            customer.setExternalRef("CONV-" + suffix());
+            customer.setFirstName(firstName);
+            customer.setLastName(lastName);
+            customer.setRegion("Marseille");
+            em.persist(customer);
+            return customer.getId();
+        });
+    }
+
+    public String reference(UUID customerId) {
+        return tx.execute(s -> em.find(Customer.class, customerId).getExternalRef());
+    }
+
+    /** A message in a conversation, sent at {@code sentAt}. */
+    public void message(UUID conversationId, MessageSender sender, String content, Instant sentAt) {
+        tx.executeWithoutResult(s -> {
+            Message message = new Message();
+            message.setConversation(em.getReference(Conversation.class, conversationId));
+            message.setSender(sender);
+            message.setContent(content);
+            message.setSentAt(sentAt.truncatedTo(ChronoUnit.MICROS));
+            em.persist(message);
+        });
+    }
+
+    /** Sets the metrics written at the transitions, as the lifecycle would have. */
+    public void metrics(UUID conversationId, int waitSeconds, Integer handleSeconds, Boolean slaMet) {
+        tx.executeWithoutResult(s -> {
+            Conversation c = em.find(Conversation.class, conversationId);
+            c.setWaitSeconds(waitSeconds);
+            c.setHandleSeconds(handleSeconds);
+            c.setSlaMet(slaMet);
         });
     }
 

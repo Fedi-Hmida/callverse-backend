@@ -1838,6 +1838,138 @@ paths:
       summary: List active service outages
       tags:
       - Service incidents
+  /api/v1/supervision/conversations:
+    get:
+      description: "Every live conversation, newest first, paged (page from 0, size\
+        \ 1 to 100, default 20). Optional filters: status (repeatable), skill, customerId,\
+        \ advisorId, q (customer name or reference, case-insensitive), from (queued\
+        \ at or after) and to (queued before), ISO-8601. Each row names the customer\
+        \ and the advisor (advisor null while queued) and carries the wait, handle\
+        \ time, SLA outcome, message count, last message time and whether an escalation\
+        \ is pending. Open a row with getConversation, listMessages and /topic/conversation/{id}.\
+        \ Supervisors and admins only."
+      operationId: listSupervisedConversations
+      parameters:
+      - in: query
+        name: status
+        required: false
+        schema:
+          type: array
+          items:
+            type: string
+            enum:
+            - QUEUED
+            - ASSIGNED
+            - ACTIVE
+            - ESCALATED
+            - RESOLVED
+            - ABANDONED
+          uniqueItems: true
+      - in: query
+        name: skill
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: customerId
+        required: false
+        schema:
+          type: string
+          format: uuid
+      - in: query
+        name: advisorId
+        required: false
+        schema:
+          type: string
+          format: uuid
+      - in: query
+        name: q
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: from
+        required: false
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: to
+        required: false
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: page
+        required: false
+        schema:
+          type: integer
+          format: int32
+          default: 0
+      - in: query
+        name: size
+        required: false
+        schema:
+          type: integer
+          format: int32
+          default: 20
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupervisedConversationPage"
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Rejected before any business rule ran: the body is not valid\
+            \ JSON (code MALFORMED_REQUEST), a parameter or field broke a rule (code\
+            \ VALIDATION_FAILED), or a use-case precondition was unmet."
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Not authenticated. code UNAUTHENTICATED: no bearer token,\
+            \ or one that is expired, malformed or wrongly signed - all indistinguishable,\
+            \ and the signal to refresh or log in again. code INVALID_CREDENTIALS:\
+            \ login refused; an unknown email and a wrong password are deliberately\
+            \ indistinguishable."
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Authenticated, but not permitted: code ACCESS_DENIED. Re-authenticating\
+            \ will not help, so clients must not refresh on it."
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "No such route, or a referenced resource does not exist."
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: A business rule refused the operation. The request was well-formed;
+            the current state of the business forbids it.
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Unexpected failure. message is deliberately generic and carries
+            no internal detail; see the server log for the stack trace.
+      security:
+      - bearerAuth: []
+      summary: Find and browse live conversations
+      tags:
+      - Supervision
   /api/v1/supervision/kpi:
     get:
       description: "Queues now, plus today's average wait, SLA ratio, abandon rate\
@@ -2758,6 +2890,106 @@ components:
             $ref: "#/components/schemas/ServiceIncident"
       required:
       - incidents
+    SupervisedConversation:
+      type: object
+      properties:
+        advisor:
+          $ref: "#/components/schemas/SupervisedParty"
+        assignedAt:
+          type: string
+          format: date-time
+        channel:
+          type: string
+          example: CHAT
+        customer:
+          $ref: "#/components/schemas/SupervisedParty"
+        endedAt:
+          type: string
+          format: date-time
+        handleSeconds:
+          type: integer
+          format: int32
+          description: Seconds from assignment to the end; null until it ends
+          example: 360
+        id:
+          type: string
+          format: uuid
+        intent:
+          type: string
+          example: FRAUD
+        lastMessageAt:
+          type: string
+          format: date-time
+          description: Null when nothing has been written
+        messageCount:
+          type: integer
+          format: int64
+          example: 12
+        pendingEscalation:
+          type: boolean
+          description: An escalation is waiting for a supervisor
+        queuedAt:
+          type: string
+          format: date-time
+        skill:
+          type: string
+          description: The queue's skill code; null only for a conversation recorded
+            without a skill
+          example: FRAUD
+        slaMet:
+          type: boolean
+          description: Answered within the skill's SLA target; null until measured
+        status:
+          type: string
+          enum:
+          - QUEUED
+          - ASSIGNED
+          - ACTIVE
+          - ESCALATED
+          - RESOLVED
+          - ABANDONED
+          example: ESCALATED
+        waitSeconds:
+          type: integer
+          format: int32
+          description: Seconds waited in the queue; null until measured
+          example: 42
+      required:
+      - channel
+      - customer
+      - id
+      - messageCount
+      - pendingEscalation
+      - queuedAt
+      - status
+    SupervisedConversationPage:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: "#/components/schemas/SupervisedConversation"
+        page:
+          $ref: "#/components/schemas/PageInfo"
+      required:
+      - content
+      - page
+    SupervisedParty:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: Amina Haddad
+        reference:
+          type: string
+          description: The bank's customer reference; null for an advisor
+          example: DEMO-00418
+      required:
+      - id
+      - name
     TicketResponse:
       type: object
       description: A support ticket

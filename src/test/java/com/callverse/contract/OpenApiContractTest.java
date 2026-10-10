@@ -63,7 +63,8 @@ class OpenApiContractTest extends AbstractPersistenceTest {
             "createUser",
             "changeUserRole",
             "blockUser",
-            "unblockUser");
+            "unblockUser",
+            "listSupervisedConversations");
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
@@ -109,6 +110,10 @@ class OpenApiContractTest extends AbstractPersistenceTest {
                 "inService", "resolvedToday", "abandonedToday");
         assertThat(required(schemas, "User")).contains("id", "email", "firstName", "lastName", "role", "active", "createdAt");
         assertThat(required(schemas, "PageInfo")).contains("number", "size", "totalElements", "totalPages");
+        assertThat(required(schemas, "SupervisedConversation")).contains(
+                "id", "status", "channel", "queuedAt", "customer", "messageCount", "pendingEscalation");
+        assertThat(required(schemas, "SupervisedConversation")).as("skill_id is nullable in the schema")
+                .doesNotContain("skill");
         assertThat(schemas.get("User").get("properties").has("passwordHash"))
                 .as("a password hash never reaches the contract").isFalse();
         assertThat(schemas.get("Conversation").get("properties").has("priorityScore"))

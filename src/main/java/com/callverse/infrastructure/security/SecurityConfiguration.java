@@ -151,6 +151,7 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.GET, "/api/v1/queues").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/queues/*/next").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/v1/supervision/kpi").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/supervision/conversations").authenticated()
                         // Account administration. ADMIN on each method; the chain only admits callers.
                         .requestMatchers(HttpMethod.GET, "/api/v1/admin/users", "/api/v1/admin/users/*").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/admin/users").authenticated()
