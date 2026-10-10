@@ -24,7 +24,7 @@
 | Back-office CRUD (KB, products, advisor skills, rules) | ❌ not yet | mock it |
 | Advisor presence (available/break/offline) and supervisor reassignment | ❌ not yet | mock it |
 
-**27 REST operations** in total, every one with a fixed `operationId` that the build pins: a renamed
+**28 REST operations** in total, every one with a fixed `operationId` that the build pins: a renamed
 route or field breaks the backend build before it can break you.
 
 ---
@@ -449,6 +449,42 @@ end state: 409.
 
 The three ratios are **`null` when there is nothing to measure yet**; show "—", not 0%.
 
+#### `listSupervisedConversations` — browse every live chat
+
+`GET /api/v1/supervision/conversations` · **supervisor, admin**
+
+| Parameter | Meaning |
+|---|---|
+| `status` | Repeatable: `?status=ACTIVE&status=ESCALATED` |
+| `skill` | One of the four queues |
+| `customerId` | One customer's conversations (the "all chats of this client" view) |
+| `advisorId` | One advisor's conversations |
+| `q` | Customer name or reference, case-insensitive |
+| `from`, `to` | ISO-8601. `from` is queued at or after; `to` is queued before. Use `Z`, or URL-encode the `+` of an offset |
+| `page`, `size` | Size 1–100, default 20 |
+
+**200:**
+
+```json
+{ "content": [ {
+    "id": "…", "status": "ESCALATED", "skill": "FRAUD", "intent": "FRAUD", "channel": "CHAT",
+    "queuedAt": "…", "assignedAt": "…", "endedAt": null,
+    "customer": { "id": "…", "name": "Amina Haddad", "reference": "DEMO-00418" },
+    "advisor":  { "id": "…", "name": "Karim Benali", "reference": null },
+    "waitSeconds": 42, "handleSeconds": null, "slaMet": true,
+    "messageCount": 12, "lastMessageAt": "…", "pendingEscalation": true } ],
+  "page": { "number": 0, "size": 20, "totalElements": 57, "totalPages": 3 } }
+```
+
+- Newest first. `advisor` is `null` while the conversation waits in its queue.
+- `skill` is matched case-insensitively. An unknown skill returns an empty page, not an error.
+- On a busy floor, `totalElements` can differ by one from what the page shows, because a conversation
+  can arrive between the two reads. Refresh, or follow the queue topics.
+- To open a row, use `getConversation` and `listMessages`, then subscribe to `/topic/conversation/{id}`.
+  A supervisor may read every live conversation.
+- **The supervision screen:** a filterable table with escalated chats on top (`status=ESCALATED`) and a
+  click opening the transcript. On the customer view, `customerId=` shows all of that client's chats.
+
 ### 6.4 Account administration (ADMIN only)
 
 **`User` object:** `{ "id", "email", "firstName", "lastName", "role", "active", "createdAt" }`. There
@@ -639,7 +675,7 @@ export interface SupervisionAlert {
 |---|---|---|---|
 | 1 | **Login + role routing** | `login`, `getCurrentUser` | ✅ |
 | 2 | **Advisor workstation** (the demo screen) | header: `listMyConversations`, `listQueues` plus the queue topics; **take next**: `takeNextConversation`; chat: `listMessages`, `postMessage` plus the conversation topic; customer panel: `getCustomer` (from `customerId`), `listCustomerTransactions`; actions: `blockCard`, `openTicket`, `escalateConversation`, `resolveConversation`, `abandonConversation`; side: `searchKnowledgeArticles`, `listActiveServiceIncidents` | ✅ |
-| 3 | **Live supervision** | `getLiveKpi`, then the KPI topic; alerts topic; per-skill queues from the banner; open any conversation with `getConversation` / `listMessages`; resolve escalated calls | ✅ (advisor presence list: mock) |
+| 3 | **Live supervision** | `getLiveKpi`, then the KPI topic; alerts topic; per-skill queues from the banner; **browse every chat with `listSupervisedConversations`** (by client, advisor, status), open one with `getConversation` / `listMessages` + its topic; resolve escalated calls | ✅ (advisor presence list: mock) |
 | 4 | **Front desk / switchboard** (register a contact) | `findCustomerByReference` → `openConversation` | ✅ |
 | 5 | **Customer chat** | logged-in customer: the conversation topic, `listMessages`, `postMessage`, `abandonConversation` on a conversation staff opened for them | ⚠️ partial: they can't start a chat or list their own conversations yet |
 | 6 | Simulation studio | — | ❌ mock |
@@ -707,3 +743,4 @@ export interface SupervisionAlert {
 | 2026-10-01 | Advisor workspace (9 operations), secured live channel, supervision alerts |
 | 2026-10-02 | Conversation core (10 operations): queues, take next, chat, resolve, abandon; escalation now moves the conversation to ESCALATED and only its own advisor may escalate; live queue, conversation and KPI topics |
 | 2026-10-03 | Account administration (6 operations): create users, change roles, block and unblock, effective at once (REST and live channel) |
+| 2026-10-10 | Supervisors browse every live conversation (`listSupervisedConversations`): filters by client, advisor, status, skill, text and date, with operating figures per row |

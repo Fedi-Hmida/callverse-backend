@@ -346,7 +346,7 @@ database) comes first; the AI-service integration comes after it.
 
 **Exists:** the layer structure and its ArchUnit enforcement; configuration profiles; the error
 envelope; JWT (HS512) login and authentication with a permissive `dev` chain and deny-by-default
-elsewhere; twenty-seven operations, listed under *Advisor workspace*, *Conversation core* and *Account administration* below; 27 domain enums
+elsewhere; twenty-eight operations, listed under *Advisor workspace*, *Conversation core* and *Account administration* below; 27 domain enums
 including the conversation state machine; three migrations — `V1__init.sql`, `V2__seed_reference.sql`
 and `V3__banking_domain.sql` — giving 27 tables; 27 entities, 23 repositories, and the
 `MetricSampleBatchWriter` port; and a Testcontainers suite proving migrations and entities agree.
@@ -397,6 +397,7 @@ step is 409 `INVALID_STATE_TRANSITION`).
 | `resolveConversation` | `POST /api/v1/conversations/{id}/resolve` | its advisor; a supervisor once escalated |
 | `abandonConversation` | `POST /api/v1/conversations/{id}/abandon` | its customer, its advisor, supervisor, admin |
 | `getLiveKpi` | `GET /api/v1/supervision/kpi` | supervisor, admin |
+| `listSupervisedConversations` | `GET /api/v1/supervision/conversations?status=&skill=&customerId=&advisorId=&q=&from=&to=&page=&size=` | supervisor, admin |
 
 - **Ownership:** a customer reaches a conversation through `customer.user_id`, an advisor through
   `advisor.user_id` and the assignment. Anyone else gets **404**, as if it did not exist; a caller
@@ -416,6 +417,12 @@ step is 409 `INVALID_STATE_TRANSITION`).
   only a supervisor resolves it then, which also resolves the escalation and records who did.
 - **The sender of a message is decided by the server**, never read from the body. Messages are
   1–2000 characters; a closed conversation accepts none.
+- **Supervisors browse every live chat:** `listSupervisedConversations` finds conversations by
+  status (repeatable), skill, customer, advisor, customer name or reference (`q`) and queue date,
+  newest first, paged. Each row names the customer and the advisor and carries the wait, handle
+  time, SLA outcome, message count, last message time and whether an escalation is pending: the
+  operating figures the customer- and advisor-facing view never shows. A row opens with the
+  existing detail, transcript and live topic. Simulation runs are never listed.
 - **Not here yet:** a customer opening a contact for themselves (needs `UNIQUE` on
   `customer.user_id`), SLA-breach alerts (need a scheduler), advisor presence and supervisor
   reassignment.
