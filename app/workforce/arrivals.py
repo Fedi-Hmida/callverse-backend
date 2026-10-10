@@ -110,6 +110,7 @@ def generate_arrivals(
     start_hour: int = 8,
     events: list[InjectedEvent] | None = None,
     rng_seed: int | None = None,
+    arrival_scale: float = 1.0,
 ) -> list[dict]:
     """
     Génère la liste complète des arrivées pour une simulation de
@@ -117,35 +118,39 @@ def generate_arrivals(
 
     Retourne une liste de dicts, chacun représentant un client qui arrive :
     {
-        "arrival_time": 12.4,       # en minutes depuis le début
-        "skill_needed": "TECHNICAL",
-        "profile": "IMPATIENT",
+
+    "arrival_time": 12.4,
+    "skill_needed": "ACCOUNT",
+    "motif": "ACCOUNT",
+    "profile": "IMPATIENT",
+
     }
     """
-    if rng_seed is not None:
-        random.seed(rng_seed)
+    if arrival_scale <= 0:
+        raise ValueError("arrival_scale must be positive")
+    rng = random.Random(rng_seed)
 
     arrivals = []
     current_time = 0.0
 
     while current_time < duration_minutes:
-        lam = get_effective_lambda(current_time, start_hour, events)
+        lam = get_effective_lambda(current_time, start_hour, events) * arrival_scale
         if lam <= 0:
             break
 
         # Temps avant la prochaine arrivée (loi exponentielle)
-        inter_arrival = random.expovariate(lam)
+        inter_arrival = rng.expovariate(lam)
         current_time += inter_arrival
 
         if current_time >= duration_minutes:
             break
 
-        motif = draw_motif()
+        motif = rng.choices(list(MOTIF_WEIGHTS), weights=list(MOTIF_WEIGHTS.values()), k=1)[0]
         arrivals.append({
             "arrival_time": current_time,
             "skill_needed": MOTIF_TO_SKILL[motif],
             "motif": motif,
-            "profile": draw_profile(),
+            "profile": rng.choices(list(PROFILE_WEIGHTS), weights=list(PROFILE_WEIGHTS.values()), k=1)[0],
         })
 
     return arrivals

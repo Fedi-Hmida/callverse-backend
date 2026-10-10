@@ -1,58 +1,156 @@
+"""
+Test des baselines STATIC_FIFO et THRESHOLD
+dans l'environnement CallCenterEnv.
+
+On utilise les mêmes seeds pour permettre ensuite
+la comparaison avec PPO.
+"""
+
+from app.workforce.env import CallCenterEnv
 from app.workforce.baselines import static_fifo, threshold
 
 
-def make_state(queues, available):
-    """Petite fonction utilitaire pour construire un state de test rapidement."""
+SEEDS = [42, 43, 44, 45, 46]
+EPISODE_MINUTES = 60
+THRESHOLD_VALUE = 10
+
+
+def build_state(env):
+    return env.api_state()
+
+
+def apply_baseline_action(env, result):
+    action = result['action']
+    if action['type'] == 'REASSIGN':
+        from app.workforce.env import SKILLS
+        env._apply_action(SKILLS.index(action['to_pool']) + 1)
+
+
+def run_baseline(baseline_function, seed, threshold_value=None):
+    """
+    Exécute une baseline pendant un épisode complet.
+    """
+
+    env = CallCenterEnv(
+        episode_minutes=EPISODE_MINUTES
+    )
+
+    obs, info = env.reset(seed=seed)
+
+    total_reward = 0.0
+
+    for _ in range(EPISODE_MINUTES):
+
+        state = build_state(env)
+
+        if threshold_value is not None:
+            result = baseline_function(
+                state,
+                n=threshold_value
+            )
+        else:
+            result = baseline_function(state)
+
+        apply_baseline_action(env, result)
+
+        obs, reward, terminated, truncated, info = env.step(0)
+
+        total_reward += reward
+
+        if terminated or truncated:
+            break
+
     return {
-        "queues": queues,
-        "avg_wait": {},
-        "available": available,
-        "sla_today": 0.71,
-        "hour": 11,
-        "trend": 1.0,
+        "reward": total_reward,
+        "resolved": env.stats["resolved"],
+        "abandoned": env.stats["abandoned"],
+        "sla_met": env.stats["sla_met"],
+        "total": env.stats["total"],
     }
 
 
-def test_static_fifo_never_reassigns():
-    """STATIC_FIFO ne doit JAMAIS proposer de réaffectation, peu importe l'état."""
-    state = make_state(
-        queues={"ACCOUNT": 50, "CARD": 0, "CREDIT": 0, "ADVISORY": 0},
-        available={"ACCOUNT": 0, "CARD": 5, "CREDIT": 5, "ADVISORY": 5},
+def print_results(name, results):
+    """
+    Affiche les résultats d'une baseline.
+    """
+
+    print("\n" + "=" * 60)
+    print(name)
+    print("=" * 60)
+
+    total_reward = 0.0
+    total_resolved = 0
+    total_abandoned = 0
+    total_sla = 0
+    total_clients = 0
+
+    for seed, result in results.items():
+
+        print(f"\nSeed {seed}")
+        print(f"  Reward      : {result['reward']:.2f}")
+        print(f"  Résolus     : {result['resolved']}")
+        print(f"  Abandonnés  : {result['abandoned']}")
+        print(f"  SLA respecté: {result['sla_met']}")
+        print(f"  Total       : {result['total']}")
+
+        total_reward += result["reward"]
+        total_resolved += result["resolved"]
+        total_abandoned += result["abandoned"]
+        total_sla += result["sla_met"]
+        total_clients += result["total"]
+
+    n = len(results)
+
+    print("\n" + "-" * 60)
+    print("MOYENNE")
+    print("-" * 60)
+
+    print(f"Reward moyen       : {total_reward / n:.2f}")
+    print(f"Résolus moyens     : {total_resolved / n:.2f}")
+    print(f"Abandons moyens    : {total_abandoned / n:.2f}")
+    print(f"SLA moyen          : {total_sla / n:.2f}")
+    print(f"Total moyen        : {total_clients / n:.2f}")
+
+
+def main():
+
+    # =========================================================
+    # STATIC FIFO
+    # =========================================================
+
+    fifo_results = {}
+
+    for seed in SEEDS:
+
+        fifo_results[seed] = run_baseline(
+            static_fifo,
+            seed
+        )
+
+    print_results(
+        "STATIC_FIFO",
+        fifo_results
     )
-    result = static_fifo(state)
-    assert result["action"]["type"] == "NONE"
 
+    # =========================================================
+    # THRESHOLD
+    # =========================================================
 
-def test_threshold_does_nothing_below_limit():
-    """Si aucune file ne dépasse le seuil, THRESHOLD ne doit rien faire."""
-    state = make_state(
-        queues={"ACCOUNT": 5, "CARD": 3, "CREDIT": 1, "ADVISORY": 2},
-        available={"ACCOUNT": 1, "CARD": 3, "CREDIT": 2, "ADVISORY": 1},
+    threshold_results = {}
+
+    for seed in SEEDS:
+
+        threshold_results[seed] = run_baseline(
+            threshold,
+            seed,
+            threshold_value=THRESHOLD_VALUE
+        )
+
+    print_results(
+        f"THRESHOLD (n={THRESHOLD_VALUE})",
+        threshold_results
     )
-    result = threshold(state, n=10)
-    assert result["action"]["type"] == "NONE"
 
 
-def test_threshold_reassigns_when_queue_exceeds_limit():
-    """Si une file dépasse le seuil, THRESHOLD doit proposer une réaffectation
-    depuis la compétence qui a le plus de conseillers disponibles."""
-    state = make_state(
-        queues={"ACCOUNT": 12, "CARD": 3, "CREDIT": 1, "ADVISORY": 2},
-        available={"ACCOUNT": 0, "CARD": 3, "CREDIT": 2, "ADVISORY": 1},
-    )
-    result = threshold(state, n=10)
-
-    assert result["action"]["type"] == "REASSIGN"
-    assert result["action"]["to_pool"] == "ACCOUNT"      # la file surchargée
-    assert result["action"]["from_pool"] == "CARD"        # celle qui a le plus de dispo
-
-
-def test_threshold_does_nothing_if_no_one_available_to_donate():
-    """Si la file est surchargée mais qu'AUCUN conseiller n'est libre
-    ailleurs, THRESHOLD ne peut rien proposer."""
-    state = make_state(
-        queues={"ACCOUNT": 15, "CARD": 0, "CREDIT": 0, "ADVISORY": 0},
-        available={"ACCOUNT": 0, "CARD": 0, "CREDIT": 0, "ADVISORY": 0},
-    )
-    result = threshold(state, n=10)
-    assert result["action"]["type"] == "NONE"
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,17 @@
+{
+  "model": "workforce_improved.zip",
+  "training_seed": 7,
+  "selected_checkpoint_timesteps": 30000,
+  "total_training_timesteps_requested": 100000,
+  "selection": "validation_reward_medium_load",
+  "evaluation_seeds": [
+    42,
+    43,
+    44,
+    45,
+    46
+  ],
+  "normalization": "embedded_WorkforceFeatures",
+  "donor_rule": "first_available_in_skill_order",
+  "report": "workforce_evaluation.json"
+}

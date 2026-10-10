@@ -6,6 +6,7 @@ TODO (Ines).
 """
 
 from app.contracts.workforce import WorkforceState, WorkforceAction
+from .actions import select_donor
 
 
 def static_fifo(state: dict) -> dict:
@@ -49,15 +50,7 @@ def threshold(state: dict, n: int = 10) -> dict:
 
     # 3. Chercher, parmi les AUTRES compétences, celle qui a le plus de
     #    conseillers disponibles ET la file la plus courte (candidate au prêt)
-    donor_skill = None
-    best_availability = 0
-
-    for skill, nb_available in available.items():
-        if skill == overloaded_skill:
-            continue  # on ne prend pas un conseiller de la file déjà surchargée
-        if nb_available > best_availability:
-            donor_skill = skill
-            best_availability = nb_available
+    donor_skill = select_donor(queues, available, overloaded_skill)
 
     # 4. Si personne n'est disponible ailleurs, on ne peut rien faire
     if donor_skill is None:

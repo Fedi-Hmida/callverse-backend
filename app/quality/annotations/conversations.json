@@ -1,0 +1,292 @@
+[
+  {
+    "conversation_id": "carte-perdue",
+    "expected_level": "bonne",
+    "request": {
+      "conversation_id": "carte-perdue",
+      "messages": [
+        {
+          "sender": "CUSTOMER",
+          "content": "J’ai perdu ma carte."
+        },
+        {
+          "sender": "ADVISOR",
+          "content": "Je comprends votre inquiétude. Utilisez le canal sécurisé pour faire opposition immédiatement."
+        }
+      ],
+      "source_documents": [
+        {
+          "doc_id": "carte-perdue",
+          "chunk_id": "procedure",
+          "content": "En cas de perte, orienter immédiatement vers le canal sécurisé d’opposition."
+        }
+      ],
+      "applicable_rules": [
+        "En cas de perte, orienter immédiatement vers le canal sécurisé d’opposition."
+      ],
+      "resolved": null
+    },
+    "human_scores": null
+  },
+  {
+    "conversation_id": "fraude-oubliee",
+    "expected_level": "mauvaise",
+    "request": {
+      "conversation_id": "fraude-oubliee",
+      "messages": [
+        {
+          "sender": "CUSTOMER",
+          "content": "Un paiement carte de 230 euros est inconnu."
+        },
+        {
+          "sender": "ADVISOR",
+          "content": "Attendez quelques jours, cela disparaîtra."
+        }
+      ],
+      "source_documents": [
+        {
+          "doc_id": "fraude-oubliee",
+          "chunk_id": "procedure",
+          "content": "Un paiement carte suspect nécessite une orientation immédiate vers le service fraude et la procédure d’opposition."
+        }
+      ],
+      "applicable_rules": [
+        "Un paiement carte suspect nécessite une orientation immédiate vers le service fraude et la procédure d’opposition."
+      ],
+      "resolved": null
+    },
+    "human_scores": null
+  },
+  {
+    "conversation_id": "frais-escalade",
+    "expected_level": "bonne",
+    "request": {
+      "conversation_id": "frais-escalade",
+      "messages": [
+        {
+          "sender": "CUSTOMER",
+          "content": "Je conteste 45 euros de frais."
+        },
+        {
+          "sender": "ADVISOR",
+          "content": "Ce montant dépasse mon plafond de 15 euros. Je transmets la demande au superviseur, sans promettre de remboursement."
+        }
+      ],
+      "source_documents": [
+        {
+          "doc_id": "frais-escalade",
+          "chunk_id": "procedure",
+          "content": "Un geste supérieur à 15 euros nécessite validation du superviseur."
+        }
+      ],
+      "applicable_rules": [
+        "Un geste supérieur à 15 euros nécessite validation du superviseur."
+      ],
+      "resolved": null
+    },
+    "human_scores": null
+  },
+  {
+    "conversation_id": "frais-promesse",
+    "expected_level": "mauvaise",
+    "request": {
+      "conversation_id": "frais-promesse",
+      "messages": [
+        {
+          "sender": "CUSTOMER",
+          "content": "Je conteste 45 euros de frais."
+        },
+        {
+          "sender": "ADVISOR",
+          "content": "Je vous rembourse immédiatement les 45 euros."
+        }
+      ],
+      "source_documents": [
+        {
+          "doc_id": "frais-promesse",
+          "chunk_id": "procedure",
+          "content": "Un geste supérieur à 15 euros nécessite validation du superviseur."
+        }
+      ],
+      "applicable_rules": [
+        "Un geste supérieur à 15 euros nécessite validation du superviseur."
+      ],
+      "resolved": null
+    },
+    "human_scores": null
+  },
+  {
+    "conversation_id": "virement-delai",
+    "expected_level": "mauvaise",
+    "request": {
+      "conversation_id": "virement-delai",
+      "messages": [
+        {
+          "sender": "CUSTOMER",
+          "content": "Quand arrivera mon virement ?"
+        },
+        {
+          "sender": "ADVISOR",
+          "content": "Il arrivera dans exactement une heure."
+        }
+      ],
+      "source_documents": [
+        {
+          "doc_id": "virement-delai",
+          "chunk_id": "procedure",
+          "content": "Ne pas annoncer de délai garanti sans référence applicable au type de virement."
+        }
+      ],
+      "applicable_rules": [
+        "Ne pas annoncer de délai garanti sans référence applicable au type de virement."
+      ],
+      "resolved": null
+    },
+    "human_scores": null
+  },
+  {
+    "conversation_id": "virement-prudent",
+    "expected_level": "moyenne",
+    "request": {
+      "conversation_id": "virement-prudent",
+      "messages": [
+        {
+          "sender": "CUSTOMER",
+          "content": "Mon virement est en retard."
+        },
+        {
+          "sender": "ADVISOR",
+          "content": "Je dois vérifier le type de virement et la procédure applicable avant de vous communiquer un délai."
+        }
+      ],
+      "source_documents": [
+        {
+          "doc_id": "virement-prudent",
+          "chunk_id": "procedure",
+          "content": "Vérifier le type du virement avant de communiquer un délai."
+        }
+      ],
+      "applicable_rules": [
+        "Vérifier le type du virement avant de communiquer un délai."
+      ],
+      "resolved": null
+    },
+    "human_scores": null
+  },
+  {
+    "conversation_id": "identite-oubliee",
+    "expected_level": "mauvaise",
+    "request": {
+      "conversation_id": "identite-oubliee",
+      "messages": [
+        {
+          "sender": "CUSTOMER",
+          "content": "Quel est mon solde ?"
+        },
+        {
+          "sender": "ADVISOR",
+          "content": "Votre solde est de 3200 euros."
+        }
+      ],
+      "source_documents": [
+        {
+          "doc_id": "identite-oubliee",
+          "chunk_id": "procedure",
+          "content": "Ne communiquer des informations de compte qu’après identification confirmée par un outil."
+        }
+      ],
+      "applicable_rules": [
+        "Ne communiquer des informations de compte qu’après identification confirmée par un outil."
+      ],
+      "resolved": null
+    },
+    "human_scores": null
+  },
+  {
+    "conversation_id": "identite-securisee",
+    "expected_level": "bonne",
+    "request": {
+      "conversation_id": "identite-securisee",
+      "messages": [
+        {
+          "sender": "CUSTOMER",
+          "content": "Quel est mon solde ?"
+        },
+        {
+          "sender": "ADVISOR",
+          "content": "Avant de consulter votre compte, veuillez suivre l’identification dans notre canal sécurisé."
+        }
+      ],
+      "source_documents": [
+        {
+          "doc_id": "identite-securisee",
+          "chunk_id": "procedure",
+          "content": "Ne communiquer des informations de compte qu’après identification confirmée par un outil."
+        }
+      ],
+      "applicable_rules": [
+        "Ne communiquer des informations de compte qu’après identification confirmée par un outil."
+      ],
+      "resolved": null
+    },
+    "human_scores": null
+  },
+  {
+    "conversation_id": "credit-promesse",
+    "expected_level": "mauvaise",
+    "request": {
+      "conversation_id": "credit-promesse",
+      "messages": [
+        {
+          "sender": "CUSTOMER",
+          "content": "Puis-je obtenir un prêt ?"
+        },
+        {
+          "sender": "ADVISOR",
+          "content": "Votre prêt est accepté sans étude de dossier."
+        }
+      ],
+      "source_documents": [
+        {
+          "doc_id": "credit-promesse",
+          "chunk_id": "procedure",
+          "content": "Une demande de crédit nécessite une étude ; ne pas garantir l’accord sans décision validée."
+        }
+      ],
+      "applicable_rules": [
+        "Une demande de crédit nécessite une étude ; ne pas garantir l’accord sans décision validée."
+      ],
+      "resolved": null
+    },
+    "human_scores": null
+  },
+  {
+    "conversation_id": "reclamation",
+    "expected_level": "moyenne",
+    "request": {
+      "conversation_id": "reclamation",
+      "messages": [
+        {
+          "sender": "CUSTOMER",
+          "content": "Je suis mécontent et souhaite fermer mon compte."
+        },
+        {
+          "sender": "ADVISOR",
+          "content": "Je comprends votre mécontentement. Je peux transmettre votre réclamation au service concerné."
+        }
+      ],
+      "source_documents": [
+        {
+          "doc_id": "reclamation",
+          "chunk_id": "procedure",
+          "content": "Recueillir le motif et expliquer la procédure de réclamation avant de promettre une issue."
+        }
+      ],
+      "applicable_rules": [
+        "Recueillir le motif et expliquer la procédure de réclamation avant de promettre une issue."
+      ],
+      "resolved": null
+    },
+    "human_scores": null
+  }
+]
