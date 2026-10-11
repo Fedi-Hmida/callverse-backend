@@ -55,8 +55,8 @@ _FINALIZE_TOOL_SPEC = {
                 "description": "Confiance dans cette reponse, entre 0 et 1.",
             },
             "reason": {
-                "type": "string",
-                "description": "Raison de l'escalade, uniquement si action=escalate.",
+                "type": ["string", "null"],
+                "description": "Raison de l'escalade, uniquement si action=escalate, sinon null ou absent.",
             },
         },
         "required": ["action", "reply", "intent", "confidence"],
@@ -129,12 +129,22 @@ def _build_messages(state: AdvisorGraphState) -> list:
 
 
 async def decide(state: AdvisorGraphState) -> dict:
+    from groq import BadRequestError
+
     llm = _get_decide_llm()
     messages = _build_messages(state)
 
-    response = await llm.ainvoke(messages)
+    response = None
+    for _attempt in range(2):
+        try:
+            response = await llm.ainvoke(messages)
+            break
+        except BadRequestError as exc:
+            # Groq rejette l'appel si le modele repond en texte au lieu d'appeler un outil
+            if "tool_use_failed" not in str(exc):
+                raise
 
-    if not response.tool_calls:
+    if response is None or not response.tool_calls:
         # filet de securite si le modele ne respecte pas tool_choice="required"
         decision = {
             "action": "escalate",
@@ -157,7 +167,7 @@ async def decide(state: AdvisorGraphState) -> dict:
             "confidence": float(args.get("confidence", 0.5)),
         }
         if args.get("action") == "escalate":
-            decision["reason"] = args.get("reason", "incertitude de l'agent")
+            decision["reason"] = args.get("reason") or "incertitude de l'agent"
     else:
         decision = {
             "action": "call_tool",
@@ -252,7 +262,7 @@ async def finalize(state: AdvisorGraphState) -> dict:
             "intent": intent,
             "confidence": decision.get("confidence", 0.0),
             "action_type": "ESCALATE",
-            "action_payload": {"reason": decision.get("reason", "incertitude de l'agent")},
+            "action_payload": {"reason": decision.get("reason") or "incertitude de l'agent"},
             "tool_calls": contract_tool_calls,
             "retrieved_documents": sources,
         }

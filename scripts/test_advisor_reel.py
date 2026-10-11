@@ -28,4 +28,5 @@ async def main():
     print("Latency ms:", response.latency_ms)
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
