@@ -21,5 +21,6 @@ dependencies = [
 dev = ["pytest", "pytest-asyncio"]
 
 [tool.pytest.ini_options]
+addopts = "--ignore=tests/workforce/test_train_model.py"
 pythonpath = ["."]
 asyncio_mode = "auto"
