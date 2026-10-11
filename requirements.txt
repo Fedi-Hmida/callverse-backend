@@ -13,3 +13,5 @@ python-dotenv
 pytest-asyncio
 sentence-transformers
 asyncpg
+pytest
+langchain-groq
