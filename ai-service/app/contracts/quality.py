@@ -36,8 +36,8 @@ class QualityRequest(StrictModel):
             raise ValueError("Documents dupliqués.")
         if self.advisor_response:
             last = next(m for m in reversed(self.messages) if m.sender == "ADVISOR")
-            if last.content != self.advisor_response.answer:
-                raise ValueError("advisor_response.answer doit correspondre au dernier message ADVISOR.")
+            if last.content != self.advisor_response.reply:
+                raise ValueError("advisor_response.reply doit correspondre au dernier message ADVISOR.")
         return self
 
 class CriterionScore(StrictModel):
