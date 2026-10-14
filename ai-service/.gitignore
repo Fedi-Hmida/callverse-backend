@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.env
+.venv/
+*.zip
+!workforce_improved.zip
+workforce_policy.zip
+notebooks/.ipynb_checkpoints/
+venv/
+.env
