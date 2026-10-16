@@ -28,7 +28,8 @@ docs/CLAUDE.md
 # Note that docs/CALLVERSE_DB_SCHEMA.md is the agreed database source of truth,
 # shared with whoever provisions Neon. It is no longer versioned here, so it has
 # to reach them by another route.
-docs/
+docs/*
+!docs/integration/
 
 # --- Secrets --------------------------------------------------------------
 # Never commit a real Neon connection string or a JWT secret. Only the
