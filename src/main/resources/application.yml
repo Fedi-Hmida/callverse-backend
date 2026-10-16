@@ -91,6 +91,13 @@ ai:
     # The Python FastAPI service hosting the LangGraph agents and the RL policy.
     base-url: ${AI_SERVICE_BASE_URL:http://localhost:8000}
 
+internal:
+  # Shared key for the AI service's /internal/** tool API.
+  # No default: a missing INTERNAL_SERVICE_KEY fails placeholder resolution at startup.
+  # ServiceKeyVerifier also refuses a key under 32 bytes with an explicit message.
+  # Generate one with: openssl rand -base64 48
+  service-key: ${INTERNAL_SERVICE_KEY}
+
 callverse:
   cors:
     # Browser origins allowed to call this API directly (comma-separated, exact origins, no

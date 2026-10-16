@@ -1,6 +1,7 @@
 package com.callverse.auth;
 
 import static com.callverse.persistence.AbstractPersistenceTest.TEST_JWT_SECRET;
+import static com.callverse.persistence.AbstractPersistenceTest.TEST_INTERNAL_SERVICE_KEY;
 import static com.callverse.persistence.AbstractPersistenceTest.ensureAccount;
 
 import com.callverse.core.domain.enums.UserRole;
@@ -57,6 +58,19 @@ public final class AuthenticatedRequests {
     public static RequestPostProcessor bearer(String token) {
         return request -> {
             request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + token);
+            return request;
+        };
+    }
+
+    /** Adds the test-only service key to a MockMvc request. */
+    public static RequestPostProcessor serviceKey() {
+        return serviceKey(TEST_INTERNAL_SERVICE_KEY);
+    }
+
+    /** Adds the supplied service key to a MockMvc request. */
+    public static RequestPostProcessor serviceKey(String key) {
+        return request -> {
+            request.addHeader("X-Internal-Key", key);
             return request;
         };
     }
