@@ -379,6 +379,38 @@ concernés n'encodent rien). Les tests workforce n'ont pas été exécutés ici.
 
 ---
 
+## Étape 8 — Phase P1 de l'audit (2026-10-18)
+
+| Point | Problème mesuré | Correction | Preuve |
+|---|---|---|---|
+| P1.1 | « Je transmets à un superviseur » sans escalade réelle | L'action `ESCALATE` devient une vraie escalade (`raised_by = AI`) après publication de la réponse ; l'outil `escalate`, qui faisait perdre la réponse, est retiré | Tests unitaires et Testcontainers ; en direct : conversation `ESCALATED`, alerte et liste superviseur |
+| P1.2 | IBAN brut envoyé au LLM externe | `PersonalDataRedactor` (cœur) : IBAN toutes formes (mod 97), carte (Luhn), e-mail, téléphone, avant l'Advisor et le Quality Analyst | 8 cas de masquage ; en direct : le LLM reçoit `FR76 **** **** 0189`, la base garde l'original |
+| P1.3 | Délais incohérents (30 s Java, 120 s juge, Advisor sans échéance) | Échéance 25 s par requête Advisor/Simulator (504), lecture Java Quality 130 s, erreurs sans détail, pool dédié au Simulator, fin de tour Simulator conforme au contrat | 7 tests pytest |
+| P1.4 | Notes inventées (5 par défaut), juge sans contexte | Sortie incomplète rejetée (502), affirmation mal située écartée ; le backend envoie les articles cités par l'IA (10 au plus, 1 500 caractères) et les 5 règles de la banque (livret § 3.3) | Tests pytest, unitaires et Testcontainers ; en direct : 1 article et 5 règles reçus |
+| P1.8 | Ni Dockerfile ni image | Dockerfile CPU, utilisateur non root, `.dockerignore`, compose construit l'image, `env_file` optionnel, volume du modèle d'embeddings, workflow GitHub Actions | Image construite ; sans clé : refus de démarrer ; avec clé : `/health` 200, `/ai/*` 401 sans clé, décision PPO réelle dans le conteneur |
+| P1.9 | Test de plan d'index instable dans la suite complète | `enable_seqscan = off` + statistiques fraîches ; vérifie une recherche par index sur `status` et `skill_id` | Échec déterministe reproduit (3/3), puis vert 3/3 ; un mutant de requête est détecté |
+| P1.10 | `pytest` sans argument interrompu ; test e2e obsolète | `testpaths = tests`, marqueur `llm` exclu par défaut, test « mocked » rendu réellement sans LLM, compétences bancaires dans l'e2e | `pytest` : 122 réussis, 1 désélectionné (`-m llm`) |
+
+Non traités ici, et pourquoi : **P1.5** (rejet d'une proposition Workforce : demande
+une évolution du schéma, décision du propriétaire du schéma) ; **P1.6** (démonstration
+avec un vrai LLM : demande une clé d'équipe) ; **P1.7** (évaluation PPO banking_v1 :
+environnement d'entraînement d'Ines). Restent à prévoir : relance d'une évaluation
+qualité rejetée, nom du client et libellés de transactions vers le LLM, versions des
+dépendances figées.
+
+### Validations P1 réellement exécutées
+
+| Vérification | Résultat |
+|---|---|
+| `mvnw clean verify` (Testcontainers) | **491 tests, 0 échec** (470 → 491) |
+| `pytest` (sans argument) | **122 réussis**, 1 test `llm` désélectionné |
+| Mutations des règles P1 | **19/19 détectées** |
+| Scénarios en direct (backend + Postgres jetable + maquette IA) | escalade, masquage, contexte qualité : 6/6 |
+| Image Docker | construite et testée (refus sans clé, 401, décision PPO) |
+| Revue indépendante | 1 point critique corrigé (`NameError` dans la réparation des affirmations), 5 points importants dont 4 corrigés et 1 en partie (relance des évaluations rejetées prévue en P2), mineurs corrigés ou documentés |
+
+---
+
 ## Prochaines étapes
 
 - [x] Terminer le flux Advisor backend → ai-service et sa documentation.
@@ -386,7 +418,10 @@ concernés n'encodent rien). Les tests workforce n'ont pas été exécutés ici.
 - [x] Raccorder le Quality Analyst après résolution, avec contexte réduit et persistance existante.
 - [x] Raccorder le Client Simulator à l'Advisor dans des runs explicitement simulés.
 - [x] Phase P0 de l'audit (P0.2 à P0.5) ; P0.6 au moment de la fusion.
-- [ ] Phase P1 de l'audit (action ESCALATE, masquage des données personnelles, délais, contexte qualité, validation Workforce, démonstration LLM réelle, Dockerfile).
+- [x] Phase P1 de l'audit, sauf P1.5 (schéma), P1.6 (clé LLM) et P1.7 (entraînement).
+- [ ] P1.5 : validation ou rejet des propositions Workforce (décision du propriétaire du schéma).
+- [ ] P1.6 : une démonstration enregistrée avec un vrai LLM (clé d'équipe, hors Git).
+- [ ] P1.7 : évaluation PPO banking_v1 commitée (au moins 3 graines).
 - [ ] Fusionner dans `main` par squash, sans mention d'outil dans l'historique.
 - [ ] Décider si un test HTTP réel sur Neon est nécessaire ; ne pas lire `.env` ni `ai-service/.env`.
 

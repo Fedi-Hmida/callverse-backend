@@ -93,6 +93,43 @@ Un échec réseau, un délai dépassé, une réponse invalide ou une saturation 
 l'exécuteur est journalisé sans secret ; la conversation reste disponible pour
 un conseiller humain. Aucun échec n'entraîne d'escalade automatique.
 
+## Escalade demandée par l'IA
+
+Quand l'Advisor renvoie `action.type = ESCALATE` (confiance basse ou demande
+explicite), le backend publie d'abord la réponse (« je transmets à un
+superviseur »), ce qui fait passer la conversation de `ASSIGNED` à `ACTIVE`,
+puis lève une **vraie escalade** par le cas d'usage existant, avec
+`raised_by = AI` et la raison fournie (« Escalade demandée par l'assistant IA »
+si absente, 255 caractères au plus). Le superviseur reçoit l'alerte et voit la
+conversation `ESCALATED` dans sa liste. Un refus (conversation déjà résolue ou
+déjà escaladée) est journalisé et laisse la réponse publiée.
+
+C'est le **seul chemin d'escalade** : l'outil `escalate` a été retiré de l'Advisor.
+Escalader par l'outil `/internal` en cours de tour faisait passer la conversation
+en `ESCALATED` avant la réponse, qui était alors abandonnée (le client ne
+recevait rien), ou échouait en 409 au premier tour (`ASSIGNED`).
+
+## Données personnelles et délais
+
+Avant tout appel au modèle, le message et l'historique sont masqués
+(`PersonalDataRedactor`) : IBAN sous toutes ses formes (groupes de 4, groupes du
+RIB, tirets, espace après le code pays ; contrôle ISO 13616 mod 97), numéro de
+carte valide (contrôle de Luhn, même collé à un autre nombre), e-mail et
+téléphone (0X, +33, 0033, +33 (0)). La base garde l'original.
+
+L'ai-service borne chaque requête Advisor ou Simulator à
+`ai_request_deadline_seconds` (25 s par défaut) et répond 504 au-delà, avant le
+délai de lecture de 30 s du backend. Une erreur interne renvoie un message
+générique ; son détail reste dans les journaux. Le Simulator tourne dans un pool
+de threads dédié et borné (4), pour ne pas priver l'Advisor de threads. Un outil
+déjà lancé quand l'échéance tombe (ticket, geste commercial) peut s'exécuter
+côté backend sans qu'aucune réponse ne soit publiée, comme avant avec le délai
+de 30 s du backend.
+
 Limites connues : les conversations `QUEUED` ne sont pas traitées, les traces
-ne sont pas exposées (règle A9 non confirmée) et le contexte client est réduit
-aux données que le backend connaît déjà.
+ne sont pas exposées (règle A9 non confirmée), le contexte client est réduit
+aux données que le backend connaît déjà, le **nom du client** atteint encore
+le modèle par l'outil `get_customer`, et les libellés de transactions renvoyés
+par `/internal` n'ont que leurs IBAN masqués (cartes, e-mails et téléphones
+non) : les masquer sur cette route les masquerait aussi pour le personnel, une
+décision à prendre en équipe.
