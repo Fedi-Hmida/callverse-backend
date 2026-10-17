@@ -63,17 +63,23 @@ services:
     # probe from outside, which is where that check belongs.
 
   ai-service:
-    # Placeholder for the Python/FastAPI service running the LangGraph agents and
-    # the reinforcement-learning policy. It lives in its own repository and is not
-    # built from here.
+    # The Python/FastAPI service running the LangGraph agents and the
+    # reinforcement-learning policy, built from ai-service/Dockerfile (CPU only).
     #
-    # Behind a compose profile so that `docker compose up` works today, before the
-    # image exists. Once it does:  docker compose --profile ai up
+    # Behind a compose profile so that `docker compose up` does not need it:
+    #   docker compose --profile ai up --build
     profiles:
       - ai
+    build: ./ai-service
     image: callverse-ai:${CALLVERSE_AI_VERSION:-local}
     container_name: callverse-ai
     restart: unless-stopped
+    # The LLM key, the pgvector DSN and the Quality model live in ai-service/.env
+    # (see ai-service/.env.example), never in the image. Optional, so the file can
+    # be absent for a run that only exercises the RL policy.
+    env_file:
+      - path: ai-service/.env
+        required: false
     environment:
       # The agents' tools are REST endpoints of the backend, which stays the authority
       # on business rules. The /internal tool API uses the service key below.

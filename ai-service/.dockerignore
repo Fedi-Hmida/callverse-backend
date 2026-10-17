@@ -1,0 +1,19 @@
+# Secrets and local state never enter the image.
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Not needed at runtime.
+tests/
+scripts/
+notebooks/
+docs/
+tensorboard_logs/
+*.pdf
+artifacts/eval/
+artifacts/workforce_improved.zip
