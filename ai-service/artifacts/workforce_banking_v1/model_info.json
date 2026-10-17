@@ -36,6 +36,6 @@
         "avg_wait_seconds": 590.0
       }
     },
-    "baseline_comparison": "SLA improves over both baselines at each load; abandonment is worse at low/medium and equal at saturated load. Advisory-only."
+    "baseline_comparison": "SLA improves over both baselines at each load; abandonment is higher at low/medium, equals STATIC_FIFO at saturated load, and exceeds THRESHOLD by 0.004. Advisory-only."
   }
 }

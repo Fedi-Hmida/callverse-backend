@@ -217,9 +217,76 @@ pas masqués ; aucun test existant n'a été modifié.
 
 ---
 
+## Étape 5 — Workforce Manager (propositions supervisées)
+
+### Alignement Python et modèle ✓
+
+- Les quatre compétences du contrat Workforce sont alignées sur Spring :
+  `ACCOUNTS`, `CARDS`, `CREDIT`, `FRAUD`. L'ordre des observations et des actions
+  correspond à cet ordre canonique.
+- Commit modèle/contrat : `a7c89b7 feat(workforce): aligner les compétences et sélectionner le modèle PPO`.
+- PPO a été entraîné sur 100 000 pas (graine 7) ; le meilleur checkpoint
+  d'évaluation à charge moyenne a été sélectionné (50 000 pas) et est le modèle
+  par défaut.
+- L'évaluation synthétique sur cinq graines par charge montre une meilleure SLA
+  que les deux baselines aux trois charges, mais davantage d'abandons en charge
+  faible et moyenne. Cette limite interdit de traiter le modèle comme une policy
+  de production automatique ; détails dans
+  [WORKFORCE_FLOW.md](./WORKFORCE_FLOW.md).
+
+### Coordination Spring ↔ ai-service ✓
+
+- Commit backend : `68eeed5 feat(workforce): connecter le manager aux opérations live`.
+- `POST /api/v1/supervision/workforce/recommendations` est autorisé seulement aux
+  superviseurs et administrateurs. Il appelle `POST /ai/workforce/decide` avec
+  `X-AI-Key`, renvoie l'observation et la proposition, puis la journalise dans
+  `agent_decision`.
+- La ligne est de type `WORKFORCE_MANAGER`, en mode live (`run_id` et
+  `sim_time` nuls), avec `approved_by` nul. Aucune affectation n'est modifiée ;
+  aucun endpoint d'application n'a été ajouté.
+- Les files et attentes courantes, capacités restantes et SLA mesurée viennent
+  du backend. Les conseillers multiskill peuvent être comptés dans plusieurs
+  pools. La tendance est neutre (`1.0`), et le SLA utilise `1.0` explicitement
+  signalé si aucune mesure n'existe.
+- Aucune migration Flyway n'a été créée ou modifiée. L'API générée décrit la
+  nouvelle route et son schéma de réponse.
+
+### Validations Workforce réellement exécutées
+
+| Vérification | Résultat |
+|---|---|
+| `pytest tests/workforce -q` (WSL, `~/venv-ai`) | **18/18 ✓** |
+| Chargement du modèle par le chemin par défaut | **15 observations, 5 actions ✓** |
+| Tests ciblés Spring (use case, HTTP, Testcontainers + accès) | **7/7 ✓** |
+| `make arch` | **7/7 ✓** |
+| `make openapi` / `OpenApiContractTest` | **3/3 ✓** |
+| `make build` | **BUILD SUCCESS ✓** |
+| `make test` complet | **437 tests, 1 échec, 0 erreur, 0 ignoré** |
+
+L'unique échec complet est `ConstraintEnforcementTest.queueQueryUsesItsIndex` :
+le plan PostgreSQL ne choisit pas l'index sur une table de test d'une ligne. Il
+avait déjà été observé avant Workforce ; Fedi a confirmé qu'il passe seul sur
+`origin/main` et sur cette branche, mais la cause de l'échec dans la suite
+complète reste non confirmée. `StompConversationTest.messagesBothWays`,
+intermittent aux passages précédents, a réussi lors de cette exécution. Aucun
+de ces deux tests n'a été modifié.
+
+### Agents encore non intégrés
+
+- Le **Quality Analyst** n'est pas raccordé au flux live : il lui faut un
+  déclencheur après conversation et une décision sur les données/traces
+  d'évaluation.
+- Le **Client Simulator** reste un outil d'expérimentation, pas un agent des
+  conversations client réelles. Aucun raccordement live n'est ajouté.
+
+---
+
 ## Prochaines étapes
 
 - [x] Terminer le flux Advisor backend → ai-service et sa documentation.
+- [x] Raccorder le Workforce en propositions supervisées uniquement.
+- [ ] Définir séparément le déclencheur et les données du Quality Analyst avant son intégration.
+- [ ] Garder le Simulator dans le cadre expérimental ; reconsidérer seulement avec un besoin d'orchestration explicite.
 - [ ] Pousser `integration/backend-fedi` après revue ; aucun push n'a été effectué.
 - [ ] Décider si un test HTTP réel sur Neon est nécessaire ; ne pas lire `.env` ni `ai-service/.env`.
 
