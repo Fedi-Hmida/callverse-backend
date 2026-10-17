@@ -23,7 +23,7 @@ from app.workforce.actions import select_donor
 # Paramètres métier
 # ---------------------------------------------------------------------
 
-SKILLS = ["ACCOUNT", "CARD", "CREDIT", "ADVISORY"]
+SKILLS = ["ACCOUNTS", "CARDS", "CREDIT", "FRAUD"]
 
 STEP_MINUTES = 1.0
 
@@ -44,10 +44,10 @@ class CallCenterEnv(gym.Env):
 
     Actions :
         0 = aucune réaffectation
-        1 = renforcer ACCOUNT
-        2 = renforcer CARD
+        1 = renforcer ACCOUNTS
+        2 = renforcer CARDS
         3 = renforcer CREDIT
-        4 = renforcer ADVISORY
+        4 = renforcer FRAUD
 
     Observation :
         4 files
@@ -83,10 +83,10 @@ class CallCenterEnv(gym.Env):
         self.action_space = spaces.Discrete(len(SKILLS) + 1)
 
         # 0 = rien
-        # 1 = ACCOUNT
-        # 2 = CARD
+        # 1 = ACCOUNTS
+        # 2 = CARDS
         # 3 = CREDIT
-        # 4 = ADVISORY
+        # 4 = FRAUD
 
         # -------------------------------------------------------------
         # Espace des observations
@@ -224,10 +224,10 @@ class CallCenterEnv(gym.Env):
         """
         Action 0 = aucune réaffectation.
 
-        Action 1 = renforcer ACCOUNT.
-        Action 2 = renforcer CARD.
+        Action 1 = renforcer ACCOUNTS.
+        Action 2 = renforcer CARDS.
         Action 3 = renforcer CREDIT.
-        Action 4 = renforcer ADVISORY.
+        Action 4 = renforcer FRAUD.
 
         On ne réaffecte un conseiller que si :
         - la compétence cible possède des clients en attente ;

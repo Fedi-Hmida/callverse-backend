@@ -2,8 +2,8 @@
 from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-SKILLS = ("ACCOUNT", "CARD", "CREDIT", "ADVISORY")
-Skill = Literal["ACCOUNT", "CARD", "CREDIT", "ADVISORY"]
+SKILLS = ("ACCOUNTS", "CARDS", "CREDIT", "FRAUD")
+Skill = Literal["ACCOUNTS", "CARDS", "CREDIT", "FRAUD"]
 Strategy = Literal["PPO", "THRESHOLD", "STATIC_FIFO"]
 Count = Annotated[int, Field(ge=0, strict=True)]
 Seconds = Annotated[float, Field(ge=0, allow_inf_nan=False)]

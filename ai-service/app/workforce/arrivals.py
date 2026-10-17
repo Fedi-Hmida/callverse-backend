@@ -26,17 +26,17 @@ HOURLY_LAMBDA = {
 
 # Motif -> compétence requise (mapping métier)
 MOTIF_TO_SKILL = {
-    "ACCOUNT": "ACCOUNT",
-    "CARD": "CARD",
+    "ACCOUNTS": "ACCOUNTS",
+    "CARDS": "CARDS",
     "CREDIT": "CREDIT",
-    "ADVISORY": "ADVISORY",
+    "FRAUD": "FRAUD",
 }
 
 MOTIF_WEIGHTS = {
-    "ACCOUNT": 0.30,
-    "CARD": 0.30,
+    "ACCOUNTS": 0.30,
+    "CARDS": 0.30,
     "CREDIT": 0.25,
-    "ADVISORY": 0.15,
+    "FRAUD": 0.15,
 }
 
 PROFILE_WEIGHTS = {
@@ -120,8 +120,8 @@ def generate_arrivals(
     {
 
     "arrival_time": 12.4,
-    "skill_needed": "ACCOUNT",
-    "motif": "ACCOUNT",
+    "skill_needed": "ACCOUNTS",
+    "motif": "ACCOUNTS",
     "profile": "IMPATIENT",
 
     }

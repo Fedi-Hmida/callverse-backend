@@ -7,12 +7,12 @@ from app.contracts.workforce import WorkforceState
 def test_no_service_before_arrival():
     env = CallCenterEnv(episode_minutes=2)
     env.reset(seed=42)
-    env.arrivals_queue = [{"arrival_time": .75, "skill_needed": "ACCOUNT",
+    env.arrivals_queue = [{"arrival_time": .75, "skill_needed": "ACCOUNTS",
                            "profile": "CALME", "service_duration": 3.}]
     env.arrived_count = 1
     env.step(0)
     assert env.stats["resolved"] == 0
-    assert env.queues["ACCOUNT"][0]["patience"] == 98.75
+    assert env.queues["ACCOUNTS"][0]["patience"] == 98.75
     env.step(0)
     assert env.wait_seconds == [15.]
     assert env.stats["resolved"] == 1
@@ -33,7 +33,7 @@ def test_api_and_environment_reassignment_match():
     env.queues["CREDIT"] = [{"arrival_time": 0., "profile": "CALME",
                              "patience": 100., "service_duration": 3.}]
     state = env.api_state()
-    assert select_donor(state["queues"], state["available"], "CREDIT") == "ACCOUNT"
+    assert select_donor(state["queues"], state["available"], "CREDIT") == "ACCOUNTS"
     env._apply_action(3)
     assert env.advisors[0]["current_skill"] == "CREDIT"
     assert env.reassignments == 1

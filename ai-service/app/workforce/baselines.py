@@ -28,8 +28,8 @@ def threshold(state: dict, n: int = 10) -> dict:
     réaffecte un conseiller disponible d'une autre compétence
     (celle qui a le moins de clients en attente) vers la file surchargée.
     """
-    queues = state["queues"]          # ex: {"ACCOUNT": 12, "CARD": 3, "CREDIT": 1, "ADVISORY": 2}
-    available = state["available"]    # ex: {"ACCOUNT": 0, "CARD": 3, "CREDIT": 2, "ADVISORY": 1}
+    queues = state["queues"]          # ex: {"ACCOUNTS": 12, "CARDS": 3, "CREDIT": 1, "FRAUD": 2}
+    available = state["available"]    # ex: {"ACCOUNTS": 0, "CARDS": 3, "CREDIT": 2, "FRAUD": 1}
 
     # 1. Trouver la file la PLUS chargée, celle qui dépasse le seuil n
     overloaded_skill = None

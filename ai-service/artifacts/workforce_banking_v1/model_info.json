@@ -1,0 +1,41 @@
+{
+  "model": "best/best_model.zip",
+  "algorithm": "PPO",
+  "training_seed": 7,
+  "total_training_timesteps": 100000,
+  "selected_checkpoint_timesteps": 50000,
+  "selection": "EvalCallback best mean reward at medium load",
+  "skills": ["ACCOUNTS", "CARDS", "CREDIT", "FRAUD"],
+  "action_order": ["NONE", "ACCOUNTS", "CARDS", "CREDIT", "FRAUD"],
+  "observation_order": [
+    "queues.ACCOUNTS", "queues.CARDS", "queues.CREDIT", "queues.FRAUD",
+    "avg_wait.ACCOUNTS", "avg_wait.CARDS", "avg_wait.CREDIT", "avg_wait.FRAUD",
+    "available.ACCOUNTS", "available.CARDS", "available.CREDIT", "available.FRAUD",
+    "sla_today", "hour", "trend"
+  ],
+  "normalization": "embedded_WorkforceFeatures",
+  "donor_rule": "first_available_in_skill_order",
+  "evaluation": {
+    "episodes_per_load": 5,
+    "seeds": [42, 43, 44, 45, 46],
+    "minutes_per_episode": 480,
+    "loads": {
+      "low": {
+        "sla_rate": 0.755,
+        "abandon_rate": 0.054,
+        "avg_wait_seconds": 104.8
+      },
+      "medium": {
+        "sla_rate": 0.513,
+        "abandon_rate": 0.176,
+        "avg_wait_seconds": 211.1
+      },
+      "saturated": {
+        "sla_rate": 0.067,
+        "abandon_rate": 0.567,
+        "avg_wait_seconds": 590.0
+      }
+    },
+    "baseline_comparison": "SLA improves over both baselines at each load; abandonment is worse at low/medium and equal at saturated load. Advisory-only."
+  }
+}
