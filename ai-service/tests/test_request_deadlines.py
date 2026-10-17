@@ -111,3 +111,23 @@ def test_le_simulateur_trop_lent_renvoie_504_avant_l_echeance(monkeypatch):
 
     assert response.status_code == 504
     assert elapsed < 2
+
+
+def test_le_simulateur_tourne_dans_son_propre_pool_borne(monkeypatch):
+    # Sinon des simulations lentes occupent le pool par défaut, partagé avec les embeddings
+    # de l'Advisor, et font échouer l'Advisor sur son échéance.
+    import threading
+
+    seen = {}
+
+    class RecordingGraph:
+        def invoke(self, state):
+            seen["thread"] = threading.current_thread().name
+            return {**state, "status": "abandonne", "messages": []}
+
+    monkeypatch.setattr(simulator_router, "_graph", RecordingGraph())
+
+    _client(simulator_router, "/ai/simulator").post("/ai/simulator/next-message", json=SIMULATOR_BODY)
+
+    assert seen["thread"].startswith("simulator")
+    assert simulator_router._EXECUTOR._max_workers <= 4

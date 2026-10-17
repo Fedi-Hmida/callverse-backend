@@ -5,6 +5,7 @@ Document 01_Contrats_API.
 
 import asyncio
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import APIRouter, HTTPException
 
@@ -17,6 +18,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _graph = build_graph()
+
+# Pool dédié et borné : un appel abandonné à l'échéance continue dans son thread jusqu'à la fin
+# de l'appel LLM. Dans le pool par défaut, partagé avec les embeddings de l'Advisor, quelques
+# simulations lentes suffiraient à faire attendre — puis échouer — l'Advisor.
+_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="simulator")
 
 
 @router.post("/next-message", response_model=SimulatorMessage, responses={
@@ -36,8 +42,10 @@ async def next_message(request: SimulatorRequest) -> SimulatorMessage:
     }
     try:
         # Le graphe est synchrone (appels LLM bloquants) : il tourne dans un thread, borné par l'échéance.
+        loop = asyncio.get_running_loop()
         result = await asyncio.wait_for(
-            asyncio.to_thread(_graph.invoke, internal_state), timeout=settings.ai_request_deadline_seconds
+            loop.run_in_executor(_EXECUTOR, _graph.invoke, internal_state),
+            timeout=settings.ai_request_deadline_seconds,
         )
     except asyncio.TimeoutError as exc:
         logger.warning("Simulator deadline exceeded: %ss", settings.ai_request_deadline_seconds)
