@@ -92,6 +92,8 @@ ai:
     base-url: ${AI_SERVICE_BASE_URL:http://localhost:8000}
 
 internal:
+  # Shared path prefix for the internal tool API; the security chain uses this same value.
+  api-prefix: ${INTERNAL_API_PREFIX:/internal}
   # Shared key for the AI service's /internal/** tool API.
   # No default: a missing INTERNAL_SERVICE_KEY fails placeholder resolution at startup.
   # ServiceKeyVerifier also refuses a key under 32 bytes with an explicit message.

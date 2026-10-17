@@ -1,6 +1,7 @@
 package com.callverse.infrastructure.security;
 
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
@@ -33,7 +34,16 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 @Configuration
 public class InternalApiSecurityConfiguration {
 
-    static final String INTERNAL_PATHS = "/internal/**";
+    static String requireSafePrefix(String prefix) {
+        if (prefix == null
+                || !prefix.matches("/[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*")
+                || prefix.equals("/api")
+                || prefix.equals("/api/v1")) {
+            throw new IllegalStateException(
+                    "Invalid internal.api-prefix: expected /segment(/segment)* and a prefix other than /api or /api/v1");
+        }
+        return prefix;
+    }
 
     @Bean
     @Order(1)
@@ -41,10 +51,11 @@ public class InternalApiSecurityConfiguration {
             HttpSecurity http,
             ServiceKeyVerifier verifier,
             @Qualifier("serviceKeyAuthenticationEntryPoint") AuthenticationEntryPoint entryPoint,
-            AccessDeniedHandler accessDeniedHandler)
+            AccessDeniedHandler accessDeniedHandler,
+            @Value("${internal.api-prefix:/internal}") String internalApiPrefix)
             throws Exception {
         return http
-                .securityMatcher(INTERNAL_PATHS)
+                .securityMatcher(requireSafePrefix(internalApiPrefix) + "/**")
                 // Explicit, because omitting cors() is not enough: Spring Security's
                 // HttpSecurityConfiguration.applyCorsIfAvailable applies cors(withDefaults()) to every
                 // chain once a UrlBasedCorsConfigurationSource bean exists, which would hand this
