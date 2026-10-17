@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     )
     internal_service_key: str = ""
     ai_service_key: str = ""
+    # Local development only: lets the service start without AI_SERVICE_KEY (routes then open).
+    ai_service_auth_disabled: bool = False
 
     llm_api_key: str = ""
     llm_provider: str = "groq"
