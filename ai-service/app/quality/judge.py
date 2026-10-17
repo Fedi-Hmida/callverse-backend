@@ -43,31 +43,26 @@ def _repair_and_validate_judge_result(raw_content: str, request: QualityRequest)
     if not isinstance(data, dict):
         raise ValueError("Le contenu parsé n'est pas un dictionnaire JSON.")
 
-    # 3. Réparer scores
+    # 3. Scores : la forme est réparée (arrondi, bornes 0-10), jamais le fond. Un score absent
+    #    ou illisible rejette l'évaluation : une note inventée (5) passerait pour une vraie note.
     from app.contracts.quality import CODES
     raw_scores = data.get("scores")
+    if not isinstance(raw_scores, dict):
+        raise ValueError("Le juge n'a fourni aucun score.")
     scores = {}
-    if isinstance(raw_scores, dict):
-        for code in CODES:
-            val = raw_scores.get(code)
-            if val is not None:
-                try:
-                    scores[code] = max(0, min(10, int(round(float(val)))))
-                except (ValueError, TypeError):
-                    scores[code] = 5
-            else:
-                scores[code] = 5
-    else:
-        scores = {code: 5 for code in CODES}
+    for code in CODES:
+        val = raw_scores.get(code)
+        try:
+            scores[code] = max(0, min(10, int(round(float(val)))))
+        except (ValueError, TypeError):
+            raise ValueError(f"Score absent ou illisible pour le critère {code}.") from None
     data["scores"] = scores
 
-    # 4. Réparer evidence (6 critères, score aligné sur scores[code])
+    # 4. Preuves : une par critère, citée depuis un message réel. Aucune preuve de secours :
+    #    une preuve manquante ou un index invalide rejettent l'évaluation.
     raw_evidence = data.get("evidence")
     if not isinstance(raw_evidence, list):
-        raw_evidence = []
-
-    fallback_idx = next((i for i, m in enumerate(request.messages) if m.sender == "ADVISOR"), 0)
-    fallback_text = request.messages[fallback_idx].content
+        raise ValueError("Le juge n'a fourni aucune preuve.")
 
     evidence_by_crit = {}
     for item in raw_evidence:
@@ -75,26 +70,21 @@ def _repair_and_validate_judge_result(raw_content: str, request: QualityRequest)
             crit = item["criterion"]
             idx = item.get("message_index")
             if not isinstance(idx, int) or not (0 <= idx < len(request.messages)):
-                idx = fallback_idx
-            ev_text = item.get("evidence") or fallback_text
+                raise ValueError(f"message_index invalide pour le critère {crit}.")
+            if not item.get("evidence"):
+                raise ValueError(f"Preuve vide pour le critère {crit}.")
             justif = item.get("justification") or f"Évaluation du critère {crit}."
             evidence_by_crit[crit] = {
                 "criterion": crit,
                 "score": scores[crit],
                 "message_index": idx,
-                "evidence": str(ev_text),
+                "evidence": str(item["evidence"]),
                 "justification": str(justif)[:200],
             }
 
-    for code in CODES:
-        if code not in evidence_by_crit:
-            evidence_by_crit[code] = {
-                "criterion": code,
-                "score": scores[code],
-                "message_index": fallback_idx,
-                "evidence": fallback_text,
-                "justification": f"Évaluation complétée pour {code}.",
-            }
+    missing = sorted(set(CODES) - evidence_by_crit.keys())
+    if missing:
+        raise ValueError(f"Preuve absente pour : {', '.join(missing)}.")
     data["evidence"] = [evidence_by_crit[code] for code in sorted(CODES)]
 
     # 5. Réparer claims
