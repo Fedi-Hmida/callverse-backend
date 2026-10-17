@@ -98,15 +98,17 @@ def _build_messages(state: AdvisorGraphState) -> list:
     request = state["request"]
     messages = [SystemMessage(content=ADVISOR_SYSTEM_PROMPT)]
 
-    context_note = (
+    context_details = [
         f"[Contexte client] customer_id: {request.customer_id} "
         f"(utilise EXACTEMENT cette valeur pour tout appel d'outil necessitant "
         f"customer_id, ne l'invente jamais). "
-        f"Type de contrat: {request.context.contract_type}, "
-        f"anciennete: {request.context.tenure_months} mois, "
-        f"risque de depart: {request.context.churn_risk}, "
-        f"tickets ouverts: {request.context.open_tickets}."
-    )
+        f"anciennete: {request.context.tenure_months} mois"
+    ]
+    if request.context.segment is not None:
+        context_details.append(f"segment: {request.context.segment}")
+    if request.context.open_tickets is not None:
+        context_details.append(f"tickets ouverts: {request.context.open_tickets}")
+    context_note = ", ".join(context_details) + "."
     messages.append(SystemMessage(content=context_note))
 
     for h in request.history:

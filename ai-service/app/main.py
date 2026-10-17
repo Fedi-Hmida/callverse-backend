@@ -9,7 +9,9 @@ from app.simulator.router import router as simulator_router
 from app.workforce.router import router as workforce_router
 from app.quality.router import router as quality_router
 from app.clients.backend_client import backend_client
+from app.config import settings
 from app.db.pgvector import close_pool
+from app.security import AIServiceKeyMiddleware
 
 
 @asynccontextmanager
@@ -20,6 +22,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="CallVerse AI Service", lifespan=lifespan)
+app.add_middleware(AIServiceKeyMiddleware, ai_service_key=settings.ai_service_key)
 
 app.include_router(advisor_router, prefix="/ai/advisor", tags=["advisor"])
 app.include_router(simulator_router, prefix="/ai/simulator", tags=["simulator"])

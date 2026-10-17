@@ -19,6 +19,7 @@ class Settings(BaseSettings):
         validation_alias="CALLVERSE_BACKEND_BASE_URL",
     )
     internal_service_key: str = ""
+    ai_service_key: str = ""
 
     llm_api_key: str = ""
     llm_provider: str = "groq"
