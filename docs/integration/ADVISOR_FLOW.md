@@ -12,7 +12,8 @@ Client
   └─ POST /api/v1/conversations/{id}/messages
        └─ backend persiste le message client et valide la transaction
             └─ publication MESSAGE_POSTED
-                 └─ exécuteur borné, une tâche en cours par conversation
+                 └─ si AI_ADVISOR_MODE=AUTONOMOUS : exécuteur borné, une tâche en cours
+                    par conversation, messages arrivés entre-temps regroupés sur le dernier
                       └─ POST {AI_SERVICE_BASE_URL}/ai/advisor/respond
                            └─ ai-service appelle l'Advisor et ses outils /internal
                                 └─ backend persiste le tour Advisor
@@ -22,6 +23,20 @@ Client
 Seuls les messages dont l'émetteur est `CUSTOMER` déclenchent ce flux. Les
 conversations doivent être `ASSIGNED` ou `ACTIVE`. Les conversations `QUEUED`
 et `ESCALATED` sont ignorées ; la machine d'états n'est pas modifiée.
+
+## Mode de l'Advisor et reprise par l'humain
+
+`ai.advisor.mode` (variable `AI_ADVISOR_MODE`) vaut `OFF` par défaut : une
+conversation en direct appartient à son conseiller humain et rien n'est planifié.
+En `AUTONOMOUS`, l'IA répond aux messages du client **jusqu'à ce qu'un conseiller
+humain écrive** dans la conversation (message `ADVISOR` avec `ai_generated=false`).
+Dès lors l'humain a repris la main et l'IA se tait : le client ne reçoit jamais
+deux réponses. Si l'humain écrit pendant que l'IA réfléchit, son message devient
+le plus récent et la vérification sous verrou abandonne la réponse de l'IA.
+
+Si le client envoie un second message pendant qu'un tour est en cours, il n'est
+plus perdu : le message est mis en attente et traité dès la fin du tour en cours,
+en ne gardant que le plus récent (l'historique contient les précédents).
 
 ## Contrat HTTP Advisor
 
@@ -49,14 +64,19 @@ persistance.
 client envoie `AI_SERVICE_KEY` dans l'en-tête `X-AI-Key`. Le délai de connexion
 est de 2 secondes et le délai de lecture de 30 secondes.
 
-Lorsque `AI_SERVICE_KEY` est défini, l'ai-service exige la même valeur sur les
-routes `/ai/*`, sous l'en-tête `X-AI-Key`. `/health` reste accessible sans clé.
-Lorsque la variable est vide ou absente, cette authentification est désactivée
-pour conserver la compatibilité des environnements qui ne l'ont pas configurée.
-Pour activer la protection, configurez la même clé dans l'environnement du
-backend et de l'ai-service ; ne placez jamais sa valeur dans un fichier suivi
-par Git. `INTERNAL_SERVICE_KEY` est une clé distincte utilisée dans l'autre
-sens, pour protéger les appels outils de l'ai-service vers `/internal/**`.
+L'ai-service exige `AI_SERVICE_KEY` sur les routes `/ai/*`, sous l'en-tête
+`X-AI-Key`. `/health` reste accessible sans clé. **Sans clé, le service refuse
+de démarrer** (fail closed) ; seul `AI_SERVICE_AUTH_DISABLED=true`, réservé au
+développement local, le laisse démarrer avec des routes ouvertes. Configurez la
+même clé dans l'environnement du backend et de l'ai-service ; ne placez jamais
+sa valeur dans un fichier suivi par Git. `INTERNAL_SERVICE_KEY` est une clé
+distincte utilisée dans l'autre sens, pour protéger les appels outils de
+l'ai-service vers `/internal/**`.
+
+Les outils reçoivent `customer_id` et `conversation_id` **de la requête du
+backend, jamais du LLM** (`TRUSTED_IDENTIFIERS` dans `app/advisor/nodes.py`) ;
+ces champs ne figurent plus dans les schémas d'outils. Un message client
+malveillant ne peut donc pas orienter un outil vers un autre client.
 
 ## Persistance, diffusion et comportement dégradé
 

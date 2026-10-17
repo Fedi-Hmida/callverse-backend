@@ -343,13 +343,51 @@ de test d'une ligne ; le test passe seul. `StompConversationTest` a réussi
 
 ---
 
+## Étape 7 — Phase P0 de l'audit (2026-10-17)
+
+Suite de l'audit d'intégration du 2026-10-17 (note 6,2/10, « non prêt »). P0.1
+(fichier `.env`) est traité hors de cette branche par décision de Fedi.
+
+| Point | Problème mesuré à l'audit | Correction | Preuve |
+|---|---|---|---|
+| P0.2 | L'IA répondait à chaque message client, même quand un conseiller humain écrivait : deux réponses (scénario S1g) | `ai.advisor.mode` = `OFF` (défaut) ou `AUTONOMOUS` ; en `AUTONOMOUS`, l'IA se tait dès qu'un humain a écrit (reprise par l'humain). Règle dans le cœur (`AiAdvisorMode`, `AdvisorTurnCommandHandler`), requête `humanAdvisorHasReplied` | Tests unitaires et Testcontainers ; S1g en direct : 1 seul tour IA après l'intervention de Karim ; mode par défaut : 0 appel à l'IA |
+| P0.3 | Le second message rapide du client restait sans réponse 9 fois sur 10 (S1h) | `AdvisorTurnDispatcher` regroupe au lieu d'abandonner : un message en attente par conversation (le plus récent), un tour par tâche puis remise en file (équité entre conversations), sans réveil perdu ; un rejet de l'exécuteur garde le message en attente | 9 tests dont un test de concurrence réelle (50 conversations × 20 messages) et un test d'équité ; S1h en direct : 10/10 |
+| P0.4 | Le LLM choisissait `customer_id` et `conversation_id` (lecture ou escalade d'un autre client possible) | `TRUSTED_IDENTIFIERS` injecte les identifiants depuis la requête ; retirés des schémas d'outils et du prompt | 7 tests pytest dont une tentative d'injection |
+| P0.5 | `/ai/*` ouvert quand `AI_SERVICE_KEY` était vide (valeur par défaut) | Démarrage refusé sans clé ; opt-out explicite `AI_SERVICE_AUTH_DISABLED=true` pour le développement ; compose exige la clé pour l'ai-service | 4 tests pytest |
+| P0.6 | 14 commits portent un `Co-authored-by` d'outil | Pas de réécriture d'historique sur cette branche partagée : à traiter au moment de la fusion dans `main` (squash) | Les nouveaux commits n'en portent aucun |
+
+Tests modifiés volontairement (comportement changé, non affaiblis) :
+`test_ai_routes_remain_compatible_when_key_is_unconfigured` devient le cas
+fermé ; le test `create_case` attend l'identifiant client de confiance (et
+reçoit le `mode` manquant qui le faisait échouer) ; dans
+`AdvisorTurnIntegrationTest`, la salutation initiale devient un tour IA, car une
+salutation humaine signifie désormais la reprise par l'humain.
+
+### Validations P0 réellement exécutées
+
+| Vérification | Résultat |
+|---|---|
+| `mvnw clean verify` (Testcontainers) | **470 tests, 0 échec** (458 → 470) |
+| `pytest tests/advisor tests/test_ai_service_auth.py tests/test_backend_client_contract.py tests/quality tests/simulator` | **84 réussis, 2 échecs connus** (Groq sans clé, identiques sur le code d'origine) |
+| Mutations des 10 nouvelles règles | **10/10 détectées** |
+| Scénarios en direct (backend + Postgres jetable + maquette IA) | S1g corrigé, S1h 10/10, mode par défaut silencieux |
+| Revue indépendante | 1 point important corrigé (équité de l'exécuteur), compose vérifié (`docker compose config` sans profil `ai`), 5 points mineurs corrigés |
+
+Environnement Python : venv local sans torch ; `sentence_transformers` remplacé
+par un module factice hors dépôt, uniquement pour l'import (les tests
+concernés n'encodent rien). Les tests workforce n'ont pas été exécutés ici.
+
+---
+
 ## Prochaines étapes
 
 - [x] Terminer le flux Advisor backend → ai-service et sa documentation.
 - [x] Raccorder le Workforce en propositions supervisées uniquement.
 - [x] Raccorder le Quality Analyst après résolution, avec contexte réduit et persistance existante.
 - [x] Raccorder le Client Simulator à l'Advisor dans des runs explicitement simulés.
-- [ ] Pousser `integration/backend-fedi` après revue ; aucun push n'a été effectué.
+- [x] Phase P0 de l'audit (P0.2 à P0.5) ; P0.6 au moment de la fusion.
+- [ ] Phase P1 de l'audit (action ESCALATE, masquage des données personnelles, délais, contexte qualité, validation Workforce, démonstration LLM réelle, Dockerfile).
+- [ ] Fusionner dans `main` par squash, sans mention d'outil dans l'historique.
 - [ ] Décider si un test HTTP réel sur Neon est nécessaire ; ne pas lire `.env` ni `ai-service/.env`.
 
 ---
