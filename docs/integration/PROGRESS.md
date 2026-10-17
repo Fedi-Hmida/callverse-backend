@@ -157,9 +157,70 @@ Les six routes ont chacune un test fonctionnel ciblé, exécuté avec Docker. Le
 
 ---
 
+## Étape 4 — Flux Advisor backend → ai-service (2026-10-17)
+
+### Étape 1 — Backend ✓
+
+Commit : `fb5f4b4 feat(advisor): integrate async customer advisor turn`.
+
+- L'Advisor est appelé après commit du message client, sur un exécuteur borné ; une seule réponse est en vol par conversation.
+- Seuls les états `ASSIGNED` et `ACTIVE` sont traités ; `QUEUED` et `ESCALATED` sont ignorés.
+- L'historique est limité à 20 messages antérieurs, hors `SYSTEM`. Le contexte envoyé se limite à l'ancienneté et au segment ; `open_tickets` n'est pas fourni par un port existant.
+- La réponse est enregistrée comme tour `ADVISOR` avec `ai_generated=true`. Les traces utilisent les colonnes existantes et ne sont pas exposées dans les routes publiques ni les événements temps réel.
+- L'état et le dernier message sont revérifiés sous verrou avant l'écriture. Les erreurs n'entraînent pas d'escalade automatique.
+
+### Étape 2 — ai-service ✓
+
+Commit : `3e6ca60 feat(ai): secure advisor endpoint and align context`.
+
+- `contract_type`, `churn_risk` et `open_tickets` sont optionnels pour compatibilité ; `segment` est accepté.
+- Les prompts et nœuds Advisor n'utilisent plus `contract_type` ni `churn_risk`.
+- `AI_SERVICE_KEY`, si défini, protège les routes `/ai/*` avec `X-AI-Key`. `/health` reste public ; une clé vide désactive la protection.
+- Compose fournit la même variable au backend et à l'ai-service. Sa valeur reste une configuration locale et n'est pas suivie par Git.
+
+### Étape 3 — Documentation ✓
+
+Le flux, sa configuration et ses limites sont décrits dans
+[ADVISOR_FLOW.md](./ADVISOR_FLOW.md). Les traces restent non exposées en
+attendant la confirmation de la règle A9.
+
+### Validations réellement exécutées
+
+| Vérification | Résultat |
+|---|---|
+| Compilation backend et tests (`-DskipTests test-compile`) | **BUILD SUCCESS** |
+| Tests unitaires Advisor backend | **5/5 ✓** |
+| Test d'intégration Advisor avec Testcontainers (WSL2) | **1/1 ✓** |
+| `make arch` | **7/7 ✓** |
+| Tests ciblés Advisor, contrat et authentification Python (`pytest tests/advisor tests/test_ai_service_auth.py`) | **24/24 ✓** |
+| Suite automatisée Python (`pytest tests`) | **95 collectés : 93 réussis, 2 échecs** |
+| `pytest` sans chemin | **Échec de collecte de deux scripts manuels sous `scripts/`** |
+
+Les deux échecs dans `pytest tests` concernent le Simulator, pas l'Advisor :
+`test_graph_manual.py::test_reponse_utile_ameliore_satisfaction` et
+`test_router_mocked.py::test_next_message_endpoint_conforme_au_contrat`.
+Ils échouent parce qu'ils tentent d'utiliser Groq sans `GROQ_API_KEY`
+configurée. L'invocation sans chemin collecte également
+`scripts/test_advisor_reformulation.py` et
+`scripts/test_simulator_multi_tours.py`, qui appellent le LLM au chargement et
+échouent pour la même absence de configuration. Ces résultats sont rapportés,
+pas masqués ; aucun test existant n'a été modifié.
+
+### Limites et suites
+
+- Les conversations `QUEUED` ne sont pas traitées par l'Advisor.
+- Les `sources` et `tool_calls` sont persistés, mais non exposés ; la règle A9
+  n'est pas confirmée.
+- Le contexte envoyé est réduit aux données backend déjà disponibles.
+- Aucun push n'a été effectué. Le push de `integration/backend-fedi` reste à
+  faire après revue par l'équipe.
+
+---
+
 ## Prochaines étapes
 
-- [ ] Pousser `integration/backend-fedi` après revue ; aucun push n'a été effectué pendant cette reprise.
+- [x] Terminer le flux Advisor backend → ai-service et sa documentation.
+- [ ] Pousser `integration/backend-fedi` après revue ; aucun push n'a été effectué.
 - [ ] Décider si un test HTTP réel sur Neon est nécessaire ; ne pas lire `.env` ni `ai-service/.env`.
 
 ---
