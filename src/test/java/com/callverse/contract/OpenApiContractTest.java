@@ -71,6 +71,8 @@ class OpenApiContractTest extends AbstractPersistenceTest {
             "unblockUser",
             "listSupervisedConversations",
             "requestWorkforceRecommendation",
+            "startConversationSimulation",
+            "getConversationSimulation",
             "openInternalTicket");
 
     @Autowired MockMvc mockMvc;

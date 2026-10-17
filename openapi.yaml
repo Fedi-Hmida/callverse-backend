@@ -27,18 +27,20 @@ tags:
   name: Internal tools
 - description: Live supervision
   name: Supervision
-- description: Skill queues
-  name: Queues
-- description: "Customer records and history, for staff"
-  name: Customers
 - description: Active outages of banking services
   name: Service incidents
-- description: Exchanging credentials for an access token
-  name: Authentication
 - description: Support tickets
   name: Tickets
 - description: Internal procedures for staff
   name: Knowledge base
+- description: Isolated Client Simulator and Advisor runs
+  name: Conversation simulations
+- description: Skill queues
+  name: Queues
+- description: "Customer records and history, for staff"
+  name: Customers
+- description: Exchanging credentials for an access token
+  name: Authentication
 - description: The life of a customer conversation
   name: Conversations
 - description: Platform status (walking skeleton)
@@ -1840,6 +1842,145 @@ paths:
       summary: List active service outages
       tags:
       - Service incidents
+  /api/v1/simulation-runs:
+    post:
+      description: "Creates a synthetic customer and simulation-only conversation,\
+        \ then schedules the Simulator and Advisor asynchronously. Advisor backend\
+        \ tools are disabled in simulation mode. Poll the returned location for progress.\
+        \ The selected scenario, strategy and seed must be unique."
+      operationId: startConversationSimulation
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartConversationSimulationRequest"
+        required: true
+      responses:
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationSimulationResponse"
+          description: Accepted; poll the Location URL for progress
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Rejected before any business rule ran: the body is not valid\
+            \ JSON (code MALFORMED_REQUEST), a parameter or field broke a rule (code\
+            \ VALIDATION_FAILED), or a use-case precondition was unmet."
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Not authenticated. code UNAUTHENTICATED: no bearer token,\
+            \ or one that is expired, malformed or wrongly signed - all indistinguishable,\
+            \ and the signal to refresh or log in again. code INVALID_CREDENTIALS:\
+            \ login refused; an unknown email and a wrong password are deliberately\
+            \ indistinguishable."
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Authenticated, but not permitted: code ACCESS_DENIED. Re-authenticating\
+            \ will not help, so clients must not refresh on it."
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "No such route, or a referenced resource does not exist."
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: A business rule refused the operation. The request was well-formed;
+            the current state of the business forbids it.
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Unexpected failure. message is deliberately generic and carries
+            no internal detail; see the server log for the stack trace.
+      security:
+      - bearerAuth: []
+      summary: Start an isolated Simulator → Advisor dialogue
+      tags:
+      - Conversation simulations
+  /api/v1/simulation-runs/{runId}:
+    get:
+      description: Returns its state and counters. FAILED reports the safe failure
+        reason without AI payloads.
+      operationId: getConversationSimulation
+      parameters:
+      - in: path
+        name: runId
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationSimulationResponse"
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Rejected before any business rule ran: the body is not valid\
+            \ JSON (code MALFORMED_REQUEST), a parameter or field broke a rule (code\
+            \ VALIDATION_FAILED), or a use-case precondition was unmet."
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Not authenticated. code UNAUTHENTICATED: no bearer token,\
+            \ or one that is expired, malformed or wrongly signed - all indistinguishable,\
+            \ and the signal to refresh or log in again. code INVALID_CREDENTIALS:\
+            \ login refused; an unknown email and a wrong password are deliberately\
+            \ indistinguishable."
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Authenticated, but not permitted: code ACCESS_DENIED. Re-authenticating\
+            \ will not help, so clients must not refresh on it."
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "No such route, or a referenced resource does not exist."
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: A business rule refused the operation. The request was well-formed;
+            the current state of the business forbids it.
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Unexpected failure. message is deliberately generic and carries
+            no internal detail; see the server log for the stack trace.
+      security:
+      - bearerAuth: []
+      summary: Get a conversational simulation run
+      tags:
+      - Conversation simulations
   /api/v1/supervision/conversations:
     get:
       description: "Every live conversation, newest first, paged (page from 0, size\
@@ -2754,6 +2895,42 @@ components:
             $ref: "#/components/schemas/Conversation"
       required:
       - conversations
+    ConversationSimulationResponse:
+      type: object
+      properties:
+        conversationId:
+          type: string
+          format: uuid
+        conversationStatus:
+          type: string
+          enum:
+          - QUEUED
+          - ASSIGNED
+          - ACTIVE
+          - ESCALATED
+          - RESOLVED
+          - ABANDONED
+        endedAt:
+          type: string
+          format: date-time
+        errorMessage:
+          type: string
+        messageCount:
+          type: integer
+          format: int64
+        runId:
+          type: string
+          format: uuid
+        startedAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum:
+          - PENDING
+          - RUNNING
+          - COMPLETED
+          - FAILED
     CreateUserRequest:
       type: object
       properties:
@@ -3446,6 +3623,72 @@ components:
             $ref: "#/components/schemas/ServiceIncident"
       required:
       - incidents
+    StartConversationSimulationRequest:
+      type: object
+      properties:
+        customerSegment:
+          type: string
+          enum:
+          - MASS
+          - AFFLUENT
+          - PRIVATE
+          - PROFESSIONAL
+        maxTurns:
+          type: integer
+          format: int32
+          maximum: 50
+          minimum: 1
+        objective:
+          type: string
+          maxLength: 1000
+          minLength: 0
+        patience:
+          type: number
+          format: double
+          exclusiveMaximum: false
+          exclusiveMinimum: false
+          maximum: 100.0
+          minimum: 0.0
+        profile:
+          type: string
+          enum:
+          - CALME
+          - IMPATIENT
+          - INSATISFAIT
+          - EXIGEANT
+          - OFFRE
+          - CHURN
+        satisfaction:
+          type: number
+          format: double
+          exclusiveMaximum: false
+          exclusiveMinimum: false
+          maximum: 100.0
+          minimum: 0.0
+        scenarioId:
+          type: string
+          format: uuid
+        seed:
+          type: integer
+          format: int64
+        strategyCode:
+          type: string
+          maxLength: 40
+          minLength: 0
+        tenureMonths:
+          type: integer
+          format: int32
+          minimum: 0
+      required:
+      - customerSegment
+      - objective
+      - patience
+      - profile
+      - satisfaction
+      - scenarioId
+      - seed
+      - strategyCode
+      - tenureMonths
     SupervisedConversation:
       type: object
       properties:
