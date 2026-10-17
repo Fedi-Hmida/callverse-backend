@@ -19,6 +19,7 @@ from app.advisor.prompts import ADVISOR_SYSTEM_PROMPT, LOW_CONFIDENCE_THRESHOLD
 from app.advisor.state import AdvisorGraphState
 from app.advisor.tools import TOOL_IMPLEMENTATIONS, TOOL_SPECS
 from app.config import settings
+from app.contracts.advisor import Mode
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +185,14 @@ async def execute_tool(state: AdvisorGraphState) -> dict:
     decision = state["decision"]
     tool_name = decision["tool_name"]
     arguments = dict(decision.get("arguments") or {})
+    if state["request"].mode == Mode.simulation and tool_name != "search_knowledge_base":
+        call = {
+            "name": tool_name,
+            "arguments": arguments,
+            "result": None,
+            "error": "Backend tools are disabled in simulation mode.",
+        }
+        return {"tool_calls": list(state.get("tool_calls", [])) + [call]}
     if tool_name == "create_case":
         arguments["conversation_id"] = str(state["request"].conversation_id)
 

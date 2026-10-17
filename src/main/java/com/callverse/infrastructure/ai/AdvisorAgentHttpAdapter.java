@@ -74,7 +74,7 @@ class AdvisorAgentHttpAdapter implements AdvisorAgent {
                 request.message(),
                 request.history().stream().map(AdvisorAgentHttpAdapter::toWire).toList(),
                 new AdvisorContextWire(request.context().tenureMonths(), request.context().segment().name()),
-                "LIVE");
+                request.mode().name());
     }
 
     private static HistoryMessageWire toWire(HistoryMessage message) {

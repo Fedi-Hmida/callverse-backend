@@ -21,12 +21,27 @@ public interface AdvisorAgent {
 
     AdvisorResponse respond(AdvisorRequest request);
 
+    enum Mode {
+        LIVE,
+        SIMULATION
+    }
+
     record AdvisorRequest(
             UUID conversationId,
             UUID customerId,
             String message,
             List<HistoryMessage> history,
-            CustomerContext context) {
+            CustomerContext context,
+            Mode mode) {
+
+        public AdvisorRequest(
+                UUID conversationId,
+                UUID customerId,
+                String message,
+                List<HistoryMessage> history,
+                CustomerContext context) {
+            this(conversationId, customerId, message, history, context, Mode.LIVE);
+        }
 
         public AdvisorRequest {
             Objects.requireNonNull(conversationId, "conversationId must not be null");
@@ -34,6 +49,7 @@ public interface AdvisorAgent {
             Objects.requireNonNull(message, "message must not be null");
             history = List.copyOf(Objects.requireNonNull(history, "history must not be null"));
             Objects.requireNonNull(context, "context must not be null");
+            Objects.requireNonNull(mode, "mode must not be null");
         }
     }
 

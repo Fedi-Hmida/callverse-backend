@@ -97,6 +97,44 @@ async def test_execute_tool_kb_ajoute_aux_documents_recuperes():
 
 
 @pytest.mark.asyncio
+async def test_execute_tool_simulation_refuse_les_outils_backend():
+    backend_tool = AsyncMock(return_value={"unexpected": "backend result"})
+    with patch("app.advisor.nodes.TOOL_IMPLEMENTATIONS", {"get_customer": backend_tool}):
+        state = {
+            "request": _make_request().model_copy(update={"mode": Mode.simulation}),
+            "decision": {
+                "action": "call_tool",
+                "tool_name": "get_customer",
+                "arguments": {"customer_id": "22222222-2222-2222-2222-222222222222"},
+            },
+            "iterations": 1,
+        }
+        result = await execute_tool(state)
+
+    backend_tool.assert_not_awaited()
+    assert result["tool_calls"][0]["error"] == "Backend tools are disabled in simulation mode."
+    assert result["tool_calls"][0]["result"] is None
+
+
+@pytest.mark.asyncio
+async def test_execute_tool_simulation_garde_la_recherche_documentaire():
+    fake_docs = [{"article_id": "kb-001", "title": "Opposition carte", "excerpt": "...", "score": 0.91}]
+    with patch("app.advisor.nodes.search_knowledge_base", AsyncMock(return_value=fake_docs)):
+        state = {
+            "request": _make_request().model_copy(update={"mode": Mode.simulation}),
+            "decision": {
+                "action": "call_tool",
+                "tool_name": "search_knowledge_base",
+                "arguments": {"query": "opposition carte"},
+            },
+            "iterations": 1,
+        }
+        result = await execute_tool(state)
+
+    assert result["retrieved_documents"] == fake_docs
+
+
+@pytest.mark.asyncio
 async def test_execute_tool_capture_les_erreurs_sans_planter():
     with patch(
         "app.advisor.nodes.TOOL_IMPLEMENTATIONS",
