@@ -19,6 +19,7 @@ import com.callverse.core.domain.enums.AiAdvisorMode;
 import com.callverse.core.domain.enums.ConversationStatus;
 import com.callverse.core.domain.enums.EscalationRaisedBy;
 import com.callverse.core.domain.enums.MessageSender;
+import com.callverse.core.domain.services.PersonalDataRedactor;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
 import java.time.Clock;
@@ -124,15 +125,17 @@ public class AdvisorTurnCommandHandler {
                 .toList();
         int historyStart = Math.max(0, previousMessages.size() - HISTORY_LIMIT);
         List<HistoryMessage> history = previousMessages.subList(historyStart, previousMessages.size()).stream()
-                .map(message -> new HistoryMessage(message.sender(), message.content(), message.sentAt()))
+                .map(message -> new HistoryMessage(
+                        message.sender(), PersonalDataRedactor.redact(message.content()), message.sentAt()))
                 .toList();
 
+        // Text crosses to an external model: identifiers are masked here, the database keeps them.
         AdvisorResponse response;
         try {
             response = agent.respond(new AdvisorRequest(
                     conversation.id(),
                     conversation.customerId(),
-                    customerMessage.content(),
+                    PersonalDataRedactor.redact(customerMessage.content()),
                     history,
                     new CustomerContext(customer.tenureMonths(), customer.segment())));
             validate(response);

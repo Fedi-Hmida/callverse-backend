@@ -142,6 +142,27 @@ class AdvisorTurnCommandHandlerTest {
     }
 
     @Test
+    void personalIdentifiersAreMaskedBeforeTheAiSeesThem() {
+        MessageRecord withIban = new MessageRecord(3L, CONVERSATION_ID, MessageSender.CUSTOMER,
+                "Débitez FR76 3000 6000 0112 3456 7890 189, ma carte 4111 1111 1111 1111", NOW.minusSeconds(1));
+        when(messages.recent(CONVERSATION_ID, 200)).thenReturn(List.of(
+                new MessageRecord(2L, CONVERSATION_ID, MessageSender.CUSTOMER,
+                        "Je suis joignable au 06 12 34 56 78", NOW.minusSeconds(10)),
+                withIban));
+        when(messages.postAgentTurn(any(), anyLong(), any(), any(), any(), any())).thenReturn(Optional.empty());
+
+        handler.handle(new AdvisorTurnCommand(CONVERSATION_ID, withIban.id()));
+
+        ArgumentCaptor<AdvisorAgent.AdvisorRequest> request =
+                ArgumentCaptor.forClass(AdvisorAgent.AdvisorRequest.class);
+        verify(agent).respond(request.capture());
+        assertThat(request.getValue().message())
+                .isEqualTo("Débitez FR76 **** **** 0189, ma carte **** **** **** 1111");
+        assertThat(request.getValue().history()).extracting(HistoryMessage::content)
+                .containsExactly("Je suis joignable au [téléphone masqué]");
+    }
+
+    @Test
     void anEscalateActionRaisesARealEscalationAfterTheReplyIsPosted() {
         PostedMessage posted = agentAnswers("ESCALATE", Map.of("reason", "Contestation d'un paiement"));
 

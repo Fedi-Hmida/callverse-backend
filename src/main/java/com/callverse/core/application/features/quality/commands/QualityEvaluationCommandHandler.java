@@ -10,6 +10,7 @@ import com.callverse.core.application.interfaces.QualityAgent.QualityResult;
 import com.callverse.core.application.interfaces.QualityEvaluationStore;
 import com.callverse.core.domain.enums.ConversationStatus;
 import com.callverse.core.domain.enums.MessageSender;
+import com.callverse.core.domain.services.PersonalDataRedactor;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
@@ -68,8 +69,9 @@ public class QualityEvaluationCommandHandler {
         return true;
     }
 
+    /** The judge is an external model: identifiers are masked, the stored transcript is not. */
     private static QualityMessage toQualityMessage(MessageRecord message) {
-        return new QualityMessage(message.sender(), message.content());
+        return new QualityMessage(message.sender(), PersonalDataRedactor.redact(message.content()));
     }
 
     private static void validateResult(UUID conversationId, QualityResult result) {

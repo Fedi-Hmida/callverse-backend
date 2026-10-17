@@ -79,6 +79,23 @@ class QualityEvaluationCommandHandlerTest {
     }
 
     @Test
+    void theTranscriptIsMaskedBeforeTheJudgeSeesIt() {
+        when(conversations.find(CONVERSATION_ID)).thenReturn(Optional.of(resolvedConversation()));
+        when(evaluations.hasAiEvaluation(CONVERSATION_ID)).thenReturn(false);
+        when(messages.recent(CONVERSATION_ID, 500)).thenReturn(List.of(
+                message(MessageSender.CUSTOMER, "Remboursez sur FR76 3000 6000 0112 3456 7890 189"),
+                message(MessageSender.ADVISOR, "Je vous écris à amina.haddad@example.fr")));
+        when(agent.evaluate(any(QualityRequest.class))).thenReturn(result());
+
+        handler.handle(CONVERSATION_ID);
+
+        ArgumentCaptor<QualityRequest> request = ArgumentCaptor.forClass(QualityRequest.class);
+        verify(agent).evaluate(request.capture());
+        assertThat(request.getValue().messages()).extracting(QualityMessage::content).containsExactly(
+                "Remboursez sur FR76 **** **** 0189", "Je vous écris à [e-mail masqué]");
+    }
+
+    @Test
     void skipsUnresolvedConversationAndDoesNotCallAgent() {
         ConversationRecord active = new ConversationRecord(
                 CONVERSATION_ID,
