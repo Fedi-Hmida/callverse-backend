@@ -22,6 +22,8 @@ COPY artifacts/workforce_banking_v1 ./artifacts/workforce_banking_v1
 # Jamais root ; le cache du modèle d'embeddings s'écrit dans le répertoire de cet utilisateur.
 RUN useradd --create-home --uid 10001 callverse
 USER callverse
+# Créé par l'utilisateur : un volume nommé monté ici hérite de ce propriétaire (sinon root).
+RUN mkdir -p /home/callverse/.cache
 
 EXPOSE 8000
 # Aucun secret dans l'image : AI_SERVICE_KEY, INTERNAL_SERVICE_KEY, llm_api_key et pgvector_dsn
