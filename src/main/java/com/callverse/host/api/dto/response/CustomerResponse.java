@@ -2,6 +2,7 @@ package com.callverse.host.api.dto.response;
 
 import static io.swagger.v3.oas.annotations.media.Schema.RequiredMode.REQUIRED;
 
+import com.callverse.core.application.interfaces.CustomerProfile;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -85,4 +86,46 @@ public record CustomerResponse(
                             example = "CURRENT_ACCOUNT",
                             allowableValues = {"CURRENT_ACCOUNT", "SAVINGS", "CONSUMER_LOAN", "MORTGAGE"})
                     String category) {}
+
+    public static CustomerResponse from(CustomerProfile profile) {
+        List<Account> accounts = profile.accounts().stream()
+                .map(account -> {
+                    CustomerProfile.Product product = account.product();
+                    return new Account(
+                            account.id(),
+                            IbanMask.mask(account.iban()),
+                            account.currency(),
+                            account.balance(),
+                            account.overdraftLimit(),
+                            account.status() == null ? null : account.status().name(),
+                            account.openedAt(),
+                            account.closedAt(),
+                            product == null
+                                    ? null
+                                    : new Product(
+                                            product.code(),
+                                            product.name(),
+                                            product.category() == null ? null : product.category().name()),
+                            account.cards().stream()
+                                    .map(card -> new Card(
+                                            card.id(),
+                                            card.panLast4(),
+                                            card.network().name(),
+                                            card.type().name(),
+                                            card.status().name(),
+                                            card.expiresOn()))
+                                    .toList());
+                })
+                .toList();
+
+        return new CustomerResponse(
+                profile.id(),
+                profile.externalRef(),
+                profile.firstName(),
+                profile.lastName(),
+                profile.region(),
+                profile.segment() == null ? null : profile.segment().name(),
+                profile.tenureMonths(),
+                accounts);
+    }
 }

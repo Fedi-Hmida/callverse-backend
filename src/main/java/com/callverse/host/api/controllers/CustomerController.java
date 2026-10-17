@@ -6,14 +6,11 @@ import com.callverse.core.application.features.customer.queries.GetCustomerProfi
 import com.callverse.core.application.features.customer.queries.GetCustomerProfileQueryHandler;
 import com.callverse.core.application.features.customer.queries.GetRecentTransactionsQuery;
 import com.callverse.core.application.features.customer.queries.GetRecentTransactionsQueryHandler;
-import com.callverse.core.application.interfaces.CustomerProfile;
 import com.callverse.host.api.dto.response.CustomerResponse;
-import com.callverse.host.api.dto.response.IbanMask;
 import com.callverse.host.api.dto.response.TransactionsResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
@@ -60,7 +57,7 @@ public class CustomerController {
             description = "Exact match on the bank's customer reference, the one a customer reads out on the "
                     + "phone. Unknown reference: 404 RESOURCE_NOT_FOUND. Staff only; IBANs are masked.")
     public CustomerResponse byReference(@RequestParam String externalRef) {
-        return toResponse(findCustomerByReference.handle(new FindCustomerByReferenceQuery(externalRef)));
+        return CustomerResponse.from(findCustomerByReference.handle(new FindCustomerByReferenceQuery(externalRef)));
     }
 
     @GetMapping("/{id}/transactions")
@@ -88,49 +85,6 @@ public class CustomerController {
                             + "customer until they are. IBANs are masked; churn risk is deliberately not "
                             + "exposed. Unknown id: 404 RESOURCE_NOT_FOUND; a CUSTOMER caller: 403.")
     public CustomerResponse byId(@PathVariable UUID id) {
-        return toResponse(getCustomerProfile.handle(new GetCustomerProfileQuery(id)));
-    }
-
-    private static CustomerResponse toResponse(CustomerProfile profile) {
-        List<CustomerResponse.Account> accounts =
-                profile.accounts().stream().map(CustomerController::toAccount).toList();
-
-        return new CustomerResponse(
-                profile.id(),
-                profile.externalRef(),
-                profile.firstName(),
-                profile.lastName(),
-                profile.region(),
-                profile.segment() == null ? null : profile.segment().name(),
-                profile.tenureMonths(),
-                accounts);
-    }
-
-    private static CustomerResponse.Account toAccount(CustomerProfile.Account account) {
-        CustomerProfile.Product product = account.product();
-        return new CustomerResponse.Account(
-                account.id(),
-                IbanMask.mask(account.iban()),
-                account.currency(),
-                account.balance(),
-                account.overdraftLimit(),
-                account.status() == null ? null : account.status().name(),
-                account.openedAt(),
-                account.closedAt(),
-                product == null
-                        ? null
-                        : new CustomerResponse.Product(
-                                product.code(),
-                                product.name(),
-                                product.category() == null ? null : product.category().name()),
-                account.cards().stream()
-                        .map(card -> new CustomerResponse.Card(
-                                card.id(),
-                                card.panLast4(),
-                                card.network().name(),
-                                card.type().name(),
-                                card.status().name(),
-                                card.expiresOn()))
-                        .toList());
+        return CustomerResponse.from(getCustomerProfile.handle(new GetCustomerProfileQuery(id)));
     }
 }

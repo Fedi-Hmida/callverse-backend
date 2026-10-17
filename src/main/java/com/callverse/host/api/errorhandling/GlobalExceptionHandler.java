@@ -3,6 +3,7 @@ package com.callverse.host.api.errorhandling;
 import com.callverse.core.application.exceptions.ActionNotPermittedException;
 import com.callverse.core.application.exceptions.ApplicationException;
 import com.callverse.core.application.exceptions.AuthenticationRequiredException;
+import com.callverse.core.application.exceptions.FeatureNotImplementedException;
 import com.callverse.core.application.exceptions.InvalidCredentialsException;
 import com.callverse.core.application.exceptions.ResourceNotFoundException;
 import com.callverse.core.domain.exceptions.DomainException;
@@ -213,6 +214,18 @@ public class GlobalExceptionHandler {
                 HttpStatus.FORBIDDEN,
                 SecurityErrorWriter.ACCESS_DENIED,
                 SecurityErrorWriter.ACCESS_DENIED_MESSAGE,
+                request);
+    }
+
+    /** A capability is intentionally unavailable; unlike an unexpected failure this is a stable 501. */
+    @ExceptionHandler(FeatureNotImplementedException.class)
+    public ResponseEntity<ErrorResponse> handleFeatureNotImplemented(
+            FeatureNotImplementedException exception, HttpServletRequest request) {
+        log.warn("{} {} -> 501 {}", request.getMethod(), request.getRequestURI(), FeatureNotImplementedException.CODE);
+        return build(
+                HttpStatus.NOT_IMPLEMENTED,
+                FeatureNotImplementedException.CODE,
+                exception.getMessage(),
                 request);
     }
 
