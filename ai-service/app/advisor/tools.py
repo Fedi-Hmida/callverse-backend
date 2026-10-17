@@ -65,18 +65,11 @@ TOOL_SPECS: list[dict[str, Any]] = [
             "required": ["amount"],
         },
     },
-    {
-        "name": "escalate",
-        "description": "Remonte la demande au superviseur.",
-        "input_schema": {
-            "type": "object",
-            "properties": {"reason": {"type": "string"}},
-            "required": ["reason"],
-        },
-    },
 ]
 # customer_id et conversation_id ne figurent dans aucun schéma : nodes.TRUSTED_IDENTIFIERS
 # les injecte depuis la requête du backend, le LLM ne peut pas les choisir.
+# Pas d'outil d'escalade : l'escalade est l'action ESCALATE de la décision finale, que le
+# backend transforme en vraie escalade après avoir publié la réponse (un seul chemin).
 
 TOOL_IMPLEMENTATIONS = {
     "get_customer": backend_client.get_customer,
@@ -84,6 +77,5 @@ TOOL_IMPLEMENTATIONS = {
     "check_system_status": backend_client.check_system_status,
     "create_case": backend_client.create_case,
     "apply_credit": backend_client.apply_credit,
-    "escalate": backend_client.escalate,
     # search_knowledge_base volontairement absent : géré via app/advisor/kb/retriever.py
 }

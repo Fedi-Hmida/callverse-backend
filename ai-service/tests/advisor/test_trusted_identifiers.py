@@ -43,11 +43,6 @@ def _state(tool_name: str, arguments: dict) -> dict:
             {"customer_id": TRUSTED_CUSTOMER, "amount": 10},
         ),
         (
-            "escalate",
-            {"conversation_id": ATTACKER_ID, "reason": "Demande de responsable"},
-            {"conversation_id": TRUSTED_CONVERSATION, "reason": "Demande de responsable"},
-        ),
-        (
             "create_case",
             {"customer_id": ATTACKER_ID, "conversation_id": ATTACKER_ID, "subject": "Carte refusée"},
             {"customer_id": TRUSTED_CUSTOMER, "conversation_id": TRUSTED_CONVERSATION, "subject": "Carte refusée"},
@@ -81,3 +76,15 @@ def test_aucun_schema_d_outil_ne_laisse_le_llm_choisir_un_identifiant():
         for identifier in ("customer_id", "conversation_id"):
             assert identifier not in properties, f"{spec['name']} expose {identifier} au LLM"
             assert identifier not in required, f"{spec['name']} exige {identifier} du LLM"
+
+
+def test_l_escalade_passe_par_la_decision_finale_et_non_par_un_outil():
+    # Escalader via l'outil /internal faisait perdre la réponse (conversation déjà ESCALATED)
+    # ou échouait en 409 au premier tour : l'escalade est l'action ESCALATE de la décision
+    # finale, que le backend transforme en vraie escalade après avoir publié la réponse.
+    from app.advisor.prompts import ADVISOR_SYSTEM_PROMPT
+    from app.advisor.tools import TOOL_IMPLEMENTATIONS
+
+    assert "escalate" not in {spec["name"] for spec in TOOL_SPECS}
+    assert "escalate" not in TOOL_IMPLEMENTATIONS
+    assert "appel à escalate" not in ADVISOR_SYSTEM_PROMPT

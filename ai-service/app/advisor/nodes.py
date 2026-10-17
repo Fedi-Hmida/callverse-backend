@@ -185,7 +185,6 @@ TRUSTED_IDENTIFIERS: dict[str, tuple[str, ...]] = {
     "get_transactions": ("customer_id",),
     "create_case": ("customer_id", "conversation_id"),
     "apply_credit": ("customer_id",),
-    "escalate": ("conversation_id",),
 }
 """Arguments taken from the backend's request, never from the LLM: a customer message cannot
 steer a tool towards another customer or conversation. They are absent from TOOL_SPECS."""

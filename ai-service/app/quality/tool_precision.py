@@ -41,6 +41,10 @@ class ToolCaseResult:
 
 def evaluate_case(case: ToolCase, response: AdvisorResponse) -> ToolCaseResult:
     called = {tc.tool for tc in response.tool_calls}
+    # L'escalade n'est plus un outil mais l'action ESCALATE de la décision finale : elle
+    # compte comme l'appel « escalate » qu'un cas attend.
+    if response.action.type == "ESCALATE":
+        called.add("escalate")
 
     recall_hit = bool(called & case.expected_tools)
 
