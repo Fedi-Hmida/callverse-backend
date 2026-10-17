@@ -20,6 +20,8 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     /** Uses idx_message_conv (conversation_id, sent_at). */
     List<Message> findByConversationIdOrderBySentAtAsc(UUID conversationId);
 
+    List<Message> findByConversationIdOrderBySentAtAscIdAsc(UUID conversationId);
+
     /** Paginated for long transcripts; the same index serves it. */
     Page<Message> findByConversationIdOrderBySentAtAsc(UUID conversationId, Pageable pageable);
 

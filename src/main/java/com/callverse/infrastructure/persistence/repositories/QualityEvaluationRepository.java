@@ -16,6 +16,8 @@ public interface QualityEvaluationRepository extends JpaRepository<QualityEvalua
     /** Uses idx_quality_conv. */
     List<QualityEvaluation> findByConversationId(UUID conversationId);
 
+    boolean existsByConversationIdAndEvaluator(UUID conversationId, EvaluatorType evaluator);
+
     /**
      * The pairs behind Cohen's kappa: conversations carrying both an AI and a human evaluation.
      * Expressed as a self-join because evaluator is what allows both to live in one table.

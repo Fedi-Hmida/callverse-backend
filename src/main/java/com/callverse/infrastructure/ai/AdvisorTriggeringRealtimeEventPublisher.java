@@ -24,12 +24,15 @@ class AdvisorTriggeringRealtimeEventPublisher implements RealtimeEventPublisher 
 
     private final RealtimeEventPublisher delegate;
     private final ObjectProvider<AdvisorTurnDispatcher> dispatcherProvider;
+    private final ObjectProvider<QualityEvaluationDispatcher> qualityDispatcherProvider;
 
     AdvisorTriggeringRealtimeEventPublisher(
             @Qualifier("stompRealtimeEventPublisher") RealtimeEventPublisher delegate,
-            ObjectProvider<AdvisorTurnDispatcher> dispatcherProvider) {
+            ObjectProvider<AdvisorTurnDispatcher> dispatcherProvider,
+            ObjectProvider<QualityEvaluationDispatcher> qualityDispatcherProvider) {
         this.delegate = delegate;
         this.dispatcherProvider = dispatcherProvider;
+        this.qualityDispatcherProvider = qualityDispatcherProvider;
     }
 
     @Override
@@ -44,10 +47,17 @@ class AdvisorTriggeringRealtimeEventPublisher implements RealtimeEventPublisher 
 
     @Override
     public void publishConversationEvent(ConversationEvent event) {
-        delegate.publishConversationEvent(event);
-        if (event.type() == ConversationEvent.Type.MESSAGE_POSTED
-                && event.sender() == com.callverse.core.domain.enums.MessageSender.CUSTOMER) {
-            afterCommit(() -> dispatcherProvider.getObject().dispatch(event));
+        try {
+            delegate.publishConversationEvent(event);
+        } finally {
+            if (event.type() == ConversationEvent.Type.MESSAGE_POSTED
+                    && event.sender() == com.callverse.core.domain.enums.MessageSender.CUSTOMER) {
+                afterCommit(() -> dispatcherProvider.getObject().dispatch(event));
+            }
+            if (event.type() == ConversationEvent.Type.STATUS_CHANGED
+                    && event.status() == com.callverse.core.domain.enums.ConversationStatus.RESOLVED) {
+                afterCommit(() -> qualityDispatcherProvider.getObject().dispatch(event.conversationId()));
+            }
         }
     }
 
