@@ -2,6 +2,8 @@ package com.callverse.infrastructure.persistence;
 
 import com.callverse.core.application.exceptions.ResourceNotFoundException;
 import com.callverse.core.application.exceptions.SlaPolicyNotFoundException;
+import com.callverse.core.application.interfaces.AdvisorAgent.Source;
+import com.callverse.core.application.interfaces.AdvisorAgent.ToolCall;
 import com.callverse.core.application.interfaces.ConversationLifecycle;
 import com.callverse.core.application.interfaces.ConversationMessages;
 import com.callverse.core.domain.entities.Advisor;
@@ -19,6 +21,7 @@ import com.callverse.core.domain.enums.MessageSender;
 import com.callverse.core.domain.exceptions.InvalidStateTransitionException;
 import com.callverse.core.domain.services.ConversationRules;
 import com.callverse.core.domain.services.PriorityCalculator;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.callverse.infrastructure.persistence.repositories.AdvisorRepository;
 import com.callverse.infrastructure.persistence.repositories.AppUserRepository;
 import com.callverse.infrastructure.persistence.repositories.ConversationRepository;
@@ -31,6 +34,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -81,6 +85,7 @@ class ConversationLifecycleAdapter implements ConversationLifecycle, Conversatio
     private final SlaPolicyRepository slaPolicies;
     private final EscalationRepository escalations;
     private final AppUserRepository users;
+    private final ObjectMapper objectMapper;
 
     // ------------------------------------------------------------------ lifecycle
 
@@ -204,6 +209,56 @@ class ConversationLifecycleAdapter implements ConversationLifecycle, Conversatio
         message.setSentAt(micros(now));
         Message saved = messages.save(message);
         return new PostedMessage(toRecord(saved), toRecord(conversation), after != before);
+    }
+
+    @Override
+    @Transactional
+    public Optional<PostedMessage> postAgentTurn(
+            UUID conversationId,
+            long triggeringCustomerMessageId,
+            String content,
+            List<Source> sources,
+            List<ToolCall> toolCalls,
+            Instant now) {
+        Conversation conversation = lockLive(conversationId);
+        ConversationStatus before = conversation.getStatus();
+        if (before != ConversationStatus.ASSIGNED && before != ConversationStatus.ACTIVE) {
+            return Optional.empty();
+        }
+
+        Message latest = messages.findByConversationIdOrderBySentAtDescIdDesc(
+                        conversationId, PageRequest.of(0, 1))
+                .stream()
+                .findFirst()
+                .orElse(null);
+        if (latest == null
+                || !latest.getId().equals(triggeringCustomerMessageId)
+                || latest.getSender() != MessageSender.CUSTOMER) {
+            return Optional.empty();
+        }
+
+        ConversationStatus after = ConversationRules.statusAfterAdvisorMessage(before);
+        conversation.setStatus(after);
+        Message message = new Message();
+        message.setConversation(conversation);
+        message.setSender(MessageSender.ADVISOR);
+        message.setContent(content);
+        message.setAiGenerated(true);
+        message.setSources(objectMapper.valueToTree(sources.stream()
+                .map(source -> Map.of(
+                        "kb_article_id", source.knowledgeBaseArticleId().toString(),
+                        "score", source.score()))
+                .toList()));
+        message.setToolCalls(objectMapper.valueToTree(toolCalls.stream()
+                .map(toolCall -> Map.of(
+                        "tool", toolCall.tool(),
+                        "args", toolCall.args(),
+                        "result_summary", toolCall.resultSummary(),
+                        "ok", toolCall.ok()))
+                .toList()));
+        message.setSentAt(micros(now));
+        Message saved = messages.save(message);
+        return Optional.of(new PostedMessage(toRecord(saved), toRecord(conversation), after != before));
     }
 
     @Override

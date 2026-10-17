@@ -44,6 +44,7 @@ services:
       # Inside the compose network the AI service is reachable by service name,
       # which overrides the localhost default meant for running outside Docker.
       AI_SERVICE_BASE_URL: ${AI_SERVICE_BASE_URL:-http://ai-service:8000}
+      AI_SERVICE_KEY: ${AI_SERVICE_KEY:-}
       INTERNAL_API_PREFIX: ${INTERNAL_API_PREFIX:-/internal}
       # Shared service key. Must match the ai-service's INTERNAL_SERVICE_KEY exactly.
       INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY:?set INTERNAL_SERVICE_KEY in .env}

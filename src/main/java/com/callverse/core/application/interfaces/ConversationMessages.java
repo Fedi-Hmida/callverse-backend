@@ -1,17 +1,21 @@
 package com.callverse.core.application.interfaces;
 
+import com.callverse.core.application.interfaces.AdvisorAgent.Source;
+import com.callverse.core.application.interfaces.AdvisorAgent.ToolCall;
 import com.callverse.core.application.interfaces.ConversationLifecycle.ConversationRecord;
 import com.callverse.core.domain.enums.MessageSender;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
  * A live conversation's transcript.
  *
  * <p>The sender is always decided by the use case from the caller's role, never read from a request
- * body (ownership rule A10), and {@code ai_generated} is always false here: an agent's turn arrives
- * through the AI phase, not through these routes.
+ * body (ownership rule A10). Human turns are written through {@link #post}; agent turns use the
+ * dedicated {@link #postAgentTurn} method and carry their private trace in the existing message
+ * columns.
  */
 public interface ConversationMessages {
 
@@ -24,10 +28,27 @@ public interface ConversationMessages {
      */
     PostedMessage post(UUID conversationId, MessageSender sender, String content, Instant now);
 
+    /**
+     * Appends an AI advisor turn if the triggering customer message is still the latest message and
+     * the conversation remains ASSIGNED or ACTIVE. The write takes the conversation row lock, so
+     * the AI response cannot race a newer turn or an escalation.
+     *
+     * @return the posted turn, or empty when the conversation has moved on
+     */
+    default Optional<PostedMessage> postAgentTurn(
+            UUID conversationId,
+            long triggeringCustomerMessageId,
+            String content,
+            List<Source> sources,
+            List<ToolCall> toolCalls,
+            Instant now) {
+        throw new UnsupportedOperationException("AI advisor turns are not supported by this adapter");
+    }
+
     /** The {@code limit} most recent messages, oldest first. */
     List<MessageRecord> recent(UUID conversationId, int limit);
 
-    /** No sources or tool calls: they are the RAG and XAI trace (ownership rule A9). */
+    /** Public transcript projection; sources and tool calls remain private to persistence. */
     record MessageRecord(long id, UUID conversationId, MessageSender sender, String content, Instant sentAt) {}
 
     /**
