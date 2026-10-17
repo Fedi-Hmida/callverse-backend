@@ -181,7 +181,9 @@ async def decide(state: AdvisorGraphState) -> dict:
 async def execute_tool(state: AdvisorGraphState) -> dict:
     decision = state["decision"]
     tool_name = decision["tool_name"]
-    arguments = decision.get("arguments", {})
+    arguments = dict(decision.get("arguments") or {})
+    if tool_name == "create_case":
+        arguments["conversation_id"] = str(state["request"].conversation_id)
 
     call = {"name": tool_name, "arguments": arguments, "result": None, "error": None}
     retrieved_documents = list(state.get("retrieved_documents", []))

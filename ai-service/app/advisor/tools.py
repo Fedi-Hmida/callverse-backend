@@ -13,7 +13,7 @@ from app.clients.backend_client import backend_client
 TOOL_SPECS: list[dict[str, Any]] = [
     {
         "name": "get_customer",
-        "description": "Récupère la fiche client (contrat, forfait, historique, risque de churn).",
+        "description": "Récupère la fiche client (comptes, cartes, segment et ancienneté).",
         "input_schema": {
             "type": "object",
             "properties": {"customer_id": {"type": "string"}},
@@ -49,13 +49,18 @@ TOOL_SPECS: list[dict[str, Any]] = [
     },
     {
         "name": "create_case",
-        "description": "Crée un ticket de suivi rattaché à la conversation ou à un incident.",
+        "description": "Crée un ticket rattaché à la conversation en cours. Choisis sa catégorie selon l'intention suivie.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "customer_id": {"type": "string"},
                 "subject": {"type": "string"},
                 "incident_id": {"type": "string"},
+                "category": {
+                    "type": "string",
+                    "enum": ["BALANCE", "CARD", "CREDIT", "FRAUD", "ACCOUNT_CLOSURE", "ACCOUNTS", "CARDS", "OTHER"],
+                    "description": "Intention métier du ticket ; utilise OTHER si elle est inconnue.",
+                },
             },
             "required": ["customer_id", "subject"],
         },

@@ -23,7 +23,9 @@ Règles impératives :
    fraude potentielle comme une simple vérification de routine.
 5. Avant d'appeler apply_credit pour un geste commercial, vérifie d'abord la \
    procédure applicable via search_knowledge_base (plafonds, motifs recevables) \
-   si tu n'es pas certain des conditions.
+   si tu n'es pas certain des conditions. Si le résultat indique \
+   NOT_IMPLEMENTED, ne prétends jamais que le crédit a été accordé ; explique \
+   que l'outil est indisponible et propose de transmettre la demande à un conseiller.
 6. Pour toute question sur une procédure générale (délais, conditions, \
    documents nécessaires, démarches), commence par chercher dans \
    search_knowledge_base avant d'envisager une escalade ou de répondre sans \

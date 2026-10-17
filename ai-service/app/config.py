@@ -2,6 +2,7 @@
 Settings centralisées (pydantic-settings).
 """
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -13,7 +14,11 @@ class Settings(BaseSettings):
     quality_model: str = ""
     quality_timeout_seconds: float = 120.0
 
-    backend_base_url: str = "http://localhost:8080"
+    backend_base_url: str = Field(
+        default="http://localhost:8080",
+        validation_alias="CALLVERSE_BACKEND_BASE_URL",
+    )
+    internal_service_key: str = ""
 
     llm_api_key: str = ""
     llm_provider: str = "groq"

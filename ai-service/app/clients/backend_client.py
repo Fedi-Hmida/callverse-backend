@@ -12,24 +12,61 @@ import httpx
 
 from app.config import settings
 
+_BANKING_SERVICES = {
+    "CARD_PAYMENTS",
+    "ONLINE_BANKING",
+    "MOBILE_APP",
+    "ATM_NETWORK",
+    "TRANSFERS",
+}
+
+_SERVICE_ALIASES = {
+    "paiement_carte": "CARD_PAYMENTS",
+    "paiement carte": "CARD_PAYMENTS",
+    "app_mobile": "MOBILE_APP",
+    "application mobile": "MOBILE_APP",
+    "banque_en_ligne": "ONLINE_BANKING",
+    "banque en ligne": "ONLINE_BANKING",
+    "reseau_dab": "ATM_NETWORK",
+    "réseau dab": "ATM_NETWORK",
+    "virement": "TRANSFERS",
+}
+
+_TICKET_CATEGORIES = {
+    "BALANCE",
+    "CARD",
+    "CREDIT",
+    "FRAUD",
+    "ACCOUNT_CLOSURE",
+    "ACCOUNTS",
+    "CARDS",
+    "OTHER",
+}
+
 
 class BackendClient:
-    """
-    Sept outils metier, alignes sur les endpoints figes du document 01
-    (Contrat 2 - Service AI vers Backend), prefixe /api/v1/internal.
-    """
+    """HTTP client for the backend's service-key-protected internal tools."""
 
-    def __init__(self, base_url: str | None = None, timeout: float = 5.0) -> None:
+    def __init__(
+        self,
+        base_url: str | None = None,
+        timeout: float = 5.0,
+        service_key: str | None = None,
+    ) -> None:
         self._base_url = base_url or settings.backend_base_url
         self._timeout = timeout
+        self._service_key = settings.internal_service_key if service_key is None else service_key
         self._client: httpx.AsyncClient | None = None
 
     def _get_client(self) -> httpx.AsyncClient:
+        if not self._service_key:
+            raise RuntimeError("INTERNAL_SERVICE_KEY must be configured before calling backend tools")
         if self._client is None or self._client.is_closed:
             self._client = httpx.AsyncClient(
                 base_url=self._base_url,
                 timeout=self._timeout,
                 limits=httpx.Limits(max_keepalive_connections=20, max_connections=50),
+                headers={"X-Internal-Key": self._service_key},
             )
         return self._client
 
@@ -51,31 +88,57 @@ class BackendClient:
         return resp.json()
 
     async def get_customer(self, customer_id: str) -> dict[str, Any]:
-        return await self._get(f"/api/v1/internal/customers/{customer_id}")
+        return await self._get(f"/internal/customers/{customer_id}")
 
     async def get_transactions(self, customer_id: str, n: int = 3) -> dict[str, Any]:
-        return await self._get(f"/api/v1/internal/customers/{customer_id}/invoices", params={"n": n})
+        return await self._get(f"/internal/customers/{customer_id}/transactions", params={"n": n})
 
     async def check_system_status(self, zone: str) -> dict[str, Any]:
-        return await self._get("/api/v1/internal/network/status", params={"zone": zone})
-
-    async def search_knowledge_base(self, query: str, k: int = 5) -> dict[str, Any]:
-        return await self._get("/api/v1/internal/kb/search", params={"q": query, "k": k})
+        normalized_zone = zone.strip().casefold()
+        service = _SERVICE_ALIASES.get(normalized_zone)
+        if service is None:
+            candidate = zone.strip().upper()
+            service = candidate if candidate in _BANKING_SERVICES else None
+        if service is None:
+            raise ValueError(f"UNRECOGNIZED_SERVICE: {zone}")
+        return await self._get("/internal/service-incidents", params={"service": service})
 
     async def create_case(
-        self, customer_id: str, subject: str, incident_id: str | None = None
+        self,
+        customer_id: str,
+        subject: str,
+        conversation_id: str,
+        incident_id: str | None = None,
+        category: str | None = None,
     ) -> dict[str, Any]:
-        payload: dict[str, Any] = {"customer_id": customer_id, "subject": subject}
+        ticket_category = "OTHER" if category is None else category.upper()
+        if ticket_category not in _TICKET_CATEGORIES:
+            raise ValueError(f"Unsupported ticket category: {category}")
+
+        payload: dict[str, Any] = {
+            "customerId": customer_id,
+            "conversationId": conversation_id,
+            "category": ticket_category,
+            "title": subject,
+        }
         if incident_id:
-            payload["incident_id"] = incident_id
-        return await self._post("/api/v1/internal/tickets", payload)
+            payload["description"] = f"Incident lié : {incident_id}"
+        return await self._post("/internal/tickets", payload)
 
     async def apply_credit(self, customer_id: str, amount: float) -> dict[str, Any]:
-        return await self._post("/api/v1/internal/credits", {"customer_id": customer_id, "amount": amount})
+        client = self._get_client()
+        response = await client.post(
+            "/internal/credits",
+            json={"customer_id": customer_id, "amount": amount},
+        )
+        if response.status_code == 501:
+            return {"code": "NOT_IMPLEMENTED", "available": False}
+        response.raise_for_status()
+        return response.json()
 
     async def escalate(self, conversation_id: str, reason: str) -> dict[str, Any]:
         return await self._post(
-            f"/api/v1/internal/conversations/{conversation_id}/escalate",
+            f"/internal/conversations/{conversation_id}/escalate",
             {"reason": reason},
         )
 
