@@ -59,5 +59,16 @@ def test_un_index_de_message_invalide_n_est_pas_redirige():
         _repair_and_validate_judge_result("```json\n" + _raw(bad_index) + "\n```", request())
 
 
+@pytest.mark.parametrize("bad_index", [0, 42, "x"])
+def test_une_affirmation_mal_situee_est_ecartee_sans_planter(bad_index):
+    # 0 = message CUSTOMER : une affirmation ne peut venir que du conseiller.
+    def misplaced_claim(data):
+        data["claims"][0]["message_index"] = bad_index
+
+    repaired = _repair_and_validate_judge_result("```json\n" + _raw(misplaced_claim) + "\n```", request())
+
+    assert repaired.claims == []
+
+
 def test_tous_les_criteres_restent_requis():
     assert set(CODES) == {"relevance", "accuracy", "compliance", "communication", "empathy", "resolution"}

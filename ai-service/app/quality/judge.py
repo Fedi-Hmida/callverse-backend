@@ -98,10 +98,12 @@ def _repair_and_validate_judge_result(raw_content: str, request: QualityRequest)
                 if st not in ("SUPPORTED", "UNSUPPORTED", "UNVERIFIABLE"):
                     st = "UNVERIFIABLE"
                 idx = c.get("message_index")
+                # Une affirmation mal située est écartée, pas redirigée vers un autre message :
+                # elle n'est pas une note, la perdre vaut mieux que l'attribuer à tort.
                 if not isinstance(idx, int) or not (0 <= idx < len(request.messages)):
-                    idx = fallback_idx
+                    continue
                 if request.messages[idx].sender != "ADVISOR":
-                    idx = fallback_idx
+                    continue
                 s_keys = c.get("source_keys")
                 if isinstance(s_keys, list):
                     s_keys = [str(k) for k in s_keys if str(k) in available]
