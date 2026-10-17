@@ -153,6 +153,10 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.GET, "/api/v1/supervision/kpi").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/v1/supervision/conversations").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/supervision/workforce/recommendations").authenticated()
+                        // Simulation management is reachable to signed-in callers at the chain
+                        // level; the controller restricts both operations to supervisors/admins.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/simulation-runs").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/simulation-runs/*").authenticated()
                         // Account administration. ADMIN on each method; the chain only admits callers.
                         .requestMatchers(HttpMethod.GET, "/api/v1/admin/users", "/api/v1/admin/users/*").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/admin/users").authenticated()
