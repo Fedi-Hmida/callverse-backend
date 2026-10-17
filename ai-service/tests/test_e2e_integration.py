@@ -19,10 +19,11 @@ def test_e2e_healthcheck():
 
 
 def test_e2e_workforce_decide():
+    # Les quatre compétences du backend (ACCOUNTS, CARDS, CREDIT, FRAUD), alignées en P0.
     payload = {
-        "queues": {"ACCOUNT": 15, "CARD": 2, "CREDIT": 1, "ADVISORY": 0},
-        "avg_wait": {"ACCOUNT": 120, "CARD": 45, "CREDIT": 0, "ADVISORY": 0},
-        "available": {"ACCOUNT": 0, "CARD": 2, "CREDIT": 1, "ADVISORY": 0},
+        "queues": {"ACCOUNTS": 15, "CARDS": 2, "CREDIT": 1, "FRAUD": 0},
+        "avg_wait": {"ACCOUNTS": 120, "CARDS": 45, "CREDIT": 0, "FRAUD": 0},
+        "available": {"ACCOUNTS": 0, "CARDS": 2, "CREDIT": 1, "FRAUD": 0},
         "sla_today": 0.80,
         "hour": 14,
         "trend": 1.0,
@@ -31,8 +32,8 @@ def test_e2e_workforce_decide():
     assert response.status_code == 200
     data = response.json()
     assert data["type"] == "REASSIGN"
-    assert data["to_pool"] == "ACCOUNT"
-    assert data["from_pool"] == "CARD"
+    assert data["to_pool"] == "ACCOUNTS"
+    assert data["from_pool"] == "CARDS"
 
 
 def test_e2e_quality_rubric():

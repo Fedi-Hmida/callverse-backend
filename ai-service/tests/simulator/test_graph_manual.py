@@ -1,6 +1,9 @@
+import pytest
+
 from app.simulator.graph import build_graph
 
 
+@pytest.mark.llm
 def test_reponse_utile_ameliore_satisfaction():
     graph = build_graph()
 

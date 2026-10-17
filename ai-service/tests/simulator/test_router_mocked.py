@@ -19,7 +19,10 @@ def _fake_invoke(self, *args, **kwargs):
 
 
 @patch("langchain_groq.ChatGroq.invoke", _fake_invoke)
-def test_next_message_endpoint_conforme_au_contrat():
+def test_next_message_endpoint_conforme_au_contrat(monkeypatch):
+    # invoke() est remplacé : la clé n'est jamais utilisée, mais ChatGroq exige qu'elle existe.
+    from app.config import settings
+    monkeypatch.setattr(settings, "llm_api_key", "unused-test-key")
     payload = {
         "conversation_id": "11111111-1111-1111-1111-111111111111",
         "state": {
