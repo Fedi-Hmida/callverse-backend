@@ -2035,6 +2035,77 @@ paths:
       summary: Today's live KPIs
       tags:
       - Supervision
+  /api/v1/supervision/workforce/recommendations:
+    post:
+      description: "Builds an observation from live queues and advisor capacity, asks\
+        \ the Workforce Manager for a proposal, and records it in the decision trace.\
+        \ It never changes assignments. Availability may overlap for advisors with\
+        \ multiple skills; neutral SLA/trend inputs are identified in the response."
+      operationId: requestWorkforceRecommendation
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkforceRecommendation"
+          description: A human-review-only proposal was generated and recorded.
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Rejected before any business rule ran: the body is not valid\
+            \ JSON (code MALFORMED_REQUEST), a parameter or field broke a rule (code\
+            \ VALIDATION_FAILED), or a use-case precondition was unmet."
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Not authenticated. code UNAUTHENTICATED: no bearer token,\
+            \ or one that is expired, malformed or wrongly signed - all indistinguishable,\
+            \ and the signal to refresh or log in again. code INVALID_CREDENTIALS:\
+            \ login refused; an unknown email and a wrong password are deliberately\
+            \ indistinguishable."
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Authenticated, but not permitted: code ACCESS_DENIED. Re-authenticating\
+            \ will not help, so clients must not refresh on it."
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "No such route, or a referenced resource does not exist."
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: A business rule refused the operation. The request was well-formed;
+            the current state of the business forbids it.
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Unexpected failure. message is deliberately generic and carries
+            no internal detail; see the server log for the stack trace.
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: The Workforce service is unavailable or returned an invalid
+            proposal.
+      security:
+      - bearerAuth: []
+      summary: Request a human-reviewed Workforce recommendation
+      tags:
+      - Supervision
   /api/v1/tickets:
     post:
       description: "Always created OPEN; severity 1 to 5, default 3. When conversationId\
@@ -3673,6 +3744,99 @@ components:
       required:
       - content
       - page
+    WorkforceObservedState:
+      type: object
+      properties:
+        available:
+          type: object
+          additionalProperties:
+            type: integer
+            format: int32
+        averageWaitSeconds:
+          type: object
+          additionalProperties:
+            type: number
+            format: double
+        hour:
+          type: integer
+          format: int32
+        queues:
+          type: object
+          additionalProperties:
+            type: integer
+            format: int64
+        slaMeasured:
+          type: boolean
+        slaToday:
+          type: number
+          format: double
+        trend:
+          type: number
+          format: double
+      required:
+      - available
+      - averageWaitSeconds
+      - hour
+      - queues
+      - slaMeasured
+      - slaToday
+      - trend
+    WorkforceRecommendation:
+      type: object
+      properties:
+        caveats:
+          type: array
+          items:
+            type: string
+        count:
+          type: integer
+          format: int32
+        decisionId:
+          type: integer
+          format: int64
+        expectedGain:
+          type: object
+          additionalProperties:
+            type: number
+            format: double
+        fromPool:
+          type: string
+          enum:
+          - ACCOUNTS
+          - CARDS
+          - CREDIT
+          - FRAUD
+        generatedAt:
+          type: string
+          format: date-time
+        observation:
+          $ref: "#/components/schemas/WorkforceObservedState"
+        reason:
+          type: string
+        requiresApproval:
+          type: boolean
+          description: This proposal has not been applied and requires human review.
+        toPool:
+          type: string
+          enum:
+          - ACCOUNTS
+          - CARDS
+          - CREDIT
+          - FRAUD
+        type:
+          type: string
+          enum:
+          - NONE
+          - REASSIGN
+      required:
+      - caveats
+      - decisionId
+      - expectedGain
+      - generatedAt
+      - observation
+      - reason
+      - requiresApproval
+      - type
   securitySchemes:
     bearerAuth:
       bearerFormat: JWT
