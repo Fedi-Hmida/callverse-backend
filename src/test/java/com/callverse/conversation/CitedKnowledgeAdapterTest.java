@@ -76,6 +76,31 @@ class CitedKnowledgeAdapterTest extends AbstractPersistenceTest {
     }
 
     @Test
+    @DisplayName("a long article is cut so the judge's context window is not overflowed")
+    void longArticleIsCut() {
+        UUID conversation = conversation();
+        UUID longArticle = fx.kbArticle("Procédure longue", "x".repeat(5000));
+        fx.aiAdvisorMessageWithSources(conversation, "Voir procédure.", t0.plusSeconds(1), sources(longArticle));
+
+        String content = citedKnowledge.citedInAiTurns(conversation).getFirst().content();
+
+        assertThat(content).hasSizeLessThanOrEqualTo(1500).startsWith("Procédure longue\n").endsWith("…");
+    }
+
+    @Test
+    @DisplayName("deleted citations do not crowd out existing ones")
+    void missingArticlesDoNotCountTowardsTheLimit() {
+        UUID conversation = conversation();
+        UUID existing = fx.kbArticle("Opposition carte", "Appeler le canal sécurisé.");
+        UUID[] gone = IntStream.range(0, 10).mapToObj(i -> UUID.randomUUID()).toArray(UUID[]::new);
+        fx.aiAdvisorMessageWithSources(conversation, "a", t0.plusSeconds(1), sources(gone));
+        fx.aiAdvisorMessageWithSources(conversation, "b", t0.plusSeconds(2), sources(existing));
+
+        assertThat(citedKnowledge.citedInAiTurns(conversation)).extracting(SourceDocument::documentId)
+                .containsExactly(existing.toString());
+    }
+
+    @Test
     @DisplayName("the judge's payload stays bounded: at most ten articles")
     void bounded() {
         UUID conversation = conversation();
