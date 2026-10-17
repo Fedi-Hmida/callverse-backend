@@ -36,7 +36,10 @@ class QualityAgentHttpAdapter implements QualityAgent {
             @Value("${ai.service.api-key:}") String apiKey) {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(Duration.ofSeconds(2));
-        requestFactory.setReadTimeout(Duration.ofSeconds(30));
+        // Longer than the judge's own limit (quality_timeout_seconds, 120 s by default): the call
+        // runs on a background worker after resolution, so waiting costs no one, while giving up
+        // first would throw away a grade the judge is still producing.
+        requestFactory.setReadTimeout(Duration.ofSeconds(130));
         this.client = builder.baseUrl(baseUrl).requestFactory(requestFactory).build();
         this.apiKey = apiKey;
     }

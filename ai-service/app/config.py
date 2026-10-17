@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     quality_ollama_url: str = "http://localhost:11434"
     quality_model: str = ""
     quality_timeout_seconds: float = 120.0
+    # Échéance globale d'une requête Advisor ou Simulator. Le backend abandonne à 30 s :
+    # répondre 504 avant, plutôt que de continuer à appeler le LLM et les outils pour rien.
+    ai_request_deadline_seconds: float = 25.0
 
     backend_base_url: str = Field(
         default="http://localhost:8080",
