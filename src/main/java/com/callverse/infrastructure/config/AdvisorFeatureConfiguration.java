@@ -6,8 +6,10 @@ import com.callverse.core.application.interfaces.AdvisorAgent;
 import com.callverse.core.application.interfaces.ConversationLifecycle;
 import com.callverse.core.application.interfaces.ConversationMessages;
 import com.callverse.core.application.interfaces.CustomerRecords;
+import com.callverse.core.domain.enums.AiAdvisorMode;
 import java.time.Clock;
 import java.util.concurrent.ThreadPoolExecutor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.task.TaskExecutor;
@@ -24,8 +26,13 @@ public class AdvisorFeatureConfiguration {
             ConversationMessages messages,
             CustomerRecords customers,
             ConversationEvents events,
-            Clock clock) {
-        return new AdvisorTurnCommandHandler(agent, conversations, messages, customers, events, clock);
+            Clock clock,
+            @Value("${ai.advisor.mode:OFF}") AiAdvisorMode mode) {
+        if (mode == null) {
+            // An empty AI_ADVISOR_MODE binds to null; name the setting instead of a bare NPE.
+            throw new IllegalStateException("ai.advisor.mode (AI_ADVISOR_MODE) must be OFF or AUTONOMOUS");
+        }
+        return new AdvisorTurnCommandHandler(agent, conversations, messages, customers, events, clock, mode);
     }
 
     @Bean(name = "advisorTurnExecutor")

@@ -60,6 +60,7 @@ class AdvisorTurnIntegrationTest extends AbstractPersistenceTest {
     static void advisorProperties(DynamicPropertyRegistry registry) {
         registry.add("ai.service.base-url", () -> "http://127.0.0.1:" + AI_SERVER.getAddress().getPort());
         registry.add("ai.service.api-key", () -> API_KEY);
+        registry.add("ai.advisor.mode", () -> "AUTONOMOUS");
     }
 
     @AfterAll
@@ -83,14 +84,14 @@ class AdvisorTurnIntegrationTest extends AbstractPersistenceTest {
         Instant queuedAt = Instant.now().minusSeconds(60);
         UUID conversationId = fixtures.conversation(
                 customerId, skill, ConversationStatus.ASSIGNED, "0", queuedAt, advisorId, null);
-        fixtures.message(conversationId, MessageSender.ADVISOR, "Bonjour.", queuedAt.plusSeconds(11));
+        fixtures.aiAdvisorMessage(conversationId, "Bonjour.", queuedAt.plusSeconds(11));
 
-        MvcResult result = mockMvc.perform(customerMessage(conversationId, customerUserId))
+        MvcResult result = mockMvc.perform(customerMessage(conversationId, customerUserId, "customer-advisor-test"))
                 .andExpect(status().isCreated())
                 .andReturn();
         JsonNode customerMessage = objectMapper.readTree(result.getResponse().getContentAsString());
 
-        List<Message> aiTurns = awaitAiTurn(conversationId);
+        List<Message> aiTurns = awaitAiTurn(conversationId, queuedAt.plusSeconds(11));
 
         assertThat(aiTurns).hasSize(1);
         Message aiTurn = aiTurns.getFirst();
@@ -117,21 +118,49 @@ class AdvisorTurnIntegrationTest extends AbstractPersistenceTest {
         assertThat(publicMessage.has("toolCalls")).isFalse();
     }
 
-    private MockHttpServletRequestBuilder customerMessage(UUID conversationId, UUID customerUserId) {
+    @Test
+    void aiStaysSilentOnceTheHumanAdvisorHasWritten() throws Exception {
+        String skill = fixtures.skill(60);
+        UUID customerUserId = fixtures.user(UserRole.CUSTOMER);
+        UUID customerId = fixtures.customer(customerUserId, ChurnRisk.LOW, CustomerSegment.MASS);
+        UUID advisorId = fixtures.advisor(fixtures.user(UserRole.ADVISOR), 1, skill);
+        Instant queuedAt = Instant.now().minusSeconds(60);
+        UUID conversationId = fixtures.conversation(
+                customerId, skill, ConversationStatus.ACTIVE, "0", queuedAt, advisorId, null);
+        fixtures.message(conversationId, MessageSender.ADVISOR, "Bonjour, Karim ici.", queuedAt.plusSeconds(11));
+
+        mockMvc.perform(customerMessage(conversationId, customerUserId, "customer-takeover-test"))
+                .andExpect(status().isCreated());
+
+        // Long enough for an AI turn to land if one had been scheduled (the first test sees it in ms).
+        assertThat(awaitAiTurn(conversationId, queuedAt, java.time.Duration.ofMillis(1500))).isEmpty();
+        assertThat(LAST_ADVISOR_REQUEST.get()).as("the AI service was never called").isNull();
+    }
+
+    private MockHttpServletRequestBuilder customerMessage(UUID conversationId, UUID customerUserId, String login) {
         RequestPostProcessor authentication = bearer(tokenForExistingAccount(
-                customerUserId, "customer-advisor-test@accounts.test", UserRole.CUSTOMER));
+                customerUserId, login + "@accounts.test", UserRole.CUSTOMER));
         return post("/api/v1/conversations/{id}/messages", conversationId)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"content\":\"Je ne reconnais pas ce paiement.\"}")
                 .with(authentication);
     }
 
-    private List<Message> awaitAiTurn(UUID conversationId) throws InterruptedException {
-        long deadline = System.nanoTime() + java.time.Duration.ofSeconds(10).toNanos();
+    /** AI turns written after {@code after}, so a seeded AI greeting does not count as the answer. */
+    private List<Message> awaitAiTurn(UUID conversationId, Instant after) throws InterruptedException {
+        return awaitAiTurn(conversationId, after, java.time.Duration.ofSeconds(10));
+    }
+
+    private List<Message> awaitAiTurn(UUID conversationId, Instant after, java.time.Duration timeout)
+            throws InterruptedException {
+        long deadline = System.nanoTime() + timeout.toNanos();
         List<Message> found = List.of();
         while (System.nanoTime() < deadline) {
             found = tx.execute(status -> messageRepository.findByConversationIdAndAiGeneratedTrueOrderBySentAtAsc(
-                    conversationId));
+                            conversationId)
+                    .stream()
+                    .filter(message -> message.getSentAt().isAfter(after))
+                    .toList());
             if (!found.isEmpty()) {
                 return found;
             }

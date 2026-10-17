@@ -15,6 +15,7 @@ import com.callverse.core.application.interfaces.ConversationMessages.MessageRec
 import com.callverse.core.application.interfaces.ConversationMessages.PostedMessage;
 import com.callverse.core.application.interfaces.CustomerProfile;
 import com.callverse.core.application.interfaces.CustomerRecords;
+import com.callverse.core.domain.enums.AiAdvisorMode;
 import com.callverse.core.domain.enums.ConversationStatus;
 import com.callverse.core.domain.enums.MessageSender;
 import java.lang.System.Logger;
@@ -28,6 +29,10 @@ import java.util.Objects;
  *
  * <p>No database lock is held while the outbound AI call runs. The final write rechecks the state
  * and triggering message under the conversation row lock, discarding a stale response.
+ *
+ * <p>Runs only in {@link AiAdvisorMode#AUTONOMOUS}, and only until a human advisor has written in the
+ * conversation. A human reply that lands while the AI is thinking becomes the latest message, so the
+ * locked recheck discards the AI response as well.
  */
 public class AdvisorTurnCommandHandler {
 
@@ -41,6 +46,7 @@ public class AdvisorTurnCommandHandler {
     private final CustomerRecords customers;
     private final ConversationEvents events;
     private final Clock clock;
+    private final AiAdvisorMode mode;
 
     public AdvisorTurnCommandHandler(
             AdvisorAgent agent,
@@ -48,17 +54,27 @@ public class AdvisorTurnCommandHandler {
             ConversationMessages messages,
             CustomerRecords customers,
             ConversationEvents events,
-            Clock clock) {
+            Clock clock,
+            AiAdvisorMode mode) {
         this.agent = Objects.requireNonNull(agent, "agent must not be null");
         this.conversations = Objects.requireNonNull(conversations, "conversations must not be null");
         this.messages = Objects.requireNonNull(messages, "messages must not be null");
         this.customers = Objects.requireNonNull(customers, "customers must not be null");
         this.events = Objects.requireNonNull(events, "events must not be null");
         this.clock = Objects.requireNonNull(clock, "clock must not be null");
+        this.mode = Objects.requireNonNull(mode, "mode must not be null");
+    }
+
+    /** False in {@code OFF} mode, so callers can skip scheduling a turn at all. */
+    public boolean enabled() {
+        return mode != AiAdvisorMode.OFF;
     }
 
     public void handle(AdvisorTurnCommand command) {
         Objects.requireNonNull(command, "command must not be null");
+        if (!enabled()) {
+            return;
+        }
         ConversationRecord conversation = conversations.find(command.conversationId()).orElse(null);
         if (conversation == null) {
             LOG.log(Level.WARNING, "AI Advisor skipped: conversation no longer exists");
@@ -68,6 +84,12 @@ public class AdvisorTurnCommandHandler {
                 && conversation.status() != ConversationStatus.ACTIVE) {
             LOG.log(Level.INFO, "AI Advisor skipped for conversation {0} in state {1}",
                     conversation.id(), conversation.status());
+            return;
+        }
+        // Human takeover: once the assigned advisor has written, the AI never speaks over them.
+        if (messages.humanAdvisorHasReplied(conversation.id())) {
+            LOG.log(Level.INFO, "AI Advisor skipped for conversation {0}: a human advisor has taken over",
+                    conversation.id());
             return;
         }
 

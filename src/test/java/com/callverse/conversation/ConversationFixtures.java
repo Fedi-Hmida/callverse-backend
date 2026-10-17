@@ -145,11 +145,21 @@ public final class ConversationFixtures {
 
     /** A message in a conversation, sent at {@code sentAt}. */
     public void message(UUID conversationId, MessageSender sender, String content, Instant sentAt) {
+        message(conversationId, sender, content, sentAt, false);
+    }
+
+    /** An ADVISOR turn written by the AI, as {@code postAgentTurn} would have stored it. */
+    public void aiAdvisorMessage(UUID conversationId, String content, Instant sentAt) {
+        message(conversationId, MessageSender.ADVISOR, content, sentAt, true);
+    }
+
+    private void message(UUID conversationId, MessageSender sender, String content, Instant sentAt, boolean ai) {
         tx.executeWithoutResult(s -> {
             Message message = new Message();
             message.setConversation(em.getReference(Conversation.class, conversationId));
             message.setSender(sender);
             message.setContent(content);
+            message.setAiGenerated(ai);
             message.setSentAt(sentAt.truncatedTo(ChronoUnit.MICROS));
             em.persist(message);
         });

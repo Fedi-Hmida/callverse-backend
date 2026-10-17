@@ -20,6 +20,7 @@ import com.callverse.core.application.interfaces.ConversationMessages.MessageRec
 import com.callverse.core.application.interfaces.ConversationMessages.PostedMessage;
 import com.callverse.core.application.interfaces.CustomerProfile;
 import com.callverse.core.application.interfaces.CustomerRecords;
+import com.callverse.core.domain.enums.AiAdvisorMode;
 import com.callverse.core.domain.enums.Channel;
 import com.callverse.core.domain.enums.ConversationStatus;
 import com.callverse.core.domain.enums.CustomerSegment;
@@ -46,8 +47,7 @@ class AdvisorTurnCommandHandlerTest {
     private final ConversationMessages messages = mock(ConversationMessages.class);
     private final CustomerRecords customers = mock(CustomerRecords.class);
     private final ConversationEvents events = mock(ConversationEvents.class);
-    private final AdvisorTurnCommandHandler handler = new AdvisorTurnCommandHandler(
-            agent, conversations, messages, customers, events, Clock.fixed(NOW, ZoneOffset.UTC));
+    private final AdvisorTurnCommandHandler handler = handler(AiAdvisorMode.AUTONOMOUS);
 
     private ConversationRecord conversation;
     private MessageRecord customerMessage;
@@ -115,6 +115,33 @@ class AdvisorTurnCommandHandlerTest {
 
         verify(agent, never()).respond(any());
         verify(messages, never()).postAgentTurn(any(), anyLong(), any(), any(), any(), any());
+    }
+
+    @Test
+    void offModeNeverCallsTheAgent() {
+        AdvisorTurnCommandHandler off = handler(AiAdvisorMode.OFF);
+
+        off.handle(new AdvisorTurnCommand(CONVERSATION_ID, customerMessage.id()));
+
+        assertThat(off.enabled()).isFalse();
+        assertThat(handler.enabled()).isTrue();
+        verify(agent, never()).respond(any());
+        verify(messages, never()).postAgentTurn(any(), anyLong(), any(), any(), any(), any());
+    }
+
+    @Test
+    void staysSilentOnceAHumanAdvisorHasReplied() {
+        when(messages.humanAdvisorHasReplied(CONVERSATION_ID)).thenReturn(true);
+
+        handler.handle(new AdvisorTurnCommand(CONVERSATION_ID, customerMessage.id()));
+
+        verify(agent, never()).respond(any());
+        verify(messages, never()).postAgentTurn(any(), anyLong(), any(), any(), any(), any());
+    }
+
+    private AdvisorTurnCommandHandler handler(AiAdvisorMode mode) {
+        return new AdvisorTurnCommandHandler(
+                agent, conversations, messages, customers, events, Clock.fixed(NOW, ZoneOffset.UTC), mode);
     }
 
     private ConversationRecord withStatus(ConversationStatus status) {

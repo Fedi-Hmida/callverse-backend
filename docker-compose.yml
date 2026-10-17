@@ -45,6 +45,8 @@ services:
       # which overrides the localhost default meant for running outside Docker.
       AI_SERVICE_BASE_URL: ${AI_SERVICE_BASE_URL:-http://ai-service:8000}
       AI_SERVICE_KEY: ${AI_SERVICE_KEY:-}
+      # OFF unless asked: AUTONOMOUS lets the AI answer until a human advisor writes.
+      AI_ADVISOR_MODE: ${AI_ADVISOR_MODE:-OFF}
       INTERNAL_API_PREFIX: ${INTERNAL_API_PREFIX:-/internal}
       # Shared service key. Must match the ai-service's INTERNAL_SERVICE_KEY exactly.
       INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY:?set INTERNAL_SERVICE_KEY in .env}

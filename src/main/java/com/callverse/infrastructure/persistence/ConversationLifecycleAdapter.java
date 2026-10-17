@@ -263,6 +263,12 @@ class ConversationLifecycleAdapter implements ConversationLifecycle, Conversatio
 
     @Override
     @Transactional(readOnly = true)
+    public boolean humanAdvisorHasReplied(UUID conversationId) {
+        return messages.existsByConversationIdAndSenderAndAiGeneratedFalse(conversationId, MessageSender.ADVISOR);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public List<MessageRecord> recent(UUID conversationId, int limit) {
         List<MessageRecord> newestFirst = messages
                 .findByConversationIdOrderBySentAtDescIdDesc(conversationId, PageRequest.of(0, limit))
