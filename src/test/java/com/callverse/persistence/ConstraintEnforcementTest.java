@@ -308,6 +308,12 @@ class ConstraintEnforcementTest extends AbstractPersistenceTest {
         // The index exists to serve exactly one query, executed every time an advisor frees up.
         // Asserting the plan rather than the result is the only way to notice if a later change to
         // the query, or to the index's column order, quietly turns it into a sequential scan.
+        // On a near-empty test table a sequential scan is genuinely cheaper, so the plan depended on
+        // whatever the rest of the suite had left in the table (the test was flaky). The question
+        // is whether the index CAN serve this query: forbid the sequential scan for this
+        // transaction only, then take fresh statistics, the worst case that used to fail.
+        em.createNativeQuery("set local enable_seqscan = off").executeUpdate();
+        em.createNativeQuery("analyze conversation").executeUpdate();
         List<?> rows = em.createNativeQuery(
                         """
                         explain
@@ -319,6 +325,8 @@ class ConstraintEnforcementTest extends AbstractPersistenceTest {
                 .getResultList();
         String plan = rows.stream().map(String::valueOf).collect(Collectors.joining("\n"));
 
-        assertThat(plan).as("query plan:%s", plan).contains("idx_conv_status_queue");
+        // A seek on both leading columns, not a degraded full scan of the index.
+        assertThat(plan).as("query plan:%s", plan)
+                .containsPattern("Index Scan using idx_conv_status_queue[\\s\\S]*Index Cond: .*status.*skill_id");
     }
 }
