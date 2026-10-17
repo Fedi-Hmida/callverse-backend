@@ -271,13 +271,75 @@ complète reste non confirmée. `StompConversationTest.messagesBothWays`,
 intermittent aux passages précédents, a réussi lors de cette exécution. Aucun
 de ces deux tests n'a été modifié.
 
-### Agents encore non intégrés
+## Étape 6 — Quality Analyst (évaluation asynchrone à la résolution)
 
-- Le **Quality Analyst** n'est pas raccordé au flux live : il lui faut un
-  déclencheur après conversation et une décision sur les données/traces
-  d'évaluation.
-- Le **Client Simulator** reste un outil d'expérimentation, pas un agent des
-  conversations client réelles. Aucun raccordement live n'est ajouté.
+- Le changement `RESOLVED`, publié après commit, déclenche le cas d'usage sur
+  un exécuteur borné. Les conversations abandonnées, non résolues, déjà évaluées
+  par l'IA ou sans transcript admissible sont ignorées.
+- Le backend envoie au Quality Analyst au plus 500 messages `CUSTOMER` /
+  `ADVISOR`, sans les messages `SYSTEM`, `sources`, `tool_calls` ni les détails
+  privés de l'Advisor. `source_documents` et `applicable_rules` sont vides ;
+  le contexte de notation est donc réduit et A9 reste non confirmée.
+- Le résultat est enregistré dans les colonnes existantes de
+  `quality_evaluation` (`global_score`, `scores`, `explanation`, `flags`,
+  `evaluator=AI`). Les six clés de score sont converties en majuscules pour
+  correspondre aux codes de `quality_criterion`. Preuves, recommandations et
+  claims ne sont pas persistés car V1 ne fournit pas ces colonnes.
+- L'échec du service, une réponse invalide ou le rejet de l'exécuteur produit
+  un avertissement sans secret et n'affecte pas la résolution. Aucun endpoint
+  de lecture UI n'est ajouté.
+- Aucun fichier de migration n'a été créé ou modifié.
+- Détails : [QUALITY_FLOW.md](./QUALITY_FLOW.md).
+
+### Client Simulator
+
+- Le Client Simulator est raccordé dans un flux isolé `Simulator → Advisor` :
+  `POST /api/v1/simulation-runs` (superviseur/admin) crée un client marqué
+  simulé, une conversation liée à `simulation_run`, puis planifie le dialogue
+  sur un exécuteur borné ; `GET /api/v1/simulation-runs/{runId}` permet le suivi.
+- Les paramètres du dialogue sont explicites (scénario, stratégie, seed, profil,
+  objectif, patience, satisfaction, segment, ancienneté et plafond de tours,
+  limité à 50). La contrainte existante `(scenario_id, strategy_id, seed)`
+  interdit de relancer le même triplet.
+- En mode `SIMULATION`, l'Advisor ne peut exécuter que la recherche documentaire ;
+  aucun outil métier backend, événement temps réel ou conversation live n'est
+  utilisé. Les agents reçoivent les 20 messages les plus récents, hors `SYSTEM`.
+- Les messages, la réponse Advisor (`ai_generated=true`) et les traces utilisent
+  uniquement les colonnes existantes. Les échecs/timeout/réponses invalides et la
+  limite atteinte marquent le run `FAILED` avec un message générique. Aucun schéma
+  ni migration n'a été modifié.
+- Détails et limites : [SIMULATOR_FLOW.md](./SIMULATOR_FLOW.md). Les tests à mocks
+  et Testcontainers ne constituent pas un appel réel à un LLM.
+
+### Validations Simulator
+
+| Vérification | Résultat |
+|---|---|
+| `pytest tests/advisor/test_advisor_graph.py -q` (WSL, `~/venv-ai`) | **13/13 ✓** |
+| Tests Spring ciblés (orchestration, HTTP Simulator/Advisor, dispatcher) | **10/10 ✓** |
+| Persistance Simulator Testcontainers PostgreSQL | **1/1 ✓** |
+| API Simulator, autorisations et suivi Testcontainers | **1/1 ✓** |
+| `make openapi` / `OpenApiContractTest` | **réussi** |
+| `make arch` | **7/7 ✓** |
+| `make test` complet | **458 tests, 1 échec, 0 erreur, 0 ignoré** |
+| Appel réel Simulator/Advisor avec LLM | **non exécuté** |
+
+L'unique échec de `make test` est `ConstraintEnforcementTest.queueQueryUsesItsIndex` :
+le plan PostgreSQL ne choisit pas l'index sur une table de test d'une ligne.
+Ce test passe seul et l'échec est déjà connu, sans lien confirmé avec Simulator.
+
+### Validations Quality ciblées
+
+| Vérification | Résultat |
+|---|---|
+| Tests HTTP Quality, use case, déclenchement après commit, mapping persistance | **9/9 ✓** |
+| `LayerDependencyTest` (équivalent à `make arch`) | **7/7 ✓** |
+| Suite Spring complète (`make test` dans WSL) | **446 tests, 1 échec connu, 0 erreur** |
+
+L'unique échec, `ConstraintEnforcementTest.queueQueryUsesItsIndex`, est le
+problème déjà suivi : le plan de requête ne choisit pas l'index sur une table
+de test d'une ligne ; le test passe seul. `StompConversationTest` a réussi
+5/5. Aucun test existant n'a été modifié.
 
 ---
 
@@ -285,8 +347,8 @@ de ces deux tests n'a été modifié.
 
 - [x] Terminer le flux Advisor backend → ai-service et sa documentation.
 - [x] Raccorder le Workforce en propositions supervisées uniquement.
-- [ ] Définir séparément le déclencheur et les données du Quality Analyst avant son intégration.
-- [ ] Garder le Simulator dans le cadre expérimental ; reconsidérer seulement avec un besoin d'orchestration explicite.
+- [x] Raccorder le Quality Analyst après résolution, avec contexte réduit et persistance existante.
+- [x] Raccorder le Client Simulator à l'Advisor dans des runs explicitement simulés.
 - [ ] Pousser `integration/backend-fedi` après revue ; aucun push n'a été effectué.
 - [ ] Décider si un test HTTP réel sur Neon est nécessaire ; ne pas lire `.env` ni `ai-service/.env`.
 
