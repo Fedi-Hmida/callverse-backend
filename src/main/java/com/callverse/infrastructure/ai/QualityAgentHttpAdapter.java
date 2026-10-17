@@ -76,9 +76,12 @@ class QualityAgentHttpAdapter implements QualityAgent {
         return new QualityRequestWire(
                 request.conversationId().toString(),
                 request.messages().stream().map(QualityAgentHttpAdapter::toWire).toList(),
-                List.of(),
+                request.sourceDocuments().stream()
+                        .map(document -> new SourceDocumentWire(
+                                document.documentId(), document.chunkId(), document.content()))
+                        .toList(),
                 request.resolved(),
-                List.of());
+                request.applicableRules());
     }
 
     private static QualityMessageWire toWire(QualityMessage message) {

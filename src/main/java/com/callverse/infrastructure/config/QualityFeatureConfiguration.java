@@ -1,6 +1,7 @@
 package com.callverse.infrastructure.config;
 
 import com.callverse.core.application.features.quality.commands.QualityEvaluationCommandHandler;
+import com.callverse.core.application.interfaces.CitedKnowledge;
 import com.callverse.core.application.interfaces.ConversationLifecycle;
 import com.callverse.core.application.interfaces.ConversationMessages;
 import com.callverse.core.application.interfaces.QualityAgent;
@@ -20,8 +21,9 @@ public class QualityFeatureConfiguration {
             QualityAgent agent,
             ConversationLifecycle conversations,
             ConversationMessages messages,
-            QualityEvaluationStore evaluations) {
-        return new QualityEvaluationCommandHandler(agent, conversations, messages, evaluations);
+            QualityEvaluationStore evaluations,
+            CitedKnowledge citedKnowledge) {
+        return new QualityEvaluationCommandHandler(agent, conversations, messages, evaluations, citedKnowledge);
     }
 
     @Bean(name = "qualityEvaluationExecutor")

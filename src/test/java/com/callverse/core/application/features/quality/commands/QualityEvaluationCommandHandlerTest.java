@@ -6,6 +6,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.callverse.core.application.interfaces.CitedKnowledge;
 import com.callverse.core.application.interfaces.ConversationLifecycle;
 import com.callverse.core.application.interfaces.ConversationLifecycle.ConversationRecord;
 import com.callverse.core.application.interfaces.ConversationMessages;
@@ -15,7 +16,9 @@ import com.callverse.core.application.interfaces.QualityAgent.QualityFlags;
 import com.callverse.core.application.interfaces.QualityAgent.QualityMessage;
 import com.callverse.core.application.interfaces.QualityAgent.QualityRequest;
 import com.callverse.core.application.interfaces.QualityAgent.QualityResult;
+import com.callverse.core.application.interfaces.QualityAgent.SourceDocument;
 import com.callverse.core.application.interfaces.QualityEvaluationStore;
+import com.callverse.core.domain.services.BankingProcedureRules;
 import com.callverse.core.domain.enums.Channel;
 import com.callverse.core.domain.enums.ConversationStatus;
 import com.callverse.core.domain.enums.MessageSender;
@@ -49,11 +52,36 @@ class QualityEvaluationCommandHandlerTest {
     @Mock
     private QualityEvaluationStore evaluations;
 
+    @Mock
+    private CitedKnowledge citedKnowledge;
+
     private QualityEvaluationCommandHandler handler;
 
     @BeforeEach
     void setUp() {
-        handler = new QualityEvaluationCommandHandler(agent, conversations, messages, evaluations);
+        handler = new QualityEvaluationCommandHandler(agent, conversations, messages, evaluations, citedKnowledge);
+    }
+
+    @Test
+    void theJudgeReceivesTheArticlesTheAiCitedAndTheBankRules() {
+        when(conversations.find(CONVERSATION_ID)).thenReturn(Optional.of(resolvedConversation()));
+        when(evaluations.hasAiEvaluation(CONVERSATION_ID)).thenReturn(false);
+        when(messages.recent(CONVERSATION_ID, 500)).thenReturn(List.of(
+                message(MessageSender.CUSTOMER, "Ma carte est perdue."),
+                message(MessageSender.ADVISOR, "Je fais opposition tout de suite.")));
+        SourceDocument opposition = new SourceDocument(
+                "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "article", "Opposition carte\nEn cas de perte...");
+        when(citedKnowledge.citedInAiTurns(CONVERSATION_ID)).thenReturn(List.of(opposition));
+        when(agent.evaluate(any(QualityRequest.class))).thenReturn(result());
+
+        handler.handle(CONVERSATION_ID);
+
+        ArgumentCaptor<QualityRequest> request = ArgumentCaptor.forClass(QualityRequest.class);
+        verify(agent).evaluate(request.capture());
+        assertThat(request.getValue().sourceDocuments()).containsExactly(opposition);
+        assertThat(request.getValue().applicableRules())
+                .isEqualTo(BankingProcedureRules.ALL)
+                .anySatisfy(rule -> assertThat(rule).contains("identifié"));
     }
 
     @Test

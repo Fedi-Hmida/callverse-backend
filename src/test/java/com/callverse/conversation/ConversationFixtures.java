@@ -6,6 +6,7 @@ import com.callverse.core.domain.entities.AppUser;
 import com.callverse.core.domain.entities.Conversation;
 import com.callverse.core.domain.entities.Customer;
 import com.callverse.core.domain.entities.Escalation;
+import com.callverse.core.domain.entities.KbArticle;
 import com.callverse.core.domain.entities.Message;
 import com.callverse.core.domain.entities.Skill;
 import com.callverse.core.domain.entities.SlaPolicy;
@@ -153,16 +154,45 @@ public final class ConversationFixtures {
         message(conversationId, MessageSender.ADVISOR, content, sentAt, true);
     }
 
-    private void message(UUID conversationId, MessageSender sender, String content, Instant sentAt, boolean ai) {
+    /** An AI ADVISOR turn whose private {@code sources} trace is {@code sourcesJson}, stored as given. */
+    public void aiAdvisorMessageWithSources(UUID conversationId, String content, Instant sentAt, String sourcesJson) {
         tx.executeWithoutResult(s -> {
-            Message message = new Message();
-            message.setConversation(em.getReference(Conversation.class, conversationId));
-            message.setSender(sender);
-            message.setContent(content);
-            message.setAiGenerated(ai);
-            message.setSentAt(sentAt.truncatedTo(ChronoUnit.MICROS));
+            Message message = newMessage(conversationId, MessageSender.ADVISOR, content, sentAt, true);
+            try {
+                message.setSources(new com.fasterxml.jackson.databind.ObjectMapper().readTree(sourcesJson));
+            } catch (com.fasterxml.jackson.core.JsonProcessingException exception) {
+                throw new IllegalArgumentException(exception);
+            }
             em.persist(message);
         });
+    }
+
+    /** A knowledge-base article, published. */
+    public UUID kbArticle(String title, String content) {
+        return tx.execute(s -> {
+            KbArticle article = new KbArticle();
+            article.setCategory("CARDS");
+            article.setTitle(title);
+            article.setContent(content);
+            article.setPublished(true);
+            em.persist(article);
+            em.flush();
+            return article.getId();
+        });
+    }
+
+    private void message(UUID conversationId, MessageSender sender, String content, Instant sentAt, boolean ai) {
+        tx.executeWithoutResult(s -> em.persist(newMessage(conversationId, sender, content, sentAt, ai)));
+    }
+
+    private Message newMessage(UUID conversationId, MessageSender sender, String content, Instant sentAt, boolean ai) {
+        Message message = new Message();
+        message.setConversation(em.getReference(Conversation.class, conversationId));
+        message.setSender(sender);
+        message.setContent(content);
+        message.setAiGenerated(ai);
+        message.setSentAt(sentAt.truncatedTo(ChronoUnit.MICROS));
+        return message;
     }
 
     /** Sets the metrics written at the transitions, as the lifecycle would have. */
