@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import asyncio
 import asyncpg
-from sentence_transformers import SentenceTransformer
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from sentence_transformers import SentenceTransformer
 
 from app.config import settings
 
@@ -17,6 +19,7 @@ _model: SentenceTransformer | None = None
 
 
 def _get_model() -> SentenceTransformer:
+    from sentence_transformers import SentenceTransformer
     global _model
     if _model is None:
         _model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")

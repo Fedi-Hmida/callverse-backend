@@ -81,6 +81,13 @@ _decide_llm = None
 def _get_decide_llm():
     global _decide_llm
     if _decide_llm is None:
+        if settings.llm_provider == "ollama":
+            from langchain_ollama import ChatOllama
+            llm = ChatOllama(base_url=settings.ollama_url, model=settings.ollama_model,
+                             temperature=0.2, num_predict=256,
+                             client_kwargs={"timeout": 45}, async_client_kwargs={"timeout": 45})
+            _decide_llm = llm.bind_tools([_to_openai_tool(s) for s in TOOL_SPECS + [_FINALIZE_TOOL_SPEC]])
+            return _decide_llm
         llm = ChatGroq(
             model=settings.llm_model_advanced,
             api_key=settings.llm_api_key,

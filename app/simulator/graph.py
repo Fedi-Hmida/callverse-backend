@@ -15,6 +15,11 @@ from .state import SimulatorState
 
 
 def _get_llm(max_tokens: int = 400) -> ChatGroq:
+    if settings.llm_provider == "ollama":
+        from langchain_ollama import ChatOllama
+        return ChatOllama(base_url=settings.ollama_url, model=settings.ollama_model,
+                          temperature=0.7, num_predict=min(max_tokens, 128),
+                          client_kwargs={"timeout": 60})
     return ChatGroq(
         model=settings.llm_model_light,
         api_key=settings.llm_api_key,

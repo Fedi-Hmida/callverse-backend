@@ -27,8 +27,8 @@ def state_to_observation(state: WorkforceState) -> np.ndarray:
 @lru_cache(maxsize=1)
 def load_policy(path: str):
     # Import coûteux seulement lorsque PPO est demandé.
-    from stable_baselines3 import PPO
     try:
+        from stable_baselines3 import PPO
         model = PPO.load(path, device="cpu")
         if model.observation_space.shape != (15,) or getattr(model.action_space, "n", None) != 5:
             raise ValueError("Espaces du modèle incompatibles.")

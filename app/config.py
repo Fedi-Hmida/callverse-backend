@@ -17,6 +17,8 @@ class Settings(BaseSettings):
 
     llm_api_key: str = ""
     llm_provider: str = "groq"
+    ollama_url: str = "http://localhost:11434"
+    ollama_model: str = "qwen2.5:3b"
     llm_model_light: str = "openai/gpt-oss-20b"
     llm_model_advanced: str = "openai/gpt-oss-120b"
 

@@ -32,8 +32,8 @@ class ChurnRisk(str, Enum):
 class AdvisorContext(BaseModel):
     contract_type: str
     tenure_months: int = Field(ge=0)
-    churn_risk: ChurnRisk
-    open_tickets: int = Field(ge=0, default=0)
+    churn_risk: ChurnRisk | None = None
+    open_tickets: int | None = Field(ge=0, default=None)
 
 
 class Mode(str, Enum):
