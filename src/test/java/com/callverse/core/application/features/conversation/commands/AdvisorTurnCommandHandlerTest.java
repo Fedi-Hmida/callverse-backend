@@ -24,6 +24,7 @@ import com.callverse.core.domain.enums.AiAdvisorMode;
 import com.callverse.core.domain.enums.Channel;
 import com.callverse.core.domain.enums.ConversationStatus;
 import com.callverse.core.domain.enums.CustomerSegment;
+import com.callverse.core.domain.enums.EscalationRaisedBy;
 import com.callverse.core.domain.enums.MessageSender;
 import java.time.Clock;
 import java.time.Instant;
@@ -47,6 +48,7 @@ class AdvisorTurnCommandHandlerTest {
     private final ConversationMessages messages = mock(ConversationMessages.class);
     private final CustomerRecords customers = mock(CustomerRecords.class);
     private final ConversationEvents events = mock(ConversationEvents.class);
+    private final EscalateConversationCommandHandler escalation = mock(EscalateConversationCommandHandler.class);
     private final AdvisorTurnCommandHandler handler = handler(AiAdvisorMode.AUTONOMOUS);
 
     private ConversationRecord conversation;
@@ -139,9 +141,71 @@ class AdvisorTurnCommandHandlerTest {
         verify(messages, never()).postAgentTurn(any(), anyLong(), any(), any(), any(), any());
     }
 
+    @Test
+    void anEscalateActionRaisesARealEscalationAfterTheReplyIsPosted() {
+        PostedMessage posted = agentAnswers("ESCALATE", Map.of("reason", "Contestation d'un paiement"));
+
+        handler.handle(new AdvisorTurnCommand(CONVERSATION_ID, customerMessage.id()));
+
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(messages, escalation);
+        order.verify(messages).postAgentTurn(any(), anyLong(), any(), any(), any(), any());
+        order.verify(escalation).handle(new EscalateConversationCommand(
+                CONVERSATION_ID, "Contestation d'un paiement", EscalationRaisedBy.AI, null));
+        verify(events).messagePosted(posted);
+    }
+
+    @Test
+    void anEscalateActionWithoutReasonUsesADefaultAndALongReasonIsCut() {
+        agentAnswers("ESCALATE", Map.of());
+        handler.handle(new AdvisorTurnCommand(CONVERSATION_ID, customerMessage.id()));
+        verify(escalation).handle(new EscalateConversationCommand(
+                CONVERSATION_ID, "Escalade demandée par l'assistant IA", EscalationRaisedBy.AI, null));
+
+        agentAnswers("ESCALATE", Map.of("reason", "x".repeat(400)));
+        handler.handle(new AdvisorTurnCommand(CONVERSATION_ID, customerMessage.id()));
+        verify(escalation).handle(new EscalateConversationCommand(
+                CONVERSATION_ID, "x".repeat(255), EscalationRaisedBy.AI, null));
+    }
+
+    @Test
+    void otherActionsAndDiscardedRepliesNeverEscalate() {
+        agentAnswers("NONE", Map.of());
+        handler.handle(new AdvisorTurnCommand(CONVERSATION_ID, customerMessage.id()));
+
+        when(agent.respond(any())).thenReturn(new AdvisorResponse(
+                "Je transmets.", "FRAUD", 0.3, List.of(), List.of(), "ESCALATE", Map.of(), 12));
+        when(messages.postAgentTurn(any(), anyLong(), any(), any(), any(), any())).thenReturn(Optional.empty());
+        handler.handle(new AdvisorTurnCommand(CONVERSATION_ID, customerMessage.id()));
+
+        verify(escalation, never()).handle(any());
+    }
+
+    @Test
+    void aRefusedEscalationDoesNotUndoThePostedReply() {
+        PostedMessage posted = agentAnswers("ESCALATE", Map.of("reason", "Fraude"));
+        when(escalation.handle(any())).thenThrow(new com.callverse.core.domain.exceptions.InvalidStateTransitionException(
+                ConversationStatus.RESOLVED, ConversationStatus.ESCALATED));
+
+        handler.handle(new AdvisorTurnCommand(CONVERSATION_ID, customerMessage.id()));
+
+        verify(events).messagePosted(posted);
+    }
+
+    private PostedMessage agentAnswers(String actionType, Map<String, Object> payload) {
+        when(agent.respond(any())).thenReturn(new AdvisorResponse(
+                "Je transmets votre demande à un superviseur.", "FRAUD", 0.4, List.of(), List.of(),
+                actionType, payload, 12));
+        MessageRecord answer = new MessageRecord(
+                4L, CONVERSATION_ID, MessageSender.ADVISOR, "Je transmets votre demande à un superviseur.", NOW);
+        PostedMessage posted = new PostedMessage(answer, withStatus(ConversationStatus.ACTIVE), true);
+        when(messages.postAgentTurn(any(), anyLong(), any(), any(), any(), any())).thenReturn(Optional.of(posted));
+        return posted;
+    }
+
     private AdvisorTurnCommandHandler handler(AiAdvisorMode mode) {
         return new AdvisorTurnCommandHandler(
-                agent, conversations, messages, customers, events, Clock.fixed(NOW, ZoneOffset.UTC), mode);
+                agent, conversations, messages, customers, events, Clock.fixed(NOW, ZoneOffset.UTC), mode,
+                escalation);
     }
 
     private ConversationRecord withStatus(ConversationStatus status) {

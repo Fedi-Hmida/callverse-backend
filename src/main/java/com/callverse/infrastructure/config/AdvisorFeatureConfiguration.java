@@ -2,6 +2,7 @@ package com.callverse.infrastructure.config;
 
 import com.callverse.core.application.features.conversation.ConversationEvents;
 import com.callverse.core.application.features.conversation.commands.AdvisorTurnCommandHandler;
+import com.callverse.core.application.features.conversation.commands.EscalateConversationCommandHandler;
 import com.callverse.core.application.interfaces.AdvisorAgent;
 import com.callverse.core.application.interfaces.ConversationLifecycle;
 import com.callverse.core.application.interfaces.ConversationMessages;
@@ -27,12 +28,14 @@ public class AdvisorFeatureConfiguration {
             CustomerRecords customers,
             ConversationEvents events,
             Clock clock,
-            @Value("${ai.advisor.mode:OFF}") AiAdvisorMode mode) {
+            @Value("${ai.advisor.mode:OFF}") AiAdvisorMode mode,
+            EscalateConversationCommandHandler escalation) {
         if (mode == null) {
             // An empty AI_ADVISOR_MODE binds to null; name the setting instead of a bare NPE.
             throw new IllegalStateException("ai.advisor.mode (AI_ADVISOR_MODE) must be OFF or AUTONOMOUS");
         }
-        return new AdvisorTurnCommandHandler(agent, conversations, messages, customers, events, clock, mode);
+        return new AdvisorTurnCommandHandler(
+                agent, conversations, messages, customers, events, clock, mode, escalation);
     }
 
     @Bean(name = "advisorTurnExecutor")

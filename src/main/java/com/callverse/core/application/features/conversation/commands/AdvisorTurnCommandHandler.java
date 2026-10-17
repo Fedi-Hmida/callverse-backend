@@ -17,12 +17,16 @@ import com.callverse.core.application.interfaces.CustomerProfile;
 import com.callverse.core.application.interfaces.CustomerRecords;
 import com.callverse.core.domain.enums.AiAdvisorMode;
 import com.callverse.core.domain.enums.ConversationStatus;
+import com.callverse.core.domain.enums.EscalationRaisedBy;
 import com.callverse.core.domain.enums.MessageSender;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
 import java.time.Clock;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Obtains and stores one Customer Advisor turn after the triggering customer message has committed.
@@ -39,6 +43,10 @@ public class AdvisorTurnCommandHandler {
     private static final Logger LOG = System.getLogger(AdvisorTurnCommandHandler.class.getName());
     private static final int TRANSCRIPT_LIMIT = 200;
     private static final int HISTORY_LIMIT = 20;
+    private static final String ESCALATE = "ESCALATE";
+    private static final String DEFAULT_ESCALATION_REASON = "Escalade demandée par l'assistant IA";
+    /** The escalation reason column and request limit. */
+    private static final int MAX_ESCALATION_REASON = 255;
 
     private final AdvisorAgent agent;
     private final ConversationLifecycle conversations;
@@ -47,6 +55,7 @@ public class AdvisorTurnCommandHandler {
     private final ConversationEvents events;
     private final Clock clock;
     private final AiAdvisorMode mode;
+    private final EscalateConversationCommandHandler escalation;
 
     public AdvisorTurnCommandHandler(
             AdvisorAgent agent,
@@ -55,7 +64,8 @@ public class AdvisorTurnCommandHandler {
             CustomerRecords customers,
             ConversationEvents events,
             Clock clock,
-            AiAdvisorMode mode) {
+            AiAdvisorMode mode,
+            EscalateConversationCommandHandler escalation) {
         this.agent = Objects.requireNonNull(agent, "agent must not be null");
         this.conversations = Objects.requireNonNull(conversations, "conversations must not be null");
         this.messages = Objects.requireNonNull(messages, "messages must not be null");
@@ -63,6 +73,7 @@ public class AdvisorTurnCommandHandler {
         this.events = Objects.requireNonNull(events, "events must not be null");
         this.clock = Objects.requireNonNull(clock, "clock must not be null");
         this.mode = Objects.requireNonNull(mode, "mode must not be null");
+        this.escalation = Objects.requireNonNull(escalation, "escalation must not be null");
     }
 
     /** False in {@code OFF} mode, so callers can skip scheduling a turn at all. */
@@ -131,16 +142,41 @@ public class AdvisorTurnCommandHandler {
             return;
         }
 
-        messages.postAgentTurn(
-                        conversation.id(),
-                        customerMessage.id(),
-                        response.reply(),
-                        response.sources(),
-                        response.toolCalls(),
-                        clock.instant())
-                .ifPresentOrElse(events::messagePosted, () -> LOG.log(
-                        Level.INFO, "AI Advisor response discarded for conversation {0}: it moved on",
-                        conversation.id()));
+        Optional<PostedMessage> posted = messages.postAgentTurn(
+                conversation.id(),
+                customerMessage.id(),
+                response.reply(),
+                response.sources(),
+                response.toolCalls(),
+                clock.instant());
+        if (posted.isEmpty()) {
+            LOG.log(Level.INFO, "AI Advisor response discarded for conversation {0}: it moved on",
+                    conversation.id());
+            return;
+        }
+        events.messagePosted(posted.get());
+        if (ESCALATE.equals(response.actionType())) {
+            escalate(conversation.id(), response.actionPayload());
+        }
+    }
+
+    /**
+     * The reply told the customer a supervisor takes over, so a real escalation must follow. It
+     * runs after the reply is posted: that write moves ASSIGNED to ACTIVE, the only state the
+     * escalation rules accept. A refusal (already resolved, already escalated) leaves the reply.
+     */
+    private void escalate(UUID conversationId, Map<String, Object> payload) {
+        Object given = payload == null ? null : payload.get("reason");
+        String reason = given instanceof String text && !text.isBlank() ? text.strip() : DEFAULT_ESCALATION_REASON;
+        if (reason.length() > MAX_ESCALATION_REASON) {
+            reason = reason.substring(0, MAX_ESCALATION_REASON);
+        }
+        try {
+            escalation.handle(new EscalateConversationCommand(conversationId, reason, EscalationRaisedBy.AI, null));
+        } catch (RuntimeException exception) {
+            LOG.log(Level.WARNING, "AI Advisor escalation refused for conversation {0}: {1}",
+                    conversationId, exception.getClass().getSimpleName());
+        }
     }
 
     private static void validate(AdvisorResponse response) {

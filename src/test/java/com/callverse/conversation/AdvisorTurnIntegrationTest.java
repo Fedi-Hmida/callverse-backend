@@ -137,12 +137,47 @@ class AdvisorTurnIntegrationTest extends AbstractPersistenceTest {
         assertThat(LAST_ADVISOR_REQUEST.get()).as("the AI service was never called").isNull();
     }
 
-    private MockHttpServletRequestBuilder customerMessage(UUID conversationId, UUID customerUserId, String login) {
+    @Test
+    void anEscalateActionMovesTheConversationToEscalatedAsRaisedByTheAi() throws Exception {
+        String skill = fixtures.skill(60);
+        UUID customerUserId = fixtures.user(UserRole.CUSTOMER);
+        UUID customerId = fixtures.customer(customerUserId, ChurnRisk.LOW, CustomerSegment.MASS);
+        UUID advisorId = fixtures.advisor(fixtures.user(UserRole.ADVISOR), 1, skill);
+        Instant queuedAt = Instant.now().minusSeconds(60);
+        // ASSIGNED: the AI reply moves it to ACTIVE, the only state the escalation rules accept.
+        UUID conversationId = fixtures.conversation(
+                customerId, skill, ConversationStatus.ASSIGNED, "0", queuedAt, advisorId, null);
+
+        mockMvc.perform(customerMessage(
+                        conversationId, customerUserId, "customer-escalate-test", "Je veux parler à un superviseur."))
+                .andExpect(status().isCreated());
+
+        long deadline = System.nanoTime() + java.time.Duration.ofSeconds(10).toNanos();
+        while (System.nanoTime() < deadline
+                && fixtures.reload(conversationId).getStatus() != ConversationStatus.ESCALATED) {
+            Thread.sleep(25);
+        }
+        assertThat(fixtures.reload(conversationId).getStatus()).isEqualTo(ConversationStatus.ESCALATED);
+        Object[] escalation = tx.execute(status -> (Object[]) em.createNativeQuery(
+                        "select raised_by, reason, status from escalation where conversation_id = :id")
+                .setParameter("id", conversationId)
+                .getSingleResult());
+        assertThat(escalation).containsExactly("AI", "Le client demande un superviseur", "PENDING");
+        assertThat(awaitAiTurn(conversationId, queuedAt)).as("the reply is posted before escalating").hasSize(1);
+    }
+
+    private MockHttpServletRequestBuilder customerMessage(UUID conversationId, UUID customerUserId, String login)
+            throws Exception {
+        return customerMessage(conversationId, customerUserId, login, "Je ne reconnais pas ce paiement.");
+    }
+
+    private MockHttpServletRequestBuilder customerMessage(
+            UUID conversationId, UUID customerUserId, String login, String content) throws Exception {
         RequestPostProcessor authentication = bearer(tokenForExistingAccount(
                 customerUserId, login + "@accounts.test", UserRole.CUSTOMER));
         return post("/api/v1/conversations/{id}/messages", conversationId)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"content\":\"Je ne reconnais pas ce paiement.\"}")
+                .content(new ObjectMapper().writeValueAsString(java.util.Map.of("content", content)))
                 .with(authentication);
     }
 
@@ -175,7 +210,12 @@ class AdvisorTurnIntegrationTest extends AbstractPersistenceTest {
             server.createContext("/ai/advisor/respond", exchange -> {
                 byte[] requestBody = exchange.getRequestBody().readAllBytes();
                 ObjectMapper mapper = new ObjectMapper();
-                LAST_ADVISOR_REQUEST.set(mapper.readTree(requestBody));
+                JsonNode request = mapper.readTree(requestBody);
+                LAST_ADVISOR_REQUEST.set(request);
+                // A customer asking for a supervisor gets the Advisor's ESCALATE action.
+                String action = request.path("message").asText().contains("superviseur")
+                        ? "{\"type\":\"ESCALATE\",\"payload\":{\"reason\":\"Le client demande un superviseur\"}}"
+                        : "{\"type\":\"NONE\",\"payload\":{}}";
                 byte[] response = """
                         {
                           "reply": "Je vérifie ce paiement.",
@@ -187,10 +227,10 @@ class AdvisorTurnIntegrationTest extends AbstractPersistenceTest {
                           "sources": [
                             {"kb_article_id":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","score":0.91}
                           ],
-                          "action": {"type":"NONE","payload":{}},
+                          "action": %s,
                           "latency_ms":17
                         }
-                        """.getBytes(StandardCharsets.UTF_8);
+                        """.formatted(action).getBytes(StandardCharsets.UTF_8);
                 exchange.getResponseHeaders().add("Content-Type", MediaType.APPLICATION_JSON_VALUE);
                 exchange.sendResponseHeaders(200, response.length);
                 exchange.getResponseBody().write(response);
