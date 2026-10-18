@@ -411,6 +411,33 @@ dépendances figées.
 
 ---
 
+## Étape 9 — Phase P2 et audit final (2026-10-18)
+
+| Point | Livré | Preuve |
+|---|---|---|
+| P2.5 | `requirements.lock` (87 versions exactes résolues sur Linux, torch CPU inclus) utilisé par le Dockerfile et la CI | `pytest` dans un conteneur `python:3.12-slim` propre : 137 réussis ; image reconstruite et testée |
+| P2.1 | Les notes IA perdues (juge indisponible, sortie rejetée) sont retentées toutes les 10 minutes : conversations résolues sans note IA, terminées entre 5 minutes et 24 heures plus tôt, les plus récentes d'abord, 20 au plus, par le dispatcher existant ; désactivable (`ai.quality.retry.enabled`), coupé dans les tests | Tests unitaires et Testcontainers |
+| P2.3 | Jumeau numérique : `POST/GET /api/v1/twin-runs` (superviseur, admin) ; KPI dans `run_kpi` ; comparaison par scénario ; run FAILED relançable ; scénario hors limites refusé en 400 ; détails dans [TWIN_FLOW.md](./TWIN_FLOW.md) | Tests unitaires, HTTP, Testcontainers et API ; en direct sur l'image IA réelle : 3 stratégies × 3 charges |
+| Transparence | Les messages écrits par l'IA portent `aiGenerated` (transcription REST et événement temps réel `MESSAGE_POSTED`) | Test d'intégration et test STOMP |
+
+### Audit final avant fusion
+
+| Vérification | Résultat |
+|---|---|
+| `mvnw clean verify` | **518 tests, 0 échec** avant les corrections, puis suite complète relancée après (voir le récapitulatif de fusion) |
+| `pytest` (Linux, dépendances réelles) | **137 réussis** |
+| Mutations P0, P1, P2 | 44/45 détectées ; la survivante (charge saturée allégée) est désormais détectée par un test |
+| En direct A (image IA réelle, sans LLM) | 21/21 : authentification, administration des accès, cycle de conversation, liste superviseur, KPI, `/internal`, recommandation PPO réelle, jumeau |
+| En direct B (maquette IA, mode AUTONOMOUS) | 36/36 : reprise par l'humain, messages regroupés, masquage, escalade réelle, contexte qualité, IA indisponible, simulation, isolement, révocation admin |
+| Revue indépendante | « fusionner après corrections » : run FAILED relançable, limites du scénario en 400, ordre du rattrapage qualité, rattrapage coupé dans les tests, run jamais laissé RUNNING, 503 documenté — tous corrigés |
+
+Points ouverts après fusion : P1.5 (validation Workforce, schéma), P1.6 (démonstration
+LLM réelle, clé d'équipe), P1.7 (évaluation PPO banking_v1), nouveaux outils bancaires
+de l'IA (P2.2, décision d'équipe pour le blocage de carte), masquage du nom du client
+(P2.4), Langfuse, jeu de validation humaine de la qualité.
+
+---
+
 ## Prochaines étapes
 
 - [x] Terminer le flux Advisor backend → ai-service et sa documentation.
@@ -422,6 +449,7 @@ dépendances figées.
 - [ ] P1.5 : validation ou rejet des propositions Workforce (décision du propriétaire du schéma).
 - [ ] P1.6 : une démonstration enregistrée avec un vrai LLM (clé d'équipe, hors Git).
 - [ ] P1.7 : évaluation PPO banking_v1 commitée (au moins 3 graines).
+- [x] Phase P2 (vague 1) et audit final.
 - [ ] Fusionner dans `main` par squash, sans mention d'outil dans l'historique.
 - [ ] Décider si un test HTTP réel sur Neon est nécessaire ; ne pas lire `.env` ni `ai-service/.env`.
 
