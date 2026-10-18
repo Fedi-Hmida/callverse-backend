@@ -13,6 +13,9 @@ public interface TwinRunStore {
 
     Optional<TwinScenario> scenario(UUID scenarioId);
 
+    /** Every scenario, by name: what the twin screen offers to run. */
+    List<TwinScenario> scenarios();
+
     /**
      * Records a RUNNING run.
      *

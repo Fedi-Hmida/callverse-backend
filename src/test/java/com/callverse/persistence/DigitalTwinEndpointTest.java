@@ -75,6 +75,24 @@ class DigitalTwinEndpointTest extends AbstractPersistenceTest {
     }
 
     @Test
+    void theTwinScreenListsTheScenariosToChooseFrom() throws Exception {
+        JsonNode scenarios = json(mockMvc.perform(get("/api/v1/scenarios").with(as(UserRole.SUPERVISOR)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8));
+
+        JsonNode mine = java.util.stream.StreamSupport.stream(scenarios.spliterator(), false)
+                .filter(node -> node.get("id").asText().equals(scenario.toString()))
+                .findFirst().orElseThrow();
+        assertThat(mine.get("name").asText()).isEqualTo("Mardi chargé");
+        assertThat(mine.get("loadProfile").asText()).isEqualTo("SATURATED");
+        assertThat(mine.get("durationMinutes").asInt()).isEqualTo(480);
+        assertThat(mine.get("advisorCount").asInt()).isEqualTo(12);
+        mockMvc.perform(get("/api/v1/scenarios").with(as(UserRole.ADMIN))).andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/scenarios").with(as(UserRole.ADVISOR))).andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/v1/scenarios")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void onlySupervisorsAndAdminsMayRunTheTwin() throws Exception {
         mockMvc.perform(run("THRESHOLD", 1)).andExpect(status().isUnauthorized());
         mockMvc.perform(run("THRESHOLD", 1).with(as(UserRole.ADVISOR))).andExpect(status().isForbidden());

@@ -50,6 +50,15 @@ class TwinRunStoreAdapter implements TwinRunStore {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public List<TwinScenario> scenarios() {
+        return scenarios.findAll(org.springframework.data.domain.Sort.by("name")).stream()
+                .map(scenario -> new TwinScenario(scenario.getId(), scenario.getName(), scenario.getLoadProfile(),
+                        scenario.getDurationMinutes(), scenario.getAdvisorCount()))
+                .toList();
+    }
+
+    @Override
     @Transactional
     public TwinRun start(UUID scenarioId, String strategyCode, long seed, Instant now) {
         Scenario scenario = scenarios.findById(scenarioId)

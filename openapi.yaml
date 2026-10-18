@@ -1776,6 +1776,70 @@ paths:
       summary: Take the next conversation from a queue
       tags:
       - Queues
+  /api/v1/scenarios:
+    get:
+      description: "Every scenario by name, with its load profile, duration and advisor\
+        \ count: what the twin screen offers to run. Supervisors and admins only."
+      operationId: listScenarios
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Scenario"
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Rejected before any business rule ran: the body is not valid\
+            \ JSON (code MALFORMED_REQUEST), a parameter or field broke a rule (code\
+            \ VALIDATION_FAILED), or a use-case precondition was unmet."
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Not authenticated. code UNAUTHENTICATED: no bearer token,\
+            \ or one that is expired, malformed or wrongly signed - all indistinguishable,\
+            \ and the signal to refresh or log in again. code INVALID_CREDENTIALS:\
+            \ login refused; an unknown email and a wrong password are deliberately\
+            \ indistinguishable."
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Authenticated, but not permitted: code ACCESS_DENIED. Re-authenticating\
+            \ will not help, so clients must not refresh on it."
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "No such route, or a referenced resource does not exist."
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: A business rule refused the operation. The request was well-formed;
+            the current state of the business forbids it.
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Unexpected failure. message is deliberately generic and carries
+            no internal detail; see the server log for the stack trace.
+      security:
+      - bearerAuth: []
+      summary: List the digital twin scenarios
+      tags:
+      - Digital twin
   /api/v1/service-incidents:
     get:
       description: Live outages for a region plus national ones; every active outage
@@ -3817,6 +3881,36 @@ components:
       - scenarioId
       - seed
       - strategyCode
+    Scenario:
+      type: object
+      properties:
+        advisorCount:
+          type: integer
+          format: int32
+          description: Spread over the four skills by the twin
+          example: 12
+        durationMinutes:
+          type: integer
+          format: int32
+          example: 480
+        id:
+          type: string
+          format: uuid
+        loadProfile:
+          type: string
+          enum:
+          - LOW
+          - MEDIUM
+          - SATURATED
+        name:
+          type: string
+          example: Démo — journée chargée
+      required:
+      - advisorCount
+      - durationMinutes
+      - id
+      - loadProfile
+      - name
     ServiceIncident:
       type: object
       description: One active outage

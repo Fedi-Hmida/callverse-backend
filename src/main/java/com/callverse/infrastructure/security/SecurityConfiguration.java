@@ -159,6 +159,7 @@ public class SecurityConfiguration {
                         // Digital twin runs: supervisors and admins, decided on each method.
                         .requestMatchers(HttpMethod.POST, "/api/v1/twin-runs").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/v1/twin-runs", "/api/v1/twin-runs/*").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/scenarios").authenticated()
                         // Account administration. ADMIN on each method; the chain only admits callers.
                         .requestMatchers(HttpMethod.GET, "/api/v1/admin/users", "/api/v1/admin/users/*").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/admin/users").authenticated()

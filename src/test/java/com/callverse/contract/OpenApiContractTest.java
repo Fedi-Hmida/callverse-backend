@@ -76,6 +76,7 @@ class OpenApiContractTest extends AbstractPersistenceTest {
             "runDigitalTwin",
             "getDigitalTwinRun",
             "compareDigitalTwinRuns",
+            "listScenarios",
             "openInternalTicket");
 
     @Autowired MockMvc mockMvc;

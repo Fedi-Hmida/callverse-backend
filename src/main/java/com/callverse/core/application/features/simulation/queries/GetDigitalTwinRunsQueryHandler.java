@@ -3,6 +3,7 @@ package com.callverse.core.application.features.simulation.queries;
 import com.callverse.core.application.exceptions.ResourceNotFoundException;
 import com.callverse.core.application.interfaces.TwinRunStore;
 import com.callverse.core.application.interfaces.TwinRunStore.TwinRun;
+import com.callverse.core.application.interfaces.TwinRunStore.TwinScenario;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -17,6 +18,11 @@ public class GetDigitalTwinRunsQueryHandler {
 
     public GetDigitalTwinRunsQueryHandler(TwinRunStore store) {
         this.store = Objects.requireNonNull(store, "store must not be null");
+    }
+
+    /** The scenarios the twin can replay, by name. */
+    public List<TwinScenario> scenarios() {
+        return store.scenarios();
     }
 
     public TwinRun byId(UUID runId) {
