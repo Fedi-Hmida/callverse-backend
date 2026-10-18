@@ -140,7 +140,9 @@ public interface ConversationRepository extends JpaRepository<Conversation, UUID
 
     /**
      * The Quality retry backlog: live conversations resolved in the window with no AI evaluation,
-     * oldest first. A HUMAN evaluation does not count: the AI grade is what Cohen's kappa compares.
+     * newest first, so a batch of conversations the judge keeps failing on cannot hold every slot
+     * for the whole window. A HUMAN evaluation does not count: the AI grade is what Cohen's kappa
+     * compares.
      */
     @Query(value = """
             select c.id from conversation c
@@ -149,7 +151,7 @@ public interface ConversationRepository extends JpaRepository<Conversation, UUID
                and c.ended_at >= :after and c.ended_at < :before
                and not exists (select 1 from quality_evaluation q
                                 where q.conversation_id = c.id and q.evaluator = 'AI')
-             order by c.ended_at
+             order by c.ended_at desc
              limit :limit
             """, nativeQuery = true)
     List<UUID> findUngradedResolved(

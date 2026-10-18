@@ -57,6 +57,18 @@ class UngradedConversationsAdapterTest extends AbstractPersistenceTest {
     }
 
     @Test
+    @DisplayName("newest first: conversations the judge keeps failing on cannot starve newer ones")
+    void newestFirst() {
+        Instant base = now.minus(2, ChronoUnit.HOURS);
+        UUID older = ended(ConversationStatus.RESOLVED, base, null);
+        UUID newer = ended(ConversationStatus.RESOLVED, base.plusSeconds(1800), null);
+
+        var found = store.ungradedResolved(base.minusSeconds(1), base.plusSeconds(1801), 1);
+
+        assertThat(found).containsExactly(newer).doesNotContain(older);
+    }
+
+    @Test
     @DisplayName("a simulated conversation is never retried, and the batch is bounded")
     void liveOnlyAndBounded() {
         UUID simulated = ended(ConversationStatus.RESOLVED, now.minus(1, ChronoUnit.HOURS), UUID.randomUUID());
