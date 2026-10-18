@@ -95,3 +95,10 @@ def test_ppo_sans_modele_renvoie_503(client, monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "workforce_model_path", str(tmp_path / "absent.zip"))
 
     assert client.post("/ai/workforce/twin-run", json={**BODY, "strategy": "PPO"}).status_code == 503
+
+
+def test_la_charge_du_scenario_change_vraiment_le_trafic():
+    # Les échelles de l'évaluation PPO : un jumeau plus léger fausserait toute comparaison.
+    assert twin.LOAD_SCALES == {"LOW": 0.2, "MEDIUM": 0.35, "SATURATED": 1.0}
+    low, medium, saturated = (_run(load=load)["arrived"] for load in ("LOW", "MEDIUM", "SATURATED"))
+    assert low < medium < saturated
