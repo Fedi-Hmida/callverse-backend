@@ -16,6 +16,8 @@ public interface CustomerRepository extends JpaRepository<Customer, UUID> {
 
     Optional<Customer> findByExternalRef(String externalRef);
 
+    List<Customer> findByUserIdAndSimulatedFalse(UUID userId);
+
     /** Uses idx_customer_region. Outage triage cross-references this against active incidents. */
     List<Customer> findByRegion(String region);
 

@@ -5,6 +5,9 @@ import com.callverse.core.application.features.admin.commands.ChangeUserAccessCo
 import com.callverse.core.application.features.admin.commands.ChangeUserAccessCommandHandler;
 import com.callverse.core.application.features.admin.commands.CreateUserCommand;
 import com.callverse.core.application.features.admin.commands.CreateUserCommandHandler;
+import com.callverse.core.application.features.admin.commands.ConfigureAdvisorCommandHandler;
+import com.callverse.core.application.features.admin.queries.GetAdvisorProfileQueryHandler;
+import com.callverse.core.application.interfaces.AdvisorAdministration;
 import com.callverse.core.application.features.admin.queries.GetUserQueryHandler;
 import com.callverse.core.application.features.admin.queries.ListUsersQuery;
 import com.callverse.core.application.features.admin.queries.ListUsersQueryHandler;
@@ -15,6 +18,7 @@ import com.callverse.core.application.interfaces.UserAccounts.AccountRecord;
 import com.callverse.core.domain.enums.UserRole;
 import com.callverse.host.api.dto.request.ChangeRoleRequest;
 import com.callverse.host.api.dto.request.CreateUserRequest;
+import com.callverse.host.api.dto.request.ConfigureAdvisorRequest;
 import com.callverse.host.api.dto.response.UserResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -57,6 +61,29 @@ public class AdminUserController {
     private final CreateUserCommandHandler createUser;
     private final ChangeUserAccessCommandHandler changeAccess;
     private final CurrentPrincipalProvider principals;
+    private final GetAdvisorProfileQueryHandler getAdvisorProfile;
+    private final ConfigureAdvisorCommandHandler configureAdvisor;
+
+    @GetMapping("/{id}/advisor-profile")
+    @PreAuthorize(Roles.ADMIN)
+    @Operation(operationId = "getAdvisorProfile", summary = "Read an advisor's explicit staffing capabilities")
+    public AdvisorAdministration.Profile advisorProfile(@PathVariable UUID id) {
+        return getAdvisorProfile.handle(caller().userId(), id);
+    }
+
+    @PutMapping(path = "/{id}/advisor-profile", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize(Roles.ADMIN)
+    @Operation(operationId = "configureAdvisorProfile", summary = "Configure advisor skills, presence and capacity",
+            description = "Replaces skills with the explicitly supplied skill-code to level (1–3) map. Capacity 1–10. "
+                    + "Repairs a missing legacy profile, never changes credit authority, and refreshes live sessions.")
+    public AdvisorAdministration.Profile configureAdvisorProfile(@PathVariable UUID id,
+            @Valid @RequestBody ConfigureAdvisorRequest request) {
+        AuthenticatedPrincipal admin = caller();
+        var profile = configureAdvisor.handle(admin.userId(), id,
+                new AdvisorAdministration.Configuration(request.status(), request.maxConcurrent(), request.skills()));
+        log.info("AUDIT advisor={} user={} capabilities configured by admin={}", profile.id(), id, admin.userId());
+        return profile;
+    }
 
     @GetMapping
     @PreAuthorize(Roles.ADMIN)

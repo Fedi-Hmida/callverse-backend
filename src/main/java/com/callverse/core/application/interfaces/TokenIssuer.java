@@ -21,4 +21,9 @@ public interface TokenIssuer {
      * @param role the account's single role
      */
     IssuedToken issue(UUID subject, String email, UserRole role);
+
+    /** Session-bound access token; the adapter checks that persisted session on verification. */
+    default IssuedToken issue(UUID subject, String email, UserRole role, UUID sessionId) {
+        return issue(subject,email,role);
+    }
 }

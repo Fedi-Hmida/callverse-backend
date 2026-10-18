@@ -3,6 +3,7 @@ package com.callverse.infrastructure.security;
 import com.callverse.core.application.interfaces.AuthenticatedPrincipal;
 import com.callverse.core.application.interfaces.IssuedToken;
 import com.callverse.core.application.interfaces.TokenIssuer;
+import com.callverse.core.application.interfaces.AuthSessions;
 import com.callverse.core.domain.enums.UserRole;
 import com.callverse.infrastructure.security.InvalidTokenException.Reason;
 import io.jsonwebtoken.Claims;
@@ -22,6 +23,7 @@ import java.util.Date;
 import java.util.UUID;
 import javax.crypto.SecretKey;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
@@ -60,11 +62,18 @@ public class JwtTokenService implements TokenIssuer {
     private final long expirationMillis;
     private final Clock clock;
     private final JwtParser parser;
+    private final AuthSessions sessions;
 
+    JwtTokenService(
+            String secret, long expirationMillis, Clock clock) {
+        this(secret,expirationMillis,clock,null);
+    }
+
+    @Autowired
     JwtTokenService(
             @Value("${jwt.secret}") String secret,
             @Value("${jwt.expiration-ms}") long expirationMillis,
-            Clock clock) {
+            Clock clock, AuthSessions sessions) {
         byte[] keyBytes = secret.getBytes(StandardCharsets.UTF_8);
         if (keyBytes.length * 8 < MIN_KEY_BITS) {
             throw new IllegalStateException(
@@ -75,6 +84,7 @@ public class JwtTokenService implements TokenIssuer {
         this.signingKey = Keys.hmacShaKeyFor(keyBytes);
         this.expirationMillis = expirationMillis;
         this.clock = clock;
+        this.sessions = sessions;
         this.parser = pinnedToHs512(Jwts.parser().verifyWith(signingKey))
                 .clock(() -> Date.from(clock.instant()))
                 .build();
@@ -97,6 +107,11 @@ public class JwtTokenService implements TokenIssuer {
 
     @Override
     public IssuedToken issue(UUID subject, String email, UserRole role) {
+        return issue(subject,email,role,null);
+    }
+
+    @Override
+    public IssuedToken issue(UUID subject, String email, UserRole role, UUID sessionId) {
         Instant issuedAt = clock.instant();
         Instant expiresAt = issuedAt.plusMillis(expirationMillis);
 
@@ -105,6 +120,8 @@ public class JwtTokenService implements TokenIssuer {
                         .subject(subject.toString())
                         .claim(EMAIL_CLAIM, email)
                         .claim(ROLE_CLAIM, role.name())
+                        .claim("sid",sessionId==null?null:sessionId.toString())
+                        .id(UUID.randomUUID().toString())
                         .issuedAt(Date.from(issuedAt))
                         .expiration(Date.from(expiresAt))
                         .signWith(signingKey, Jwts.SIG.HS512)
@@ -126,7 +143,7 @@ public class JwtTokenService implements TokenIssuer {
     }
 
     /** A verified token: who the caller is, and until when the token is good. */
-    record VerifiedToken(AuthenticatedPrincipal principal, Instant expiresAt) {}
+    record VerifiedToken(AuthenticatedPrincipal principal, Instant expiresAt, UUID sessionId) {}
 
     /**
      * Same verification as {@link #verify}, also returning the expiry. The STOMP channel needs it:
@@ -156,7 +173,16 @@ public class JwtTokenService implements TokenIssuer {
         } catch (JwtException e) {
             throw new InvalidTokenException(Reason.MALFORMED, e);
         }
-        return new VerifiedToken(toPrincipal(claims), claims.getExpiration().toInstant());
+        AuthenticatedPrincipal principal=toPrincipal(claims);
+        String sid=claims.get("sid",String.class);
+        UUID sessionId = null;
+        if(sid!=null) {
+            try { sessionId=UUID.fromString(sid); }
+            catch(IllegalArgumentException malformed) { throw new InvalidTokenException(Reason.INVALID_CLAIMS,malformed); }
+            if(sessions==null || !sessions.active(sessionId,principal.userId()))
+                throw new InvalidTokenException(Reason.SESSION_REVOKED,null);
+        }
+        return new VerifiedToken(principal, claims.getExpiration().toInstant(), sessionId);
     }
 
     private static AuthenticatedPrincipal toPrincipal(Claims claims) {

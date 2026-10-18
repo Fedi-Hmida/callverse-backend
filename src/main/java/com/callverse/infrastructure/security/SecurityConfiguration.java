@@ -111,6 +111,9 @@ public class SecurityConfiguration {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/health/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/login").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/register", "/api/v1/auth/refresh", "/api/v1/auth/logout").permitAll()
+                        // Public auth mutations validate credentials/opaque body tokens; no cookie-based credentials.
+                        .requestMatchers("/api/v1/me/**").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/me").authenticated()
                         // Staff-only reads. The chain grants reachability to any
                         // authenticated caller; @PreAuthorize on the controller decides the
@@ -135,6 +138,9 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.GET, "/api/v1/service-incidents").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/v1/kb/articles").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/tickets").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/tickets", "/api/v1/tickets/*", "/api/v1/credits").authenticated()
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/tickets/*/status").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/tickets/*/comments", "/api/v1/credits").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/cards/*/block").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/conversations/*/escalations").authenticated()
                         // The conversation core. Same two-layer rule; on top of the role, each use
@@ -152,6 +158,8 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.GET, "/api/v1/supervision/kpi").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/v1/supervision/conversations").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/supervision/workforce/recommendations").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/supervision/alerts", "/api/v1/supervision/workforce/recommendations/*/candidates").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/supervision/workforce/recommendations/*/apply").authenticated()
                         // Simulation management is reachable to signed-in callers at the chain
                         // level; the controller restricts both operations to supervisors/admins.
                         .requestMatchers(HttpMethod.POST, "/api/v1/simulation-runs").authenticated()
@@ -167,8 +175,14 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.GET, "/api/v1/scenarios").authenticated()
                         // Account administration. ADMIN on each method; the chain only admits callers.
                         .requestMatchers(HttpMethod.GET, "/api/v1/admin/users", "/api/v1/admin/users/*").authenticated()
+                        .requestMatchers("/api/v1/admin/products", "/api/v1/admin/products/**",
+                                "/api/v1/admin/knowledge-articles", "/api/v1/admin/knowledge-articles/**",
+                                "/api/v1/admin/sla-policies", "/api/v1/admin/sla-policies/**",
+                                "/api/v1/admin/routing-rules", "/api/v1/admin/routing-rules/**").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/admin/users").authenticated()
                         .requestMatchers(HttpMethod.PUT, "/api/v1/admin/users/*/role").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/admin/users/*/advisor-profile").authenticated()
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/admin/users/*/advisor-profile").authenticated()
                         .requestMatchers(HttpMethod.POST,
                                 "/api/v1/admin/users/*/block", "/api/v1/admin/users/*/unblock").authenticated()
                         .anyRequest().denyAll())

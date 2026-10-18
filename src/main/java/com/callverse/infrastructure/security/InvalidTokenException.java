@@ -31,7 +31,9 @@ class InvalidTokenException extends AuthenticationException {
         /** A valid token for an account an administrator has blocked. */
         ACCOUNT_BLOCKED,
         /** A valid token claiming a role the account no longer holds. */
-        ROLE_CHANGED
+        ROLE_CHANGED,
+        /** Its persisted refresh family expired, was logged out, or was revoked on replay. */
+        SESSION_REVOKED
     }
 
     private final Reason reason;

@@ -2,6 +2,10 @@ package com.callverse.infrastructure.config;
 
 import com.callverse.core.application.features.conversation.ConversationEvents;
 import com.callverse.core.application.features.workforce.commands.RequestWorkforceRecommendationCommandHandler;
+import com.callverse.core.application.features.workforce.commands.ApplyWorkforceRecommendationCommandHandler;
+import com.callverse.core.application.features.workforce.queries.GetWorkforceCandidatesQueryHandler;
+import com.callverse.core.application.interfaces.WorkforceAdministration;
+import com.callverse.core.application.interfaces.AccessRevocation;
 import com.callverse.core.application.interfaces.LiveOperations;
 import com.callverse.core.application.interfaces.WorkforceAgent;
 import com.callverse.core.application.interfaces.WorkforceDecisionLog;
@@ -15,6 +19,15 @@ import org.springframework.context.annotation.Configuration;
 /** Wires human-reviewed Workforce recommendations from live backend data. */
 @Configuration
 public class WorkforceFeatureConfiguration {
+
+    @Bean GetWorkforceCandidatesQueryHandler getWorkforceCandidatesQueryHandler(WorkforceAdministration workforce) {
+        return new GetWorkforceCandidatesQueryHandler(workforce);
+    }
+
+    @Bean ApplyWorkforceRecommendationCommandHandler applyWorkforceRecommendationCommandHandler(
+            WorkforceAdministration workforce,AccessRevocation revocation) {
+        return new ApplyWorkforceRecommendationCommandHandler(workforce,revocation);
+    }
 
     @Bean
     RequestWorkforceRecommendationCommandHandler requestWorkforceRecommendationCommandHandler(

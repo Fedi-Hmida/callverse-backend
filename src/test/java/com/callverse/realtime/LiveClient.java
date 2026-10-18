@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.springframework.messaging.converter.CompositeMessageConverter;
 import org.springframework.messaging.converter.MappingJackson2MessageConverter;
@@ -26,6 +27,10 @@ import org.springframework.web.socket.messaging.WebSocketStompClient;
  * else. Close it after each test.
  */
 final class LiveClient implements AutoCloseable {
+
+    // The first WebSocket in a Spring context may initialize the server/client transport on a
+    // loaded CI host. This is a connection deadline, not a relaxation of message/revocation checks.
+    private static final int CONNECT_TIMEOUT_SECONDS = 15;
 
     private final WebSocketStompClient client = new WebSocketStompClient(new StandardWebSocketClient());
     private final String url;
@@ -100,7 +105,8 @@ final class LiveClient implements AutoCloseable {
         Probe probe = new Probe();
         StompHeaders connect = new StompHeaders();
         connect.add("Authorization", "Bearer " + token);
-        StompSession session = client.connectAsync(url, new WebSocketHttpHeaders(), connect, probe).get(5, TimeUnit.SECONDS);
+        StompSession session = client.connectAsync(url, new WebSocketHttpHeaders(), connect, probe)
+                .get(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         sessions.add(session);
         BlockingQueue<JsonNode> frames = new LinkedBlockingQueue<>();
         session.subscribe(destination, new StompFrameHandler() {
@@ -144,8 +150,10 @@ final class LiveClient implements AutoCloseable {
         connect.add("Authorization", "Bearer " + token);
         try {
             StompSession session = client.connectAsync(url, new WebSocketHttpHeaders(), connect, probe)
-                    .get(5, TimeUnit.SECONDS);
+                    .get(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
             sessions.add(session);
+        } catch (TimeoutException timedOut) {
+            throw new AssertionError("CONNECT timed out without an explicit security refusal", timedOut);
         } catch (Exception closedAtConnect) {
             return true;
         }

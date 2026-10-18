@@ -33,10 +33,12 @@ class AdvisorAgentHttpAdapter implements AdvisorAgent {
     AdvisorAgentHttpAdapter(
             RestClient.Builder builder,
             @Value("${ai.service.base-url:http://localhost:8000}") String baseUrl,
-            @Value("${ai.service.api-key:}") String apiKey) {
+            @Value("${ai.service.api-key:}") String apiKey,
+            @Value("${ai.service.agent-read-timeout-seconds:30}") int readTimeoutSeconds) {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(Duration.ofSeconds(2));
-        requestFactory.setReadTimeout(Duration.ofSeconds(30));
+        if (readTimeoutSeconds < 1) throw new IllegalArgumentException("AI read timeout must be positive");
+        requestFactory.setReadTimeout(Duration.ofSeconds(readTimeoutSeconds));
         this.client = builder.baseUrl(baseUrl).requestFactory(requestFactory).build();
         this.apiKey = apiKey;
     }

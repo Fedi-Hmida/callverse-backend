@@ -1,7 +1,12 @@
 package com.callverse.host.api.controllers;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.callverse.core.application.exceptions.FeatureNotImplementedException;
+import com.callverse.core.application.interfaces.SupportOperations;
+import com.callverse.core.application.interfaces.SupportOperations.Credit;
+import com.callverse.core.application.interfaces.SupportOperations.CreditRequest;
+import com.fasterxml.jackson.annotation.JsonAlias;
+import jakarta.validation.constraints.*;
+import java.math.BigDecimal;
 import com.callverse.core.application.features.customer.queries.GetCustomerProfileQuery;
 import com.callverse.core.application.features.customer.queries.GetCustomerProfileQueryHandler;
 import com.callverse.core.application.features.customer.queries.GetRecentTransactionsQuery;
@@ -60,6 +65,7 @@ public class InternalToolController {
     private final GetServiceStatusQueryHandler getServiceStatus;
     private final OpenTicketCommandHandler openTicket;
     private final EscalateConversationCommandHandler escalateConversation;
+    private final SupportOperations support;
 
     @GetMapping("/customers/{id}")
     @SecurityRequirement(name = "serviceKey")
@@ -144,12 +150,17 @@ public class InternalToolController {
     @Operation(
             operationId = "applyInternalCredit",
             summary = "Apply a commercial credit",
-            description = "Not implemented. Valid JSON requests receive 501 NOT_IMPLEMENTED; no credit is applied.")
-    @ApiResponse(
-            responseCode = "501",
-            description = "The credit tool is unavailable",
-            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
-    public void applyCredit(@RequestBody JsonNode request) {
-        throw new FeatureNotImplementedException("The commercial credit tool is not implemented.");
+            description = "Books an idempotent goodwill refund to an active EUR current account. Customer and conversation must match. "
+                    + "The assigned advisor's ceiling applies to all customer credits over the preceding 24 hours; the service cannot approve an override.")
+    public Credit applyCredit(@Valid @RequestBody InternalCredit request) {
+        return support.grantFromService(new CreditRequest(request.customerId(),request.conversationId(),request.accountId(),
+                request.amount(),request.reason(),request.requestId()));
     }
+
+    public record InternalCredit(@NotNull @JsonAlias("customer_id") UUID customerId,
+                                 @NotNull @JsonAlias("conversation_id") UUID conversationId,
+                                 @JsonAlias("account_id") UUID accountId,
+                                 @NotNull @DecimalMin("0.01") @Digits(integer=6,fraction=2) BigDecimal amount,
+                                 @NotBlank @Size(max=255) String reason,
+                                 @NotNull @JsonAlias("request_id") UUID requestId) {}
 }

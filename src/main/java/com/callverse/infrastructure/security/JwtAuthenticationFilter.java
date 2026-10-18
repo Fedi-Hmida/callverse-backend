@@ -71,7 +71,9 @@ class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return LOGIN.matches(request);
+        if (LOGIN.matches(request)) return true;
+        return "POST".equals(request.getMethod()) && List.of("/api/v1/auth/register","/api/v1/auth/refresh","/api/v1/auth/logout")
+                .contains(request.getRequestURI());
     }
 
     @Override

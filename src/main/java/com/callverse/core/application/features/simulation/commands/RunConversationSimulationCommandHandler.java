@@ -79,6 +79,12 @@ public class RunConversationSimulationCommandHandler {
                 store.appendAdvisorMessage(run.conversationId(), response, clock.instant());
                 store.recordAdvisorDecision(
                         runId, simTime(startedAt), customerMessage.content(), response);
+                if ("ESCALATE".equals(response.actionType())) {
+                    // A handoff is a legitimate terminal outcome of an isolated dialogue.
+                    // Do not make the client repeatedly ask an agent that has handed over.
+                    store.complete(runId, run.conversationId(), ConversationStatus.ESCALATED, clock.instant());
+                    return;
+                }
                 lastAdvisorReply = response.reply();
             }
 

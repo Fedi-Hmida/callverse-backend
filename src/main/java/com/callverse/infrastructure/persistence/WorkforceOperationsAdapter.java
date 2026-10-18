@@ -42,6 +42,11 @@ class WorkforceOperationsAdapter implements WorkforceOperations {
                    count(distinct a.id) filter (
                        where a.status in ('AVAILABLE', 'BUSY')
                          and a.is_simulated = false
+                         and exists (
+                             select 1 from app_user advisor_user
+                              where advisor_user.id = a.user_id
+                                and advisor_user.active = true and advisor_user.role = 'ADVISOR'
+                         )
                          and a.max_concurrent > (
                              select count(*)
                                from conversation held

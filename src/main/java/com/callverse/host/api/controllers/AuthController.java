@@ -3,18 +3,24 @@ package com.callverse.host.api.controllers;
 import com.callverse.core.application.features.auth.commands.LoginCommand;
 import com.callverse.core.application.features.auth.commands.LoginCommandHandler;
 import com.callverse.core.application.features.auth.commands.LoginResult;
+import com.callverse.core.application.features.auth.commands.RegisterCustomerCommandHandler;
+import com.callverse.core.application.features.auth.commands.SessionTokensHandler;
 import com.callverse.core.application.features.auth.queries.GetCurrentUserQuery;
 import com.callverse.core.application.features.auth.queries.GetCurrentUserQueryHandler;
 import com.callverse.core.application.interfaces.AuthenticatedPrincipal;
 import com.callverse.host.api.dto.request.LoginRequest;
+import com.callverse.host.api.dto.request.RegisterCustomerRequest;
+import com.callverse.host.api.dto.request.RefreshTokenRequest;
 import com.callverse.host.api.dto.response.CurrentUserResponse;
 import com.callverse.host.api.dto.response.TokenResponse;
+import com.callverse.host.api.dto.response.SessionTokenResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -52,6 +58,8 @@ public class AuthController {
 
     private final LoginCommandHandler login;
     private final GetCurrentUserQueryHandler currentUser;
+    private final RegisterCustomerCommandHandler registration;
+    private final SessionTokensHandler sessions;
 
     @PostMapping("/login")
     @Operation(
@@ -62,9 +70,27 @@ public class AuthController {
                             + "password return the same 401 with code INVALID_CREDENTIALS, so the "
                             + "endpoint cannot be used to discover which addresses hold accounts. "
                             + "Deactivated accounts cannot authenticate.")
-    public TokenResponse login(@Valid @RequestBody LoginRequest request) {
-        LoginResult result = login.handle(new LoginCommand(request.email(), request.password()));
-        return new TokenResponse(result.token(), result.expiresAt(), result.role().name());
+    public SessionTokenResponse login(@Valid @RequestBody LoginRequest request) {
+        login.handle(new LoginCommand(request.email(), request.password()));
+        return SessionTokenResponse.from(sessions.start(request.email()));
+    }
+
+    @PostMapping("/register")
+    @Operation(operationId="registerCustomer",summary="Create my customer portal identity",description="Creates a CUSTOMER login and linked customer profile only; no bank account, balance or card is created.")
+    public ResponseEntity<CurrentUserResponse> register(@Valid @RequestBody RegisterCustomerRequest request) {
+        var user=registration.handle(request.email(),request.password(),request.firstName(),request.lastName(),request.region(),request.phone());
+        return ResponseEntity.status(201).body(new CurrentUserResponse(user.userId(),user.email(),"CUSTOMER"));
+    }
+
+    @PostMapping("/refresh") @Operation(operationId="refreshSession",summary="Rotate my refresh credential")
+    public SessionTokenResponse refresh(@Valid @RequestBody RefreshTokenRequest request) {
+        return SessionTokenResponse.from(sessions.refresh(request.refreshToken()));
+    }
+
+    @PostMapping("/logout") @Operation(operationId="logoutSession",summary="Revoke my refresh session and its access tokens")
+    public ResponseEntity<Void> logout(@Valid @RequestBody RefreshTokenRequest request) {
+        sessions.logout(request.refreshToken());
+        return ResponseEntity.noContent().build();
     }
 
     // consumes is widened because a GET carries no body; the class-level JSON constraint is for login.

@@ -1,6 +1,7 @@
 package com.callverse.infrastructure.security;
 
 import com.callverse.core.application.interfaces.AccessRevocation;
+import com.callverse.core.application.interfaces.AuthSessions;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Map;
@@ -13,6 +14,7 @@ import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.messaging.simp.SimpMessageType;
 import org.springframework.messaging.support.ChannelInterceptor;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 
 /**
@@ -34,16 +36,29 @@ public class StompSessionRegistry implements ChannelInterceptor, AccessRevocatio
 
     private final Map<String, Instant> expiries = new ConcurrentHashMap<>();
     private final Map<String, UUID> owners = new ConcurrentHashMap<>();
+    private final Map<String, UUID> authSessions = new ConcurrentHashMap<>();
     private final Clock clock;
+    private final AuthSessions sessions;
 
     public StompSessionRegistry(Clock clock) {
+        this(clock, null);
+    }
+
+    @Autowired
+    public StompSessionRegistry(Clock clock, AuthSessions sessions) {
         this.clock = clock;
+        this.sessions = sessions;
     }
 
     void register(String sessionId, UUID userId, Instant expiresAt) {
+        register(sessionId, userId, expiresAt, null);
+    }
+
+    void register(String sessionId, UUID userId, Instant expiresAt, UUID authSessionId) {
         if (sessionId != null) {
             expiries.put(sessionId, expiresAt);
             owners.put(sessionId, userId);
+            if (authSessionId != null) authSessions.put(sessionId, authSessionId);
         }
     }
 
@@ -51,13 +66,18 @@ public class StompSessionRegistry implements ChannelInterceptor, AccessRevocatio
         if (sessionId != null) {
             expiries.remove(sessionId);
             owners.remove(sessionId);
+            authSessions.remove(sessionId);
         }
     }
 
     /** True for a session that never authenticated, whose token has expired, or that was revoked. */
     boolean isExpiredOrUnknown(String sessionId) {
         Instant expiry = sessionId == null ? null : expiries.get(sessionId);
-        return expiry == null || !clock.instant().isBefore(expiry);
+        if (expiry == null || !clock.instant().isBefore(expiry)) return true;
+        UUID authSessionId = authSessions.get(sessionId);
+        // Replay and logout revoke the persistent family, including sockets connected before the
+        // revocation. Checking at delivery also closes the verify/register race during CONNECT.
+        return authSessionId != null && (sessions == null || !sessions.active(authSessionId, owners.get(sessionId)));
     }
 
     /** Every open session of this account stops receiving now. */
@@ -73,8 +93,7 @@ public class StompSessionRegistry implements ChannelInterceptor, AccessRevocatio
 
     @EventListener
     void onDisconnect(SessionDisconnectEvent event) {
-        expiries.remove(event.getSessionId());
-        owners.remove(event.getSessionId());
+        unregister(event.getSessionId());
     }
 
     /** Outbound: nothing reaches a session whose token has expired or whose access was revoked. */

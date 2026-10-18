@@ -23,7 +23,7 @@ class InternalCreditEndpointTest extends AbstractPersistenceTest {
     @Autowired private ObjectMapper objectMapper;
 
     @Test
-    void validCreditRequestReturnsNotImplementedEnvelope() throws Exception {
+    void incompleteCreditRequestIsRejectedBeforeAnyBooking() throws Exception {
         MvcResult result = mockMvc.perform(post("/internal/credits")
                         .with(serviceKey())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -31,9 +31,9 @@ class InternalCreditEndpointTest extends AbstractPersistenceTest {
                 .andReturn();
         String raw = result.getResponse().getContentAsString();
 
-        assertThat(result.getResponse().getStatus()).as("body was: %s", raw).isEqualTo(501);
+        assertThat(result.getResponse().getStatus()).as("body was: %s", raw).isEqualTo(400);
         JsonNode body = objectMapper.readTree(raw);
-        assertThat(body.get("code").asText()).isEqualTo("NOT_IMPLEMENTED");
+        assertThat(body.get("code").asText()).isEqualTo("VALIDATION_FAILED");
         assertThat(body.fieldNames())
                 .toIterable()
                 .containsExactlyInAnyOrder("timestamp", "status", "code", "message", "path");

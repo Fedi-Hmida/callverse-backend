@@ -7,6 +7,7 @@ import com.callverse.core.application.interfaces.AdvisorAgent;
 import com.callverse.core.application.interfaces.ConversationSimulationStore;
 import com.callverse.core.application.interfaces.SimulationRunScheduler;
 import com.callverse.core.application.interfaces.SimulatorAgent;
+import com.callverse.infrastructure.ai.SimulationAgentRetry;
 import java.time.Clock;
 import java.util.concurrent.ThreadPoolExecutor;
 import org.springframework.context.annotation.Bean;
@@ -32,7 +33,9 @@ public class ConversationSimulationConfiguration {
     @Bean
     RunConversationSimulationCommandHandler runConversationSimulationCommandHandler(
             SimulatorAgent simulator, AdvisorAgent advisor, ConversationSimulationStore store, Clock clock) {
-        return new RunConversationSimulationCommandHandler(simulator, advisor, store, clock);
+        return new RunConversationSimulationCommandHandler(
+                request -> SimulationAgentRetry.call(() -> simulator.nextMessage(request)),
+                request -> SimulationAgentRetry.call(() -> advisor.respond(request)), store, clock);
     }
 
     @Bean(name = "conversationSimulationExecutor")

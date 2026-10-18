@@ -183,8 +183,9 @@ class ConversationSimulationStoreAdapter implements ConversationSimulationStore 
     public void complete(UUID runId, UUID conversationId, ConversationStatus conversationStatus, Instant now) {
         SimulationRun run = findRun(runId);
         Conversation conversation = findConversation(runId, conversationId);
-        if (conversationStatus != ConversationStatus.RESOLVED && conversationStatus != ConversationStatus.ABANDONED) {
-            throw new IllegalArgumentException("Simulation conversations must end RESOLVED or ABANDONED.");
+        if (conversationStatus != ConversationStatus.RESOLVED && conversationStatus != ConversationStatus.ABANDONED
+                && conversationStatus != ConversationStatus.ESCALATED) {
+            throw new IllegalArgumentException("Simulation conversations must end RESOLVED, ABANDONED or ESCALATED.");
         }
         conversation.setStatus(conversationStatus);
         conversation.setEndedAt(now);

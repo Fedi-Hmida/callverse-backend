@@ -136,9 +136,12 @@ public class StompAuthorizationInterceptor implements ChannelInterceptor {
         // Registered before the account is read: a block that commits after this read still finds
         // the session and cuts it. Read first, register second would leave a gap where the block's
         // revocation runs before the session exists, and the session would live until its token expires.
-        sessions.register(stomp.getSessionId(), verified.principal().userId(), verified.expiresAt());
+        sessions.register(stomp.getSessionId(), verified.principal().userId(), verified.expiresAt(), verified.sessionId());
         try {
             accounts.confirm(verified.principal());
+            if (verified.sessionId() != null && sessions.isExpiredOrUnknown(stomp.getSessionId())) {
+                throw new InvalidTokenException(InvalidTokenException.Reason.SESSION_REVOKED, null);
+            }
         } catch (InvalidTokenException refused) {
             sessions.unregister(stomp.getSessionId());
             throw refuse(stomp, "token refused: " + refused.reason());

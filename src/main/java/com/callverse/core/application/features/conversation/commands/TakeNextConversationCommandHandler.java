@@ -27,9 +27,9 @@ import java.util.Optional;
  *
  * <p>Wait and SLA are measured at this transition and stored; nothing recomputes them later.
  *
- * <p><strong>Advisor presence is not consulted yet.</strong> {@code advisor.status} (available,
- * break, offline) has no route to change it, so taking work is gated by skill and capacity alone;
- * presence arrives with the supervisor's floor view.
+ * <p>Presence and the current skill are rechecked under the advisor row lock by the adapter.
+ * An OFFLINE or BREAK advisor cannot take a new contact, even if a previously loaded profile
+ * still listed the skill.
  */
 public class TakeNextConversationCommandHandler {
 

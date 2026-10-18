@@ -18,4 +18,7 @@ public interface RoutingRuleRepository extends JpaRepository<RoutingRule, UUID> 
     List<RoutingRule> findByActiveTrueOrderByPriorityAsc();
 
     List<RoutingRule> findByIntentAndActiveTrueOrderByPriorityAsc(Intent intent);
+
+    /** UUID breaks a priority tie deterministically across database/query plans. */
+    List<RoutingRule> findByActiveTrueOrderByPriorityAscIdAsc();
 }

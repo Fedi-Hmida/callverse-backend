@@ -30,6 +30,7 @@ import com.callverse.infrastructure.persistence.repositories.EscalationRepositor
 import com.callverse.infrastructure.persistence.repositories.MessageRepository;
 import com.callverse.infrastructure.persistence.repositories.SkillRepository;
 import com.callverse.infrastructure.persistence.repositories.SlaPolicyRepository;
+import com.callverse.infrastructure.persistence.repositories.RoutingRuleRepository;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.EnumSet;
@@ -86,6 +87,7 @@ class ConversationLifecycleAdapter implements ConversationLifecycle, Conversatio
     private final EscalationRepository escalations;
     private final AppUserRepository users;
     private final ObjectMapper objectMapper;
+    private final RoutingRuleRepository routingRules;
 
     // ------------------------------------------------------------------ lifecycle
 
@@ -94,7 +96,16 @@ class ConversationLifecycleAdapter implements ConversationLifecycle, Conversatio
     public ConversationRecord open(UUID customerId, String skillCode, Intent intent, Channel channel, Instant now) {
         Customer customer = customers.findById(customerId)
                 .orElseThrow(() -> new ResourceNotFoundException("Customer", customerId));
-        Skill skill = skill(skillCode);
+        Skill requestedSkill = skill(skillCode);
+        // Intent-only rules are the supported runtime language. Never treat an unknown JSON
+        // condition as true; existing advanced predicates remain inactive until implemented.
+        Skill skill = routingRules.findByActiveTrueOrderByPriorityAscIdAsc().stream()
+                .filter(rule -> rule.getIntent() == null || rule.getIntent() == intent)
+                .filter(rule -> rule.getConditions() == null || rule.getConditions().isNull()
+                        || (rule.getConditions().isObject() && rule.getConditions().isEmpty()))
+                .filter(rule -> rule.getSkill() != null)
+                .map(com.callverse.core.domain.entities.RoutingRule::getSkill)
+                .findFirst().orElse(requestedSkill);
 
         Conversation conversation = new Conversation();
         conversation.setCustomer(customer);
@@ -119,6 +130,15 @@ class ConversationLifecycleAdapter implements ConversationLifecycle, Conversatio
     public Optional<ConversationRecord> assignNext(UUID advisorId, String skillCode, Instant now) {
         Advisor advisor = advisors.findByIdForUpdate(advisorId)
                 .orElseThrow(() -> new ResourceNotFoundException("Advisor", advisorId));
+        // Capabilities can change after the use case's initial read. Recheck under the same row
+        // lock used by profile administration so a removed skill cannot receive a new contact.
+        if (advisor.getSkills().stream().noneMatch(link -> link.getSkill().getCode().equals(skillCode))) {
+            throw new com.callverse.core.application.exceptions.ActionNotPermittedException("You hold no skill for this queue.");
+        }
+        if (advisor.getStatus() != com.callverse.core.domain.enums.AdvisorStatus.AVAILABLE
+                && advisor.getStatus() != com.callverse.core.domain.enums.AdvisorStatus.BUSY) {
+            throw new com.callverse.core.domain.exceptions.AdvisorUnavailableException(advisorId, advisor.getStatus());
+        }
         ConversationRules.requireCapacity(
                 advisorId, conversations.countByAdvisorIdAndStatusIn(advisorId, HELD_FOR_CAPACITY),
                 advisor.getMaxConcurrent());

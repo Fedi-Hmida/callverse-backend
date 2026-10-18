@@ -16,20 +16,15 @@ docs/CLAUDE.md
 .claude/
 
 # --- Working documents ----------------------------------------------------
-# The whole docs/ folder is local. Nothing under it is versioned: it holds
+# Most of the docs/ folder is local. It holds
 # working notes, audits, handoffs, presentation material and planning documents
 # that are written for one moment and superseded by the next.
 #
-# A bare docs/ is enough here precisely because there are no exceptions. If one
-# is ever re-introduced, this must become docs/* plus a negation: excluding the
-# directory itself stops git descending into it, and a negation can never
-# re-include a file whose parent directory is excluded.
-#
-# Note that docs/CALLVERSE_DB_SCHEMA.md is the agreed database source of truth,
-# shared with whoever provisions Neon. It is no longer versioned here, so it has
-# to reach them by another route.
+# The schema reference is versioned, as required by CONTRIBUTING.md, so schema
+# changes can be reviewed alongside their forward migrations.
 docs/*
 !docs/integration/
+!docs/CALLVERSE_DB_SCHEMA.md
 
 # --- Secrets --------------------------------------------------------------
 # Never commit a real Neon connection string or a JWT secret. Only the

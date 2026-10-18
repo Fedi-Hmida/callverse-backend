@@ -91,6 +91,7 @@ ai:
     # The Python FastAPI service hosting the LangGraph agents and the RL policy.
     base-url: ${AI_SERVICE_BASE_URL:http://localhost:8000}
     api-key: ${AI_SERVICE_KEY:}
+    agent-read-timeout-seconds: ${AI_AGENT_READ_TIMEOUT_SECONDS:30}
   advisor:
     # OFF (default): live conversations belong to their human advisor.
     # AUTONOMOUS: the AI answers customer messages until a human advisor writes in that
