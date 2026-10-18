@@ -22,18 +22,16 @@ import org.springframework.context.annotation.Configuration;
  * team generates its TypeScript client from {@code /v3/api-docs}, so this document is a published
  * contract rather than documentation. A renamed field here is a compile error there.
  *
- * <p><strong>One security scheme.</strong> {@code bearerAuth} is the user JWT for {@code /api/v1/**},
- * issued by the login endpoint and read by {@code JwtAuthenticationFilter}.
- *
- * <p>The {@code serviceKey} scheme for the AI service's {@code /internal/**} tool API was withdrawn
- * on 2026-09-30 together with that API, pending the AI-integration phase. The git tag
- * {@code internal-tools-http-surface} holds the last version of both. When it returns it must stay
- * a distinct scheme, not a variant of the JWT: the AI service is not a user and has no role.
+ * <p><strong>Two security schemes.</strong> {@code bearerAuth} is the user JWT for
+ * {@code /api/v1/**}, issued by the login endpoint and read by {@code JwtAuthenticationFilter}.
+ * {@code serviceKey} is the distinct header-based credential for the AI service's
+ * {@code /internal/**} tool API; the AI service is not a user and has no role.
  */
 @Configuration
 public class OpenApiConfiguration {
 
     private static final String BEARER_SCHEME = "bearerAuth";
+    private static final String SERVICE_KEY_SCHEME = "serviceKey";
 
     @Bean
     OpenAPI callVerseOpenApi(
@@ -78,6 +76,15 @@ public class OpenApiConfiguration {
                                         CUSTOMER, ADVISOR, SUPERVISOR or ADMIN.
 
                                         HS512, valid for one hour by default. Missing, \
-                                        expired or invalid: 401 UNAUTHENTICATED.""")));
+                                        expired or invalid: 401 UNAUTHENTICATED."""))
+                        .addSecuritySchemes(SERVICE_KEY_SCHEME, new SecurityScheme()
+                                .type(SecurityScheme.Type.APIKEY)
+                                .in(SecurityScheme.In.HEADER)
+                                .name("X-Internal-Key")
+                                .description("""
+                                        Shared service key for `/internal/**`, used by the Python \
+                                        AI service. Not a user credential: it carries no role and \
+                                        no identity. Required on every internal route in every \
+                                        profile; missing or wrong: 401 UNAUTHENTICATED.""")));
     }
 }

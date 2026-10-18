@@ -4,9 +4,14 @@ import com.callverse.core.domain.entities.Advisor;
 import com.callverse.core.domain.entities.AdvisorSkill;
 import com.callverse.core.domain.entities.AppUser;
 import com.callverse.core.domain.entities.Conversation;
+import com.callverse.core.domain.entities.ControlStrategy;
 import com.callverse.core.domain.entities.Customer;
 import com.callverse.core.domain.entities.Escalation;
+import com.callverse.core.domain.entities.KbArticle;
 import com.callverse.core.domain.entities.Message;
+import com.callverse.core.domain.entities.QualityEvaluation;
+import com.callverse.core.domain.entities.Scenario;
+import com.callverse.core.domain.entities.SimulationRun;
 import com.callverse.core.domain.entities.Skill;
 import com.callverse.core.domain.entities.SlaPolicy;
 import com.callverse.core.domain.enums.AdvisorStatus;
@@ -15,8 +20,11 @@ import com.callverse.core.domain.enums.ConversationStatus;
 import com.callverse.core.domain.enums.CustomerSegment;
 import com.callverse.core.domain.enums.EscalationRaisedBy;
 import com.callverse.core.domain.enums.EscalationStatus;
+import com.callverse.core.domain.enums.EvaluatorType;
 import com.callverse.core.domain.enums.Intent;
+import com.callverse.core.domain.enums.LoadProfile;
 import com.callverse.core.domain.enums.MessageSender;
+import com.callverse.core.domain.enums.RunStatus;
 import com.callverse.core.domain.enums.UserRole;
 import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
@@ -145,14 +153,105 @@ public final class ConversationFixtures {
 
     /** A message in a conversation, sent at {@code sentAt}. */
     public void message(UUID conversationId, MessageSender sender, String content, Instant sentAt) {
+        message(conversationId, sender, content, sentAt, false);
+    }
+
+    /** An ADVISOR turn written by the AI, as {@code postAgentTurn} would have stored it. */
+    public void aiAdvisorMessage(UUID conversationId, String content, Instant sentAt) {
+        message(conversationId, MessageSender.ADVISOR, content, sentAt, true);
+    }
+
+    /** An AI ADVISOR turn whose private {@code sources} trace is {@code sourcesJson}, stored as given. */
+    public void aiAdvisorMessageWithSources(UUID conversationId, String content, Instant sentAt, String sourcesJson) {
         tx.executeWithoutResult(s -> {
-            Message message = new Message();
-            message.setConversation(em.getReference(Conversation.class, conversationId));
-            message.setSender(sender);
-            message.setContent(content);
-            message.setSentAt(sentAt.truncatedTo(ChronoUnit.MICROS));
+            Message message = newMessage(conversationId, MessageSender.ADVISOR, content, sentAt, true);
+            try {
+                message.setSources(new com.fasterxml.jackson.databind.ObjectMapper().readTree(sourcesJson));
+            } catch (com.fasterxml.jackson.core.JsonProcessingException exception) {
+                throw new IllegalArgumentException(exception);
+            }
             em.persist(message);
         });
+    }
+
+    /** Sets when the conversation ended, as the resolve or abandon transition would have. */
+    public void ended(UUID conversationId, Instant endedAt) {
+        tx.executeWithoutResult(s -> em.find(Conversation.class, conversationId)
+                .setEndedAt(endedAt.truncatedTo(ChronoUnit.MICROS)));
+    }
+
+    /** A quality evaluation by {@code evaluator} (AI or HUMAN), with neutral scores. */
+    public void qualityEvaluation(UUID conversationId, String evaluator) {
+        tx.executeWithoutResult(s -> {
+            QualityEvaluation evaluation = new QualityEvaluation();
+            evaluation.setConversation(em.getReference(Conversation.class, conversationId));
+            evaluation.setGlobalScore(new BigDecimal("7.00"));
+            evaluation.setScores(new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode());
+            evaluation.setEvaluator(EvaluatorType.valueOf(evaluator));
+            em.persist(evaluation);
+        });
+    }
+
+    /** A scenario: load profile (LOW, MEDIUM, SATURATED), duration and advisor count. */
+    public UUID scenario(String name, String loadProfile, int durationMinutes, int advisorCount) {
+        return tx.execute(s -> {
+            var json = new com.fasterxml.jackson.databind.ObjectMapper();
+            Scenario scenario = new Scenario();
+            scenario.setName(name);
+            scenario.setLoadProfile(LoadProfile.valueOf(loadProfile));
+            scenario.setDurationMinutes(durationMinutes);
+            scenario.setAdvisorCount(advisorCount);
+            scenario.setSkillDistribution(json.createObjectNode().put("CARDS", 1));
+            scenario.setCustomerProfileMix(json.createObjectNode().put("CALME", 1));
+            em.persist(scenario);
+            em.flush();
+            return scenario.getId();
+        });
+    }
+
+    /** A conversation simulation run (the LLM dialogue kind): a run with one simulated conversation. */
+    public UUID simulationRunWithConversation(UUID scenarioId, String strategyCode, long seed, ConversationStatus status) {
+        UUID runId = tx.execute(s -> {
+            SimulationRun run = new SimulationRun();
+            run.setScenario(em.getReference(Scenario.class, scenarioId));
+            run.setStrategy(em.createQuery("select c from ControlStrategy c where c.code = :code", ControlStrategy.class)
+                    .setParameter("code", strategyCode).getSingleResult());
+            run.setSeed(seed);
+            run.setStatus(RunStatus.RUNNING);
+            em.persist(run);
+            em.flush();
+            return run.getId();
+        });
+        conversation(customer(), skill(60), status, "0", Instant.now(), null, runId);
+        return runId;
+    }
+
+    /** A knowledge-base article, published. */
+    public UUID kbArticle(String title, String content) {
+        return tx.execute(s -> {
+            KbArticle article = new KbArticle();
+            article.setCategory("CARDS");
+            article.setTitle(title);
+            article.setContent(content);
+            article.setPublished(true);
+            em.persist(article);
+            em.flush();
+            return article.getId();
+        });
+    }
+
+    private void message(UUID conversationId, MessageSender sender, String content, Instant sentAt, boolean ai) {
+        tx.executeWithoutResult(s -> em.persist(newMessage(conversationId, sender, content, sentAt, ai)));
+    }
+
+    private Message newMessage(UUID conversationId, MessageSender sender, String content, Instant sentAt, boolean ai) {
+        Message message = new Message();
+        message.setConversation(em.getReference(Conversation.class, conversationId));
+        message.setSender(sender);
+        message.setContent(content);
+        message.setAiGenerated(ai);
+        message.setSentAt(sentAt.truncatedTo(ChronoUnit.MICROS));
+        return message;
     }
 
     /** Sets the metrics written at the transitions, as the lifecycle would have. */

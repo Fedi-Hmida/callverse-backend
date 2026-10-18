@@ -3,8 +3,10 @@ package com.callverse.host.api.errorhandling;
 import com.callverse.core.application.exceptions.ActionNotPermittedException;
 import com.callverse.core.application.exceptions.ApplicationException;
 import com.callverse.core.application.exceptions.AuthenticationRequiredException;
+import com.callverse.core.application.exceptions.FeatureNotImplementedException;
 import com.callverse.core.application.exceptions.InvalidCredentialsException;
 import com.callverse.core.application.exceptions.ResourceNotFoundException;
+import com.callverse.core.application.exceptions.WorkforceServiceUnavailableException;
 import com.callverse.core.domain.exceptions.DomainException;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -214,6 +216,26 @@ public class GlobalExceptionHandler {
                 SecurityErrorWriter.ACCESS_DENIED,
                 SecurityErrorWriter.ACCESS_DENIED_MESSAGE,
                 request);
+    }
+
+    /** A capability is intentionally unavailable; unlike an unexpected failure this is a stable 501. */
+    @ExceptionHandler(FeatureNotImplementedException.class)
+    public ResponseEntity<ErrorResponse> handleFeatureNotImplemented(
+            FeatureNotImplementedException exception, HttpServletRequest request) {
+        log.warn("{} {} -> 501 {}", request.getMethod(), request.getRequestURI(), FeatureNotImplementedException.CODE);
+        return build(
+                HttpStatus.NOT_IMPLEMENTED,
+                FeatureNotImplementedException.CODE,
+                exception.getMessage(),
+                request);
+    }
+
+    /** The optional AI service failed or returned an invalid Workforce proposal. */
+    @ExceptionHandler(WorkforceServiceUnavailableException.class)
+    public ResponseEntity<ErrorResponse> handleWorkforceUnavailable(
+            WorkforceServiceUnavailableException exception, HttpServletRequest request) {
+        log.warn("{} {} -> 503 {}", request.getMethod(), request.getRequestURI(), exception.code());
+        return build(HttpStatus.SERVICE_UNAVAILABLE, exception.code(), exception.getMessage(), request);
     }
 
     /** Any other application-layer failure: a precondition of the use case was unmet. */

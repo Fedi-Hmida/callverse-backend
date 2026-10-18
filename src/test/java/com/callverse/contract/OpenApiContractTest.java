@@ -37,6 +37,11 @@ class OpenApiContractTest extends AbstractPersistenceTest {
 
     /** Every operation the frontend may bind to, by its fixed id. */
     static final Set<String> OPERATION_IDS = Set.of(
+            "applyInternalCredit",
+            "escalateInternalConversation",
+            "getInternalCustomer",
+            "getInternalCustomerTransactions",
+            "getInternalServiceIncidents",
             "login",
             "getCurrentUser",
             "getHealthStatus",
@@ -64,7 +69,15 @@ class OpenApiContractTest extends AbstractPersistenceTest {
             "changeUserRole",
             "blockUser",
             "unblockUser",
-            "listSupervisedConversations");
+            "listSupervisedConversations",
+            "requestWorkforceRecommendation",
+            "startConversationSimulation",
+            "getConversationSimulation",
+            "runDigitalTwin",
+            "getDigitalTwinRun",
+            "compareDigitalTwinRuns",
+            "listScenarios",
+            "openInternalTicket");
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;

@@ -48,6 +48,10 @@ public abstract class AbstractPersistenceTest {
     public static final String TEST_JWT_SECRET =
             "test-only-hs512-signing-key-not-used-for-anything-real-0123456789abcdef";
 
+    /** A fake service key used only to satisfy the required application property in tests. */
+    public static final String TEST_INTERNAL_SERVICE_KEY =
+            "test-only-internal-service-key-not-a-real-secret-0123456789abcdef";
+
     @SuppressWarnings("resource") // lifecycle is managed by Testcontainers' JVM shutdown hook
     static final PostgreSQLContainer<?> POSTGRES =
             new PostgreSQLContainer<>(
@@ -108,5 +112,9 @@ public abstract class AbstractPersistenceTest {
         // application.yml gives jwt.secret no default on purpose, so that the application refuses
         // to start on a well-known key. Tests must therefore supply one.
         registry.add("jwt.secret", () -> TEST_JWT_SECRET);
+        registry.add("internal.service-key", () -> TEST_INTERNAL_SERVICE_KEY);
+        // The scheduled Quality retry would fire after ten minutes of a long suite, against the real
+        // clock, and send test conversations to whatever stub AI server a test started.
+        registry.add("ai.quality.retry.enabled", () -> "false");
     }
 }

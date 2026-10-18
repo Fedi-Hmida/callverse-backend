@@ -1,6 +1,7 @@
 package com.callverse.infrastructure.persistence.repositories;
 
 import com.callverse.core.domain.entities.Message;
+import com.callverse.core.domain.enums.MessageSender;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
@@ -20,6 +21,8 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     /** Uses idx_message_conv (conversation_id, sent_at). */
     List<Message> findByConversationIdOrderBySentAtAsc(UUID conversationId);
 
+    List<Message> findByConversationIdOrderBySentAtAscIdAsc(UUID conversationId);
+
     /** Paginated for long transcripts; the same index serves it. */
     Page<Message> findByConversationIdOrderBySentAtAsc(UUID conversationId, Pageable pageable);
 
@@ -33,4 +36,7 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
      * the customer said.
      */
     List<Message> findByConversationIdAndAiGeneratedTrueOrderBySentAtAsc(UUID conversationId);
+
+    /** Human takeover: has a person (not the AI) written as this sender? Served by idx_message_conv. */
+    boolean existsByConversationIdAndSenderAndAiGeneratedFalse(UUID conversationId, MessageSender sender);
 }

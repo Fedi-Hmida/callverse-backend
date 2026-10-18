@@ -1,0 +1,15 @@
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+langgraph
+langchain-core
+gymnasium
+stable-baselines3
+sqlalchemy
+pgvector
+httpx
+python-dotenv
+sentence-transformers
+asyncpg
+langchain-groq
