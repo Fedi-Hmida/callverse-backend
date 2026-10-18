@@ -8,6 +8,7 @@ import com.callverse.core.domain.entities.Customer;
 import com.callverse.core.domain.entities.Escalation;
 import com.callverse.core.domain.entities.KbArticle;
 import com.callverse.core.domain.entities.Message;
+import com.callverse.core.domain.entities.QualityEvaluation;
 import com.callverse.core.domain.entities.Skill;
 import com.callverse.core.domain.entities.SlaPolicy;
 import com.callverse.core.domain.enums.AdvisorStatus;
@@ -16,6 +17,7 @@ import com.callverse.core.domain.enums.ConversationStatus;
 import com.callverse.core.domain.enums.CustomerSegment;
 import com.callverse.core.domain.enums.EscalationRaisedBy;
 import com.callverse.core.domain.enums.EscalationStatus;
+import com.callverse.core.domain.enums.EvaluatorType;
 import com.callverse.core.domain.enums.Intent;
 import com.callverse.core.domain.enums.MessageSender;
 import com.callverse.core.domain.enums.UserRole;
@@ -164,6 +166,24 @@ public final class ConversationFixtures {
                 throw new IllegalArgumentException(exception);
             }
             em.persist(message);
+        });
+    }
+
+    /** Sets when the conversation ended, as the resolve or abandon transition would have. */
+    public void ended(UUID conversationId, Instant endedAt) {
+        tx.executeWithoutResult(s -> em.find(Conversation.class, conversationId)
+                .setEndedAt(endedAt.truncatedTo(ChronoUnit.MICROS)));
+    }
+
+    /** A quality evaluation by {@code evaluator} (AI or HUMAN), with neutral scores. */
+    public void qualityEvaluation(UUID conversationId, String evaluator) {
+        tx.executeWithoutResult(s -> {
+            QualityEvaluation evaluation = new QualityEvaluation();
+            evaluation.setConversation(em.getReference(Conversation.class, conversationId));
+            evaluation.setGlobalScore(new BigDecimal("7.00"));
+            evaluation.setScores(new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode());
+            evaluation.setEvaluator(EvaluatorType.valueOf(evaluator));
+            em.persist(evaluation);
         });
     }
 
