@@ -1,5 +1,6 @@
 package com.callverse.infrastructure.demo;
 
+import com.callverse.core.domain.entities.Scenario;
 import com.callverse.core.domain.entities.Account;
 import com.callverse.core.domain.entities.Advisor;
 import com.callverse.core.domain.entities.AdvisorSkill;
@@ -12,6 +13,7 @@ import com.callverse.core.domain.entities.Customer;
 import com.callverse.core.domain.entities.KbArticle;
 import com.callverse.core.domain.entities.ServiceIncident;
 import com.callverse.core.domain.entities.Skill;
+import com.callverse.core.domain.enums.LoadProfile;
 import com.callverse.core.domain.enums.AccountStatus;
 import com.callverse.core.domain.enums.AdvisorStatus;
 import com.callverse.core.domain.enums.BankingService;
@@ -93,6 +95,37 @@ class DemoDataLoader implements ApplicationRunner {
             log.info("Demo data loaded: scenario customer {}", SCENARIO_CUSTOMER);
         });
         transactions.executeWithoutResult(status -> staff(clock.instant()));
+        transactions.executeWithoutResult(status -> twinScenarios());
+    }
+
+    /**
+     * One digital twin scenario per load profile, so the twin screen has something to compare;
+     * 12 advisors (three per skill) over an eight-hour day. Idempotent, scenario by scenario.
+     */
+    private void twinScenarios() {
+        demoScenario("Démo — journée calme", LoadProfile.LOW);
+        demoScenario("Démo — journée chargée", LoadProfile.MEDIUM);
+        demoScenario("Démo — pic saturé", LoadProfile.SATURATED);
+    }
+
+    private void demoScenario(String name, LoadProfile load) {
+        boolean present = !em.createQuery("select s.id from Scenario s where s.name = :name")
+                .setParameter("name", name)
+                .getResultList()
+                .isEmpty();
+        if (present) {
+            return;
+        }
+        var json = new com.fasterxml.jackson.databind.ObjectMapper();
+        Scenario scenario = new Scenario();
+        scenario.setName(name);
+        scenario.setLoadProfile(load);
+        scenario.setDurationMinutes(480);
+        scenario.setAdvisorCount(12);
+        scenario.setSkillDistribution(json.createObjectNode()
+                .put("ACCOUNTS", 0.35).put("CARDS", 0.35).put("CREDIT", 0.15).put("FRAUD", 0.15));
+        scenario.setCustomerProfileMix(json.createObjectNode().put("CALME", 0.6).put("IMPATIENT", 0.4));
+        em.persist(scenario);
     }
 
     /** Karim for the advisor login, Amina for the customer login; idempotent, link by link. */
