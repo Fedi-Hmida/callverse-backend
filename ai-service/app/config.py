@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     llm_provider: str = "groq"
     llm_model_light: str = "openai/gpt-oss-20b"
     llm_model_advanced: str = "openai/gpt-oss-120b"
+    # Empty retains the configured advanced model. A separate simulation model can be
+    # selected explicitly without silently changing the model that handles live banking.
+    llm_simulation_advisor_model: str = ""
+    llm_advisor_max_output_tokens: int = Field(default=600, ge=128, le=4096)
+    llm_advisor_history_messages: int = Field(default=10, ge=1, le=40)
+    llm_advisor_history_chars: int = Field(default=6000, ge=1000, le=24000)
 
     pgvector_dsn: str = "postgresql://user:pass@localhost:5432/callverse"
 

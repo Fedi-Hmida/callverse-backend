@@ -2,6 +2,7 @@
 import json
 import logging
 import re
+from copy import deepcopy
 import httpx
 from pydantic import ValidationError
 from app.config import settings
@@ -54,7 +55,7 @@ def _repair_and_validate_judge_result(raw_content: str, request: QualityRequest)
         val = raw_scores.get(code)
         try:
             scores[code] = max(0, min(10, int(round(float(val)))))
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, OverflowError):
             raise ValueError(f"Score absent ou illisible pour le critère {code}.") from None
     data["scores"] = scores
 
@@ -149,7 +150,15 @@ def call_judge(request: QualityRequest) -> JudgeResult:
     else:
         raise JudgeUnavailable(f"QUALITY_PROVIDER inconnu : {settings.quality_provider!r} (groq ou ollama).")
     raw_output = ask(_judge_context(request))
+    if not isinstance(raw_output, str) or not raw_output.strip():
+        raise InvalidJudgeOutput("Le modèle n'a fourni aucun texte d'évaluation.")
     try:
+        if provider == "groq":
+            data = json.loads(raw_output)
+            if isinstance(data, dict) and isinstance(data.get("evidence"), dict):
+                data["evidence"] = [dict(proof, criterion=code, score=data["scores"][code])
+                                    for code, proof in data["evidence"].items()]
+                raw_output = json.dumps(data, ensure_ascii=False)
         return _repair_and_validate_judge_result(raw_output, request)
     except (ValueError, KeyError, TypeError, ValidationError) as exc:
         logger.warning("Sortie du juge invalide: %s | brut=%s", exc, raw_output)
@@ -177,17 +186,57 @@ def _judge_context(request: QualityRequest) -> dict:
     return context
 
 
+def _groq_format(context: dict) -> dict:
+    if settings.quality_groq_model not in ("openai/gpt-oss-20b", "openai/gpt-oss-120b"):
+        return {"type": "json_object"}
+    from app.contracts.quality import CODES
+    schema = deepcopy(JudgeResult.model_json_schema())
+    schema["properties"]["scores"] = {
+        "type": "object", "properties": {code: {"type": "integer"} for code in sorted(CODES)},
+        "required": sorted(CODES), "additionalProperties": False}
+    quotes = list(dict.fromkeys(excerpt[:350]
+        for candidate in context.get("citation_candidates", [])
+        for excerpt in candidate["excerpts"] if excerpt.strip()))
+    # Fixed keys guarantee one genuine model-produced quote for every criterion.
+    proof = {"type": "object", "properties": {
+        "message_index": {"type": "integer"}, "evidence": {"type": "string", **({"enum": quotes} if quotes else {})},
+        "justification": {"type": "string"}},
+        "required": ["message_index", "evidence", "justification"], "additionalProperties": False}
+    schema["properties"]["evidence"] = {
+        "type": "object", "properties": {code: deepcopy(proof) for code in sorted(CODES)},
+        "required": sorted(CODES), "additionalProperties": False}
+    schema["$defs"].pop("CriterionScore", None)
+    advisor_quotes = list(dict.fromkeys(excerpt[:350]
+        for candidate in context.get("advisor_claim_candidates", [])
+        for excerpt in candidate["excerpts"] if excerpt.strip()))
+    if advisor_quotes:
+        schema["$defs"]["ClaimAssessment"]["properties"]["excerpt"]["enum"] = advisor_quotes
+    if not context.get("available_source_keys") and not (context.get("advisor_response") or {}).get("tool_calls"):
+        schema["$defs"]["ClaimAssessment"]["properties"]["status"]["enum"] = ["UNVERIFIABLE"]
+    return {"type": "json_schema", "json_schema": {
+        "name": "callverse_quality", "strict": True, "schema": schema}}
+
+
 def _ask_groq(context: dict) -> str:
-    """Le schéma attendu est dans le contexte (output_schema) ; json_object impose un JSON valide."""
+    """Use constrained output on the configured GPT-OSS models, then validate citations locally."""
+    response_format = _groq_format(context)
+    provider_context = dict(context)
+    if response_format["type"] == "json_schema":
+        provider_context.pop("output_schema", None)
+    prompt = SYSTEM_PROMPT
+    if response_format["type"] == "json_schema":
+        prompt += "\nFormat Groq : evidence est un objet dont les six clés sont les critères. " \
+                  "Chaque valeur contient message_index, evidence et justification. Les notes sont dans scores. " \
+                  "Sans documents ni résultats d'outils, les affirmations factuelles sont UNVERIFIABLE."
     try:
         with httpx.Client(timeout=httpx.Timeout(settings.quality_timeout_seconds, connect=10.0)) as client:
             response = client.post(
                 GROQ_CHAT_URL,
                 headers={"Authorization": f"Bearer {settings.llm_api_key}"},
                 json={"model": settings.quality_groq_model, "temperature": 0,
-                      "response_format": {"type": "json_object"},
-                      "messages": [{"role": "system", "content": SYSTEM_PROMPT},
-                                   {"role": "user", "content": json.dumps(context, ensure_ascii=False)}]},
+                      "response_format": response_format,
+                      "messages": [{"role": "system", "content": prompt},
+                                   {"role": "user", "content": json.dumps(provider_context, ensure_ascii=False)}]},
             )
             response.raise_for_status()
     except httpx.TimeoutException as exc:
@@ -200,6 +249,19 @@ def _ask_groq(context: dict) -> str:
     except httpx.HTTPStatusError as exc:
         status = exc.response.status_code
         logger.warning("Groq judge HTTP error: status=%s model=%s", status, settings.quality_groq_model)
+        # Groq can reject its own JSON formatting while returning the actual generation.
+        # Pass only that model output through our existing schema and citation checks;
+        # never replace missing scores or evidence with invented values.
+        if status == 400:
+            try:
+                error = exc.response.json().get("error", {})
+            except (ValueError, AttributeError):
+                error = {}
+            if not isinstance(error, dict):
+                error = {}
+            generation = error.get("failed_generation")
+            if error.get("code") == "json_validate_failed" and isinstance(generation, str) and generation.strip():
+                return generation
         if status == 429:
             raise JudgeUnavailable("Groq : quota de jetons atteint, reessayer plus tard.") from exc
         raise JudgeUnavailable(f"Groq a renvoye HTTP {status}.") from exc
@@ -207,9 +269,12 @@ def _ask_groq(context: dict) -> str:
         raise JudgeUnavailable("La communication avec Groq a echoue.") from exc
 
     try:
-        return response.json()["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, TypeError) as exc:
+        content = response.json()["choices"][0]["message"]["content"]
+    except (ValueError, KeyError, IndexError, TypeError) as exc:
         raise InvalidJudgeOutput("Réponse Groq malformée (pas de champ content).") from exc
+    if not isinstance(content, str) or not content.strip():
+        raise InvalidJudgeOutput("Réponse Groq malformée (content doit être un texte non vide).")
+    return content
 
 
 def _ask_ollama(context: dict) -> str:
@@ -251,9 +316,12 @@ def _ask_ollama(context: dict) -> str:
         raise JudgeUnavailable("La communication avec Ollama a echoue.") from exc
 
     try:
-        return response.json()["message"]["content"]
-    except (KeyError, TypeError) as exc:
+        content = response.json()["message"]["content"]
+    except (ValueError, KeyError, TypeError) as exc:
         raise InvalidJudgeOutput("Réponse Ollama malformée (pas de champ content).") from exc
+    if not isinstance(content, str) or not content.strip():
+        raise InvalidJudgeOutput("Réponse Ollama malformée (content doit être un texte non vide).")
+    return content
 
 def evaluate(request: QualityRequest) -> QualityScore:
     validate_rubric()

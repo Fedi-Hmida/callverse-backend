@@ -85,7 +85,7 @@ async def test_ticket_payload_matches_internal_contract_and_credit_501_is_explic
         incident_id="incident-1",
         category="CARD",
     )
-    credit = await client.apply_credit("customer-1", 10.0)
+    credit = await client.apply_credit("customer-1", 10.0, "conversation-1", "request-1")
     await client.aclose()
 
     assert ticket == {"id": "ticket-1"}

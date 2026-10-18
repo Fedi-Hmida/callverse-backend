@@ -5,8 +5,7 @@ Lit les articles Markdown dans app/advisor/kb/articles/, extrait le
 frontmatter (category, title, tags), decoupe le contenu en chunks,
 et insere le tout dans kb_article / kb_chunk via app.db.pgvector.
 
-Idempotent : un article deja present (meme titre exact) est ignore,
-pas reinsere.
+Un article deja present conserve son contenu et est reindexe sans doublons.
 
 Usage : python3 -m scripts.ingest_kb
 """
@@ -79,7 +78,12 @@ async def ingest_file(path: Path) -> None:
 
     existing_id = await pgvector.find_article_by_title(title)
     if existing_id:
-        print(f"  {path.name} -> deja present (article {existing_id}), ignore")
+        pool = await pgvector.get_pool()
+        async with pool.acquire() as conn:
+            existing_content = await conn.fetchval(
+                "SELECT content FROM kb_article WHERE id=$1", existing_id)
+        count = await pgvector.index_article(existing_id, chunk_text(existing_content))
+        print(f"  {path.name} -> deja present, index repare ({count} chunks)")
         return
 
     article_id = await pgvector.insert_article(
@@ -90,8 +94,7 @@ async def ingest_file(path: Path) -> None:
     )
 
     chunks = chunk_text(body)
-    for i, chunk in enumerate(chunks):
-        await pgvector.insert_chunk(article_id=article_id, chunk_index=i, content=chunk)
+    await pgvector.index_article(article_id, chunks)
 
     print(f"  {path.name} -> article {article_id} ({len(chunks)} chunks)")
 

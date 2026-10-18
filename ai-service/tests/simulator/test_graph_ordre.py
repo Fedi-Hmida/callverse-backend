@@ -91,8 +91,8 @@ def test_decider_action_bascule_en_abandonne_sous_le_seuil():
     assert result["status"] == "abandonne"
 
 
-def test_decider_action_bascule_en_resolu_si_satisfaction_haute():
-    state = _base_state(satisfaction=90.0, patience=50.0)
+def test_decider_action_bascule_en_resolu_si_objectif_confirme():
+    state = _base_state(satisfaction=90.0, patience=50.0, objective_met=True)
     result = decider_action(state)
     assert result["status"] == "resolu"
 

@@ -10,18 +10,43 @@ Noeuds du graphe LangGraph du Customer Advisor.
 from __future__ import annotations
 
 import logging
+from typing import Literal
+from uuid import NAMESPACE_URL, uuid5
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_groq import ChatGroq
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.advisor.kb.retriever import search_knowledge_base
 from app.advisor.prompts import ADVISOR_SYSTEM_PROMPT, LOW_CONFIDENCE_THRESHOLD
 from app.advisor.state import AdvisorGraphState
 from app.advisor.tools import TOOL_IMPLEMENTATIONS, TOOL_SPECS
 from app.config import settings
-from app.contracts.advisor import Mode
+from app.contracts.advisor import Intent, Mode
+from app.provider_retry import invoke_with_retry
 
 logger = logging.getLogger(__name__)
+
+
+class _FinalDecision(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+    action: Literal["respond", "escalate"]
+    reply: str = Field(min_length=1)
+    intent: Intent
+    confidence: float = Field(ge=0, le=1)
+    reason: str | None = None
+
+
+def _invalid_decision(state: AdvisorGraphState) -> dict:
+    # Provider-generated arguments are untrusted even when function calling is required.
+    # Keep the conversation usable and preserve already executed tools for its trace.
+    return {"decision": {
+        "action": "escalate",
+        "reply": "Je préfère transmettre votre demande à un superviseur.",
+        "intent": "OTHER", "confidence": 0.0,
+        "reason": "le modele n'a produit aucun appel d'outil exploitable",
+    }, "iterations": state.get("iterations", 0) + 1}
+
 
 MAX_ITERATIONS = 4
 """Tours de decide() par message client. Le dernier est reserve a la conclusion (finalize_response
@@ -63,6 +88,7 @@ _FINALIZE_TOOL_SPEC = {
             "intent": {
                 "type": "string",
                 "enum": ["BALANCE", "CARD", "CREDIT", "FRAUD", "ACCOUNT_CLOSURE", "OTHER"],
+                "description": "Utilise exactement une valeur autorisee. Pour une question generale sur les comptes, utilise OTHER, jamais ACCOUNTS.",
             },
             "confidence": {
                 "type": "number",
@@ -91,6 +117,7 @@ def _to_openai_tool(spec: dict) -> dict:
 
 _decide_llm = None
 _final_llm = None
+_simulation_llms = {}
 
 
 def _get_decide_llm(final: bool = False):
@@ -109,13 +136,27 @@ def _get_decide_llm(final: bool = False):
     return _decide_llm
 
 
-def _new_groq() -> ChatGroq:
+def _get_simulation_llm(final: bool = False):
+    model = settings.llm_simulation_advisor_model.strip() or settings.llm_model_advanced
+    key = (model, final)
+    if key not in _simulation_llms:
+        specs = [_FINALIZE_TOOL_SPEC] if final else TOOL_SPECS + [_FINALIZE_TOOL_SPEC]
+        _simulation_llms[key] = _new_groq(model=model).bind_tools(
+            [_to_openai_tool(spec) for spec in specs],
+            tool_choice=_FINALIZE_TOOL_SPEC["name"] if final else "required",
+        )
+    return _simulation_llms[key]
+
+
+def _new_groq(model: str | None = None) -> ChatGroq:
     return ChatGroq(
-        model=settings.llm_model_advanced,
+        model=model or settings.llm_model_advanced,
         api_key=settings.llm_api_key,
         temperature=0.2,
-        max_retries=1,
+        reasoning_effort="low",
+        max_retries=0,
         timeout=20,
+        max_tokens=settings.llm_advisor_max_output_tokens,
     )
 
 
@@ -142,7 +183,18 @@ def _build_messages(state: AdvisorGraphState) -> list:
     context_note = ", ".join(context_details) + "."
     messages.append(SystemMessage(content=context_note))
 
-    for h in request.history:
+    # Bound request growth across dialogue turns. Never truncate the trusted context or
+    # the current customer message; explicitly disclose omitted older history to the model.
+    selected = []
+    remaining = settings.llm_advisor_history_chars
+    for h in reversed(request.history[-settings.llm_advisor_history_messages:]):
+        if len(h.content) > remaining:
+            break
+        selected.append(h)
+        remaining -= len(h.content)
+    if len(selected) != len(request.history):
+        messages.append(SystemMessage(content="[Historique ancien omis pour limiter le contexte. Ne suppose aucun fait absent.]"))
+    for h in reversed(selected):
         if h.role.value == "customer":
             messages.append(HumanMessage(content=h.content))
         else:
@@ -165,7 +217,9 @@ async def decide(state: AdvisorGraphState) -> dict:
     from groq import BadRequestError
 
     final = state.get("iterations", 0) >= MAX_ITERATIONS - 1
-    llm = _get_decide_llm(final=final)
+    simulation = state["request"].mode == Mode.simulation
+    llm = _get_simulation_llm(final=final) if simulation else _get_decide_llm(final=final)
+    model = (settings.llm_simulation_advisor_model.strip() if simulation else "") or settings.llm_model_advanced
     messages = _build_messages(state)
     if final:
         messages.append(SystemMessage(content=_BUDGET_NOTE))
@@ -173,38 +227,46 @@ async def decide(state: AdvisorGraphState) -> dict:
     response = None
     for _attempt in range(2):
         try:
-            response = await llm.ainvoke(messages)
+            response = await invoke_with_retry(llm, messages, model=model)
             break
         except BadRequestError as exc:
             # Groq rejette l'appel si le modele repond en texte au lieu d'appeler un outil
             if "tool_use_failed" not in str(exc):
                 raise
+            # Repeating the same rejected arguments produced the same schema error in
+            # real Groq calls (notably intent=ACCOUNTS). Give bounded corrective feedback
+            # without echoing untrusted provider text or replaying a completed tool.
+            messages.append(SystemMessage(content=(
+                "Le dernier appel a ete refuse car il ne respecte pas le schema des outils. "
+                "Corrige les arguments. Pour finalize_response : action vaut respond ou escalate ; "
+                "intent vaut exactement BALANCE, CARD, CREDIT, FRAUD, ACCOUNT_CLOSURE ou OTHER. "
+                "Pour toute autre intention, utilise OTHER (jamais ACCOUNTS). "
+                "confidence est un nombre entre 0 et 1 et reply est un texte non vide. "
+                "Conserve les resultats des outils deja executes et conclus si tu peux repondre."
+            )))
 
     if response is None or not response.tool_calls:
         # filet de securite si le modele ne respecte pas tool_choice="required"
-        decision = {
-            "action": "escalate",
-            "reply": "Je préfère transmettre votre demande à un superviseur.",
-            "intent": "OTHER",
-            "confidence": 0.0,
-            "reason": "le modele n'a produit aucun appel d'outil exploitable",
-        }
-        return {"decision": decision, "iterations": state.get("iterations", 0) + 1}
+        return _invalid_decision(state)
 
     call = response.tool_calls[0]
-    tool_name = call["name"]
+    if not isinstance(call, dict):
+        return _invalid_decision(state)
+    tool_name = call.get("name")
     args = call.get("args", {})
+    if not isinstance(args, dict):
+        return _invalid_decision(state)
 
     if tool_name == "finalize_response":
-        decision = {
-            "action": args.get("action", "respond"),
-            "reply": args.get("reply", ""),
-            "intent": args.get("intent", "OTHER"),
-            "confidence": float(args.get("confidence", 0.5)),
-        }
-        if args.get("action") == "escalate":
-            decision["reason"] = args.get("reason") or "incertitude de l'agent"
+        try:
+            decision = _FinalDecision.model_validate(args).model_dump(exclude_none=True)
+        except ValidationError:
+            return _invalid_decision(state)
+        if decision["action"] == "escalate":
+            decision["reason"] = decision.get("reason") or "incertitude de l'agent"
     else:
+        if tool_name not in {spec["name"] for spec in TOOL_SPECS}:
+            return _invalid_decision(state)
         decision = {
             "action": "call_tool",
             "tool_name": tool_name,
@@ -218,7 +280,7 @@ TRUSTED_IDENTIFIERS: dict[str, tuple[str, ...]] = {
     "get_customer": ("customer_id",),
     "get_transactions": ("customer_id",),
     "create_case": ("customer_id", "conversation_id"),
-    "apply_credit": ("customer_id",),
+    "apply_credit": ("customer_id", "conversation_id"),
 }
 """Arguments taken from the backend's request, never from the LLM: a customer message cannot
 steer a tool towards another customer or conversation. They are absent from TOOL_SPECS."""
@@ -228,6 +290,12 @@ def _with_trusted_identifiers(tool_name: str, arguments: dict, request) -> dict:
     trusted = dict(arguments)
     for identifier in TRUSTED_IDENTIFIERS.get(tool_name, ()):
         trusted[identifier] = str(getattr(request, identifier))
+    if tool_name == "apply_credit":
+        # One idempotency identity per trusted customer turn, even if the model repeats
+        # the tool or changes its amount. Neither an LLM nor SDK retry chooses this key.
+        previous = request.history[-1].ts.isoformat() if request.history else "first-turn"
+        trusted["request_id"] = str(uuid5(NAMESPACE_URL,
+            f"{request.conversation_id}:{previous}:{request.message}"))
     return trusted
 
 

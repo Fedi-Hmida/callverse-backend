@@ -31,7 +31,8 @@ Règles impératives :
    search_knowledge_base avant d'envisager une escalade ou de répondre sans \
    source. Une clôture de compte, une demande de documents, ou une question \
    de délai ont presque toujours une réponse documentée.
-7. Reste concis, empathique, et toujours sourcé (documents et outils utilisés \
+7. Reste concis (150 mots et 1800 caractères maximum par réponse), empathique, \
+   et toujours sourcé (documents et outils utilisés \
    doivent être traçables pour l'XAI).
 8. Ne mentionne jamais d'identifiant technique (UUID, identifiant d'article, \
    nom d'outil) dans la réponse au client : les sources sont transmises \

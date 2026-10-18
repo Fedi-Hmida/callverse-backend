@@ -52,7 +52,7 @@ def test_abandon_sous_le_seuil_de_patience():
     assert result["status"] == "abandonne"
 
 
-def test_resolution_si_satisfaction_haute():
+def test_satisfaction_haute_ne_prouve_pas_la_resolution():
     state = {
         "profile": "calme",
         "patience": 60.0,
@@ -62,4 +62,4 @@ def test_resolution_si_satisfaction_haute():
         "status": "en_cours",
     }
     result = decider_action(state)
-    assert result["status"] == "resolu"
+    assert result["status"] == "en_cours"

@@ -31,14 +31,23 @@ class SimulatorState(BaseModel):
     patience: float = Field(ge=0, le=100)
     satisfaction: float = Field(ge=0, le=100)
     objective: str
-    objective_met: bool = False
+    # Independent of perceived satisfaction: operational completion requires the caller's
+    # verified state; an informational answer may be assessed with exact quoted evidence.
+    objective_met: bool = Field(
+        default=False,
+        strict=True,
+        description="Objectif confirme par preuve verifiee (operation: appelant; information: reponse citee), jamais par satisfaction seule.",
+    )
 
 
 class SimulatorRequest(BaseModel):
     conversation_id: UUID
     history: list[HistoryMessage] = Field(default_factory=list)
-    last_advisor_reply: str | None = None
-    wait_seconds: int = Field(ge=0, default=0)
+    last_advisor_reply: str | None = Field(
+        default=None, description="Derniere reponse, ajoutee si elle n'est pas deja a la fin de l'historique.")
+    wait_seconds: int = Field(
+        ge=0, default=0,
+        description="Attente supplementaire depuis le tour precedent, en secondes (pas un cumul).")
     state: SimulatorState
 
 

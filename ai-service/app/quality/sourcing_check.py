@@ -9,6 +9,9 @@ from app.contracts.quality import JudgeResult, QualityRequest
 
 def _normalize(text: str) -> str:
     """Ignore les différences de forme (apostrophes typographiques, espaces, casse)."""
+    # Some JSON generators double-escape line breaks inside copied quotations.
+    # Compare their whitespace form only; this never supplies missing words.
+    text = text.replace("\\n", " ").replace("\\r", " ").replace("\\t", " ")
     text = (text.replace("\u2019", "'").replace("\u2018", "'")
                 .replace("\u00a0", " ").replace("\u202f", " "))
     text = unicodedata.normalize("NFKD", text)
@@ -52,7 +55,10 @@ def validate_references(request: QualityRequest, result: JudgeResult) -> None:
         if not 0 <= item.message_index < len(request.messages):
             raise ValueError("Index de preuve hors de la conversation.")
         excerpt = item.evidence if hasattr(item, "evidence") else item.excerpt
-        if _normalize(excerpt) not in _normalize(request.messages[item.message_index].content):
+        normalized_excerpt = _normalize(excerpt)
+        if not normalized_excerpt:
+            raise ValueError("L'extrait doit contenir du texte vérifiable.")
+        if normalized_excerpt not in _normalize(request.messages[item.message_index].content):
             logging.getLogger(__name__).warning(
                 "Extrait refuse: message_index=%s extrait=%r message=%r",
                 item.message_index, excerpt, request.messages[item.message_index].content)
@@ -65,7 +71,7 @@ def validate_references(request: QualityRequest, result: JudgeResult) -> None:
             raise ValueError("Le juge cite un document non fourni.")
         if claim.status == "SUPPORTED" and not claim.source_keys:
             tools = request.advisor_response.tool_calls if request.advisor_response else []
-            if not any(t.tool in claim.justification and t.result_summary for t in tools):
+            if not any(t.ok and t.tool in claim.justification and t.result_summary.strip() for t in tools):
                 raise ValueError("Une affirmation confirmée nécessite un document ou un outil cité.")
 
 def detect_unsourced_claims(advisor_response: AdvisorResponse) -> list[str]:

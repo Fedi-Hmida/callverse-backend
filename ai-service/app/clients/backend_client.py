@@ -125,14 +125,18 @@ class BackendClient:
             payload["description"] = f"Incident lié : {incident_id}"
         return await self._post("/internal/tickets", payload)
 
-    async def apply_credit(self, customer_id: str, amount: float) -> dict[str, Any]:
+    async def apply_credit(self, customer_id: str, amount: float, conversation_id: str,
+                           request_id: str, reason: str = "Geste commercial demandé pendant la conversation") -> dict[str, Any]:
         client = self._get_client()
         response = await client.post(
             "/internal/credits",
-            json={"customer_id": customer_id, "amount": amount},
+            json={"customerId": customer_id, "conversationId": conversation_id,
+                  "requestId": request_id, "amount": amount, "reason": reason},
         )
         if response.status_code == 501:
             return {"code": "NOT_IMPLEMENTED", "available": False}
+        if response.status_code == 409 and response.json().get("code") == "CREDIT_LIMIT_EXCEEDED":
+            return {"code": "CREDIT_LIMIT_EXCEEDED", "applied": False, "requires_approval": True}
         response.raise_for_status()
         return response.json()
 

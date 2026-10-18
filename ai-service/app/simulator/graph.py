@@ -11,10 +11,11 @@ from langgraph.graph import StateGraph, END
 from app.config import settings
 from app.simulator.profiles import PROFILES
 from app.simulator.prompts import build_system_prompt
+from app.simulator.assessment import informational_answer_verified, parse_turn, reply_addresses_objective
 from .state import SimulatorState
 
 
-def _get_llm(max_tokens: int = 400) -> ChatGroq:
+def _get_llm(max_tokens: int = 600) -> ChatGroq:
     return ChatGroq(
         model=settings.llm_model_light,
         api_key=settings.llm_api_key,
@@ -22,11 +23,12 @@ def _get_llm(max_tokens: int = 400) -> ChatGroq:
         max_retries=1,
         timeout=15,
         max_tokens=max_tokens,
+        model_kwargs={"response_format": {"type": "json_object"}},
     )
 
 
 def generer_message(state: SimulatorState) -> SimulatorState:
-    """Le LLM formule UNIQUEMENT le texte du message client."""
+    """Generate wording and informational assessment together, with no extra LLM call."""
     system_prompt = build_system_prompt(
         profile_key=state["profile"],
         objective=state["objective"],
@@ -47,19 +49,24 @@ def generer_message(state: SimulatorState) -> SimulatorState:
         f"Écris ton prochain message, TOUJOURS en français."
     )
 
-    content = _get_llm().invoke(prompt).content.strip()
+    raw = _get_llm().invoke(prompt).content.strip()
 
-    if not content:
+    if not raw:
         # filet de securite : un message vide n'est jamais acceptable,
         # on relance une fois avec une instruction plus explicite
-        content = _get_llm(max_tokens=200).invoke(
+        raw = _get_llm(max_tokens=400).invoke(
             f"{prompt}\n\nIMPORTANT: reponds obligatoirement par une phrase "
             f"en français, jamais par un message vide."
         ).content.strip()
 
-    if not content:
-        # dernier recours si le LLM persiste a ne rien produire
-        content = "..."
+    turn = parse_turn(raw) if raw else None
+    if turn and informational_answer_verified(state["objective"], state["messages"], turn):
+        return {**state, "objective_met": True, "status": "resolu"}
+
+    # An old/unstructured provider response cannot attest fulfillment. Preserve plain
+    # wording for compatibility, but do not expose malformed JSON as a customer message.
+    content = turn.content.strip() if turn else (raw if raw and not raw.startswith(("{", "[", "```")) else "...")
+    content = content or "..."
 
     new_messages = state["messages"] + [{"role": "customer", "content": content}]
 
@@ -73,6 +80,10 @@ def evaluer_reponse_recue(state: SimulatorState) -> SimulatorState:
     serait le cas d'un simple message d'accueil).
     """
     config = PROFILES[state["profile"]]
+    # Waiting and perceived reply quality are separate costs. Apply incremental waiting
+    # even when the advisor has not answered; one minute costs one profile base decay.
+    state = {**state, "patience": max(
+        0.0, state["patience"] - config.patience_decay_base * state.get("wait_seconds", 0) / 60.0)}
     messages = state["messages"]
 
     customer_messages = [m for m in messages if m["role"] == "customer"]
@@ -102,7 +113,8 @@ def evaluer_reponse_recue(state: SimulatorState) -> SimulatorState:
         "justif", "résili", "clôtur", "confirm", "effectu", "valid", "délai", "contrat", "frais",
     )
     has_concrete_signal = any(c.isdigit() for c in last_reply) or any(k in lower_reply for k in action_keywords)
-    is_vague = len(last_reply) < 40 or not has_concrete_signal
+    is_vague = (len(last_reply) < 40 or not has_concrete_signal
+                or not reply_addresses_objective(state["objective"], last_reply))
 
     patience = state["patience"]
     satisfaction = state["satisfaction"]
@@ -124,11 +136,15 @@ def decider_action(state: SimulatorState) -> SimulatorState:
     """Decision deterministe de statut, jamais confiee au LLM."""
     config = PROFILES[state["profile"]]
 
+    # Satisfaction is a perception measure, not evidence of completion. Neither a
+    # plausible answer nor a claimed card block proves that the objective was met.
+    # Incoming verified completion can terminate without another wording/model call.
+    # Informational assessment is handled later with exact evidence in generer_message.
+    if state.get("objective_met", False):
+        return {**state, "status": "resolu"}
+
     if state["patience"] <= config.abandon_threshold:
         return {**state, "status": "abandonne"}
-
-    if state["satisfaction"] >= 85.0:
-        return {**state, "status": "resolu"}
 
     return {**state, "status": "en_cours"}
 

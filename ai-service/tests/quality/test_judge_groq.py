@@ -32,6 +32,20 @@ def test_groq_est_le_fournisseur_par_defaut():
     assert judge.settings.__class__.model_fields["quality_provider"].default == "groq"
 
 
+def test_provider_rejected_generation_still_requires_valid_scores_and_citations(monkeypatch):
+    data = result().model_dump_json()
+    _use_groq(monkeypatch, lambda _: httpx.Response(400, json={"error": {
+        "code": "json_validate_failed", "failed_generation": data}}))
+    assert judge.evaluate(request()).global_score > 0
+
+
+def test_provider_rejected_generation_cannot_invent_a_missing_grade(monkeypatch):
+    _use_groq(monkeypatch, lambda _: httpx.Response(400, json={"error": {
+        "code": "json_validate_failed", "failed_generation": "not a grade"}}))
+    with pytest.raises(judge.InvalidJudgeOutput):
+        judge.evaluate(request())
+
+
 def test_groq_recoit_le_modele_la_cle_et_un_json_impose(monkeypatch):
     seen = {}
 
@@ -47,9 +61,35 @@ def test_groq_recoit_le_modele_la_cle_et_un_json_impose(monkeypatch):
     assert seen["url"] == "https://api.groq.com/openai/v1/chat/completions"
     assert seen["auth"] == "Bearer test-key"
     assert seen["body"]["model"] == "openai/gpt-oss-20b"
-    assert seen["body"]["response_format"] == {"type": "json_object"}
+    structured = seen["body"]["response_format"]
+    assert structured["type"] == "json_schema"
+    assert structured["json_schema"]["strict"] is True
+    assert set(structured["json_schema"]["schema"]["properties"]["evidence"]["required"]) == set(result().scores)
     assert seen["body"]["temperature"] == 0
     assert [m["role"] for m in seen["body"]["messages"]] == ["system", "user"]
+
+
+def test_structured_evidence_keeps_model_scores_and_public_contract(monkeypatch):
+    data = result().model_dump()
+    data["evidence"] = {e["criterion"]: {k: e[k] for k in ("message_index", "evidence", "justification")}
+                        for e in data["evidence"]}
+    _use_groq(monkeypatch, lambda _: _groq_answer(json.dumps(data)))
+    output = judge.evaluate(request())
+    assert len(output.evidence) == 6
+    assert output.scores == result().scores
+
+
+def test_no_sources_cannot_produce_supported_claims():
+    schema = judge._groq_format({"available_source_keys": [], "advisor_response": None})
+    assert schema["json_schema"]["schema"]["$defs"]["ClaimAssessment"]["properties"]["status"]["enum"] == ["UNVERIFIABLE"]
+
+
+def test_structured_quotes_are_limited_to_actual_conversation_text():
+    context = judge._judge_context(request())
+    schema = judge._groq_format(context)["json_schema"]["schema"]
+    quotes = schema["properties"]["evidence"]["properties"]["empathy"]["properties"]["evidence"]["enum"]
+    assert quotes
+    assert all(any(quote in message.content for message in request().messages) for quote in quotes)
 
 
 def test_groq_sans_cle_refuse_sans_appel(monkeypatch):
