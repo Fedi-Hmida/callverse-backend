@@ -9,11 +9,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# torch depuis l'index CPU d'abord : sans cela, pip tire la version CUDA (plusieurs Go).
-RUN pip install --index-url https://download.pytorch.org/whl/cpu torch
-
-COPY requirements.txt .
-RUN pip install -r requirements.txt
+# Versions exactes (requirements.lock, torch CPU inclus) : deux builds donnent la même image.
+COPY requirements.lock .
+RUN pip install -r requirements.lock
 
 COPY app ./app
 # Seul le modèle servi par défaut (workforce_model_path) entre dans l'image.
