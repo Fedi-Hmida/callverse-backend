@@ -6,6 +6,7 @@
 > first 28 routes, the live channel). This guide covers only what the AI integration adds or changes.
 > **Source of truth:** `openapi.yaml` at the repository root (41 operations). If this guide and that
 > file disagree, the file wins, and please tell me.
+> **Start with §9:** it lists the screens to build, mapped to your files.
 
 ---
 
@@ -152,7 +153,7 @@ proposal, records it, and returns it. **It never moves anyone**: it is a proposa
 - `503 WORKFORCE_UNAVAILABLE`: the AI service is unavailable. Show "Proposition indisponible, réessayer".
 
 **Screen:** a card on the supervisor dashboard with a "Demander une proposition" button, the proposal
-in one sentence ("Déplacer 1 conseiller de CARTES vers COMPTES"), the reason, the caveats.
+in one sentence ("Déplacer 1 conseiller de CARTES vers COMPTES"), the reason, the caveats. Full spec in §9.3.
 
 ---
 
@@ -236,7 +237,7 @@ Errors (usual envelope):
 Returns the completed runs of the scenario, ordered by strategy then seed (same objects as above).
 Group by `strategyCode`, average over seeds if there are several.
 
-**Screen suggestion:** scenario selector → seed input (default 7) → "Lancer les 3 stratégies" (three
+**Screen suggestion (full spec in §9.4):** scenario selector → seed input (default 7) → "Lancer les 3 stratégies" (three
 POSTs; a 409 just means "already there") → a grouped bar chart per KPI (SLA, abandons, attente
 moyenne) with one bar per strategy, and a table below.
 
@@ -341,18 +342,242 @@ for the live payloads.
 
 ---
 
-## 9. Build order
+## 9. Screens to build, file by file
 
-1. **"Assistant IA" badge** on messages (`aiGenerated`) — small, visible, and a transparency
-   requirement.
-2. **Digital twin screen** — the most visible AI feature for the jury, and it works without an LLM
-   key.
-3. **Workforce proposal card** on the supervisor dashboard — also works without an LLM key.
-4. **Conversation simulation panel** — optional, needs the LLM key to show anything.
+This section maps every AI screen to your code (`callverse-frontend`, branch `fedi/updates` @
+362290b). For each one it gives where the change goes, the data, the states and when it is done.
+Reuse what you already have: `AiSlotView` for the states, `apiFetch` for the calls, `cv-*` classes
+for the look.
+
+### 9.0 Four fixes in your existing AI seams (do these first)
+
+Your AI seams were written before the backend existed. Four things no longer match:
+
+| # | File | Today | Change to |
+|---|---|---|---|
+| 1 | `lib/advisor.ts` → `messageFromEvent`, and `components/ConversationPanel.tsx` (the `useTopic` handler) | both rebuild a `Message` from the live event and **drop `aiGenerated`** | copy `aiGenerated: event.aiGenerated === true`. Otherwise the badge shows after a reload but not live |
+| 2 | `lib/contracts.ts` → `ConversationEvent` | no `aiGenerated` | add `aiGenerated: boolean \| null`. Regenerate `callverse-api.d.ts` from `openapi.yaml`; `Message.aiGenerated` is then a **required** boolean |
+| 3 | `lib/ai.ts` → `adaptWorkforce` | reads snake_case (`from_pool`, `to_pool`, `expected_gain`) and no `caveats` | the backend sends camelCase: `type`, `fromPool`, `toPool`, `count`, `reason`, `caveats[]`, `decisionId`, `generatedAt`, `requiresApproval`. Add `caveats` to `WorkforceViewModel` |
+| 4 | `lib/aiRequests.ts` → `AI_ENDPOINTS.suggestion` | `POST /conversations/{id}/suggestion` | **this route does not exist.** The AI answers the customer itself (`AUTONOMOUS`). Keep `AI_FEATURES.suggestion = false`; the slot keeps saying « Bientôt disponible » |
+
+**`AI_FEATURES` after this guide:**
+
+```ts
+export const AI_FEATURES: Record<AiFeature, boolean> = {
+  suggestion: false, // no route: the AI replies directly (§3)
+  workforce: true,   // requestWorkforceRecommendation
+  quality: false,    // no read route yet (§11)
+  simulation: true,  // twin + conversation simulation
+};
+```
+
+**A caveat on `useAiCapability`.** `/health/status` reports the *backend's* health. It has no field
+for the AI service, so `UP` does not mean the AI answers. Keep the hook as it is (it only
+downgrades), and treat `503 WORKFORCE_UNAVAILABLE` from a call as the real "AI down" signal: map it
+to the slot's `error` state with a « Réessayer » button.
+
+### 9.1 « Assistant IA » badge in every transcript — all roles
+
+**Where:** `components/ChatThread.tsx`, inside the message loop. It serves the customer
+(`app/client`), the advisor (`components/advisor/ChatPanel.tsx`) and the supervisor
+(`ConversationPanel role="SUPERVISOR"`), so one change covers all three.
+
+**Data:** `message.aiGenerated` (REST `listMessages`, live `MESSAGE_POSTED`). No new call.
+
+**Render:** in `cv-message-name`, next to the sender label, when `message.aiGenerated` is true:
+
+```
+ Conseiller · Assistant IA            10:42
+┌──────────────────────────────────────────┐
+│ Je vérifie votre carte tout de suite.     │
+└──────────────────────────────────────────┘
+```
+
+- Badge text « Assistant IA », in the same pill style as the « Généré par l'IA » badge in
+  `AiSlotView`. Do not rely on colour alone: give it text and
+  `aria-label="Message rédigé par l'assistant IA"`.
+- For the customer, replace the advisor's name with « Assistant IA »: no person wrote it.
+- For the advisor, keep AI messages in the transcript, at the same weight as human ones. They show
+  what the customer was told before the advisor took over.
+
+**Done when:**
+- [ ] An AI reply shows the badge in the customer, advisor and supervisor views, both after a reload
+      and when it arrives live.
+- [ ] A human advisor reply never shows it (`aiGenerated: false`).
+- [ ] `STATUS_CHANGED` events (with `aiGenerated: null`) change nothing in the transcript.
+
+### 9.2 Advisor workspace — human takeover notice
+
+**Where:** `components/advisor/ChatPanel.tsx`, above the composer.
+
+**Rule:** if the conversation contains at least one `aiGenerated` message and no human advisor message
+yet, show a one-line notice:
+
+```
+ⓘ L'assistant IA a répondu à ce client. Votre premier message reprend la main : l'IA ne répondra plus.
+```
+
+It disappears once the advisor sends their first message. Derive it from `messages`; there is no call
+and no server state to read.
+
+**Leave the « Suggestion de réponse » slot as it is** (`AiSlotView` + `SuggestionCard`): with
+`AI_FEATURES.suggestion = false` it renders « Bientôt disponible », which is true.
+
+**Done when:**
+- [ ] The notice shows only when the AI has spoken and no human has.
+- [ ] It disappears right after the advisor's first send, without a reload.
+
+### 9.3 Supervisor dashboard — workforce proposal card
+
+**Where:** `app/supervisor/page.tsx`, with a new `components/supervisor/WorkforceCard.tsx` placed
+after `<KpiTiles>` and before the two-column row. Add a sidebar item in
+`components/shell/navItems.ts` → `Superviseur`: `{ id: "workforce", label: "Proposition IA", icon:
+Sparkles }`, and give the card `id="workforce"` (the sidebar scrolls to section ids).
+
+**Data:** `requestWorkforceRecommendation`, `POST /supervision/workforce/recommendations`, no body
+(§4). Call it only when the button is clicked, never on load or on a timer: the backend records each
+call.
+
+**States (inside `AiSlotView`, `feature="workforce"`):**
+
+| State | What shows |
+|---|---|
+| idle | title « Proposition de répartition », button « Demander une proposition » |
+| loading | the slot's loader; button disabled |
+| ready, `type: "REASSIGN"` | « Déplacer **1** conseiller de **Cartes** vers **Comptes** » (use `skillLabel` from `lib/presentation.ts`), `reason` below, then `caveats` in small grey text |
+| ready, `type: "NONE"` | « Aucun changement recommandé pour l'instant », `reason`, `caveats` |
+| error 503 | « Proposition indisponible » + « Réessayer » |
+| error 403 | hide the card (the user is not a supervisor) |
+
+Always show a disabled « Appliquer » button labelled « Validation humaine à venir »: there is no
+approve route yet (§11). Show `generatedAt` as « il y a 2 min ».
+
+```
+┌ Proposition de répartition ─────────── Généré par l'IA ┐
+│ Déplacer 1 conseiller de Cartes vers Comptes            │
+│ PPO propose de renforcer COMPTES (15 clients, 120 s…)   │
+│ · SLA non mesuré, valeur neutre utilisée                │
+│ [Appliquer — validation humaine à venir]  [Redemander]  │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Done when:**
+- [ ] One click gives one proposal; a second click gives a new one.
+- [ ] `NONE` and `REASSIGN` both read as a sentence, with the caveats visible.
+- [ ] With the AI service stopped, the card shows the 503 message, and « Réessayer » works once the
+      service is back.
+
+### 9.4 Digital twin page — supervisor and admin
+
+This is the most visible AI screen, and it works without an LLM key.
+
+**Where:** a new route `app/supervisor/twin/page.tsx` (in `AppShell role="Superviseur"`). Add a
+sidebar item `{ id: "twin", label: "Jumeau numérique", icon: FlaskConical }` that links to it. For
+the admin, add the tab « Jumeau numérique » to `tabs` in `app/admin/page.tsx` and to
+`itemsByRole["Analyste / Admin"]`, and render the same component. Put the screen in
+`components/twin/TwinLab.tsx` so both pages share it.
+
+**Data (§5):** `listScenarios` on load; `runDigitalTwin` three times on « Lancer »;
+`compareDigitalTwinRuns?scenarioId=` after the runs and when the scenario changes.
+
+**Layout:**
+
+```
+┌ Jumeau numérique ──────────────────────────────────────────────────┐
+│ Scénario [Démo — journée chargée ▾]   Graine [ 7 ]   [Lancer les 3] │
+├────────────────────────────────────────────────────────────────────┤
+│ SLA            ███████ 31,3 %  ██████ 27,0 %  █████████ 42,6 %     │
+│ Abandons       ███ 12,9 %      ██ 9,1 %       ████ 18,9 %          │
+│ Attente moy.   3:50            3:30           3:21                 │
+│                Statique        Seuil          IA (PPO)             │
+├────────────────────────────────────────────────────────────────────┤
+│ Stratégie | Graines | Clients | SLA | Abandons | Attente | P95      │
+│ …one row per strategy, averaged over seeds…                        │
+└────────────────────────────────────────────────────────────────────┘
+ ⓘ L'IA améliore le SLA mais augmente les abandons à charge faible et moyenne.
+```
+
+**Behaviour:**
+- « Lancer les 3 » sends the three POSTs **one after the other** (same `scenarioId` and `seed`, one
+  per `strategyCode`), then reloads the comparison. Each run takes under a second.
+- `409 SIMULATION_RUN_ALREADY_EXISTS` is a success: show « Déjà calculé », not an error.
+- `503 WORKFORCE_UNAVAILABLE` on one strategy: mark that strategy « Indisponible — Réessayer » and
+  keep the others. The same request works on retry.
+- `400 VALIDATION_FAILED`: show `message` under the form (a negative seed, for example).
+- Charts: show SLA and abandons **together**, never SLA alone (§5 explains why). Percentages to one
+  decimal, waits as `m:ss`, French number format.
+- Empty comparison: « Aucun résultat pour ce scénario. Lancez les trois stratégies. »
+- Use the strategy labels from §5, not the codes.
+
+**Done when:**
+- [ ] On a fresh database: pick « journée chargée », seed 7, « Lancer » → three bars per KPI, and the
+      numbers match the table in §5.
+- [ ] « Lancer » again with the same seed shows « Déjà calculé » and the same chart.
+- [ ] Seed 8 adds a second run per strategy, and the table averages them.
+- [ ] Advisors and customers never see the menu item; a direct visit gets 403 → « Accès refusé ».
+
+### 9.5 Conversation simulation panel — optional
+
+It only produces something with the team's LLM key, so build it last.
+
+**Where:** a second block on the twin page: « Simuler un client ».
+
+**Form:** scenario (from `listScenarios`), profile (`CALME` … `CHURN`, with French labels), objective
+(text), patience and satisfaction (0–100 sliders), max turns (1–50, default 6). By default send
+`strategyCode: "STATIC_FIFO"`, a seed and `customerSegment: "MASS"` (§6).
+
+**Flow:** `startConversationSimulation` → `202` → poll `getConversationSimulation` every 1.5 s until
+`COMPLETED` or `FAILED`. Stop polling when the user leaves the page (`AbortController`, as
+`useSuggestion` does).
+
+| Status | What shows |
+|---|---|
+| `PENDING` / `RUNNING` | loader, « Simulation en cours… » |
+| `COMPLETED` | final conversation status (`RESOLVED` → « Résolue », `ABANDONED` → « Abandonnée »), `messageCount`, duration |
+| `FAILED` | `errorMessage` (without the LLM key: « Service IA indisponible ») |
+| 409 | « Déjà simulé avec cette graine » — change the seed |
+
+`adaptSimulationTurn` in `lib/ai.ts` describes one *turn*. The backend returns the *run*, so this
+panel does not use it.
+
+**Done when:**
+- [ ] With the LLM key, a run reaches `COMPLETED` and shows its outcome.
+- [ ] Without it, the run reaches `FAILED` with a readable message, and the page stays usable.
+
+### 9.6 What not to build
+
+| Do not build | Why |
+|---|---|
+| A switch to turn the AI on or off | `AI_ADVISOR_MODE` is a server setting (§3) |
+| Any call to `/internal/**` or to the AI service | the browser only talks to `/api/v1`; those routes refuse user tokens |
+| A quality-grade screen | no read route yet; keep `AI_FEATURES.quality = false` |
+| An "approve proposal" action | no route yet; a disabled button only |
+| A scenario editor | no route yet; use the three demo scenarios |
+
+### 9.7 Screens per role
+
+| Role | Screens touched |
+|---|---|
+| Customer | 9.1 badge |
+| Advisor | 9.1 badge, 9.2 takeover notice |
+| Supervisor | 9.1 badge (open conversation), 9.3 workforce card, 9.4 twin page, 9.5 simulation |
+| Admin | 9.4 twin tab, 9.5 simulation |
 
 ---
 
-## 10. Not ready yet — mock these
+## 10. Build order
+
+0. **The four seam fixes** (§9.0) — an hour of work, and everything below depends on them.
+1. **"Assistant IA" badge** on messages (`aiGenerated`, §9.1, plus the takeover notice §9.2) — small, visible, and a transparency
+   requirement.
+2. **Digital twin screen** (§9.4) — the most visible AI feature for the jury, and it works without an LLM
+   key.
+3. **Workforce proposal card** on the supervisor dashboard (§9.3) — also works without an LLM key.
+4. **Conversation simulation panel** (§9.5) — optional, needs the LLM key to show anything.
+
+---
+
+## 11. Not ready yet — mock these
 
 | Missing | Why | Mock with |
 |---|---|---|
@@ -364,7 +589,7 @@ for the live payloads.
 
 ---
 
-## 11. Gotchas
+## 12. Gotchas
 
 1. **The backend now needs `INTERNAL_SERVICE_KEY` to start**, even if you never run the AI.
 2. **Never call `/internal/**`** from the browser; it is for the AI service only and refuses user tokens.
@@ -376,8 +601,9 @@ for the live payloads.
 
 ---
 
-## 12. Changelog
+## 13. Changelog
 
 | Date | Change |
 |---|---|
+| 2026-10-18 | §9 added: the AI screens mapped to the frontend code, four seam fixes, the `AI_FEATURES` values |
 | 2026-10-18 | AI integration merged into `main`: AI Advisor in live chats (OFF/AUTONOMOUS, human takeover, escalation, masking), `aiGenerated` on messages (REST and live), ordered live events, workforce recommendation, digital twin (scenarios, runs, comparison), conversation simulation, `INTERNAL_SERVICE_KEY` now required |
