@@ -66,6 +66,11 @@ public class WebSocketConfiguration implements WebSocketMessageBrokerConfigurer 
         registry.enableSimpleBroker("/topic")
                 .setHeartbeatValue(new long[] {10_000, 10_000})
                 .setTaskScheduler(brokerScheduler);
+        // The outbound channel is a thread pool, so two frames published back to back (a message,
+        // then the status change it caused) could reach a client in the wrong order. A screen that
+        // applies events as they come would then show ASSIGNED after ACTIVE. Keep each session's
+        // frames in publish order.
+        registry.setPreservePublishOrder(true);
     }
 
     @Override
