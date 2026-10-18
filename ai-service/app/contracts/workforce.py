@@ -34,3 +34,29 @@ class WorkforceAction(BaseModel):
     strategy: Strategy = "PPO"
     action_id: int = Field(default=0, ge=0, le=4)
     requires_approval: bool = True
+
+LoadProfile = Literal["LOW", "MEDIUM", "SATURATED"]
+
+class TwinRunRequest(BaseModel):
+    """Un run du jumeau : le scénario (charge, durée, effectif), la stratégie et la graine."""
+    model_config = ConfigDict(extra="forbid")
+    strategy: Strategy
+    seed: int = Field(ge=0, strict=True)
+    load_profile: LoadProfile
+    duration_minutes: int = Field(ge=1, le=1440, strict=True)
+    advisors_per_skill: int = Field(ge=1, le=50, strict=True)
+
+class TwinRunResult(BaseModel):
+    """KPI d'un run. sla_all_arrivals est le SLA de référence : il compte aussi les abandons."""
+    strategy: Strategy
+    seed: int
+    load_profile: LoadProfile
+    arrived: int
+    served: int
+    sla_rate: float
+    sla_all_arrivals: float
+    abandon_rate: float
+    avg_wait_seconds: float
+    p95_wait_seconds: float
+    pending: int
+    reassignments: int

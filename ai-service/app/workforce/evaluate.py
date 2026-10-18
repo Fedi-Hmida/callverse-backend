@@ -3,33 +3,22 @@ import argparse
 import json
 from pathlib import Path
 import numpy as np
-from stable_baselines3 import PPO
-from app.workforce.env import CallCenterEnv
-from app.workforce.baselines import threshold
+from app.workforce.twin import run_episode
 
 def evaluate_models(paths, seeds=range(42, 47), minutes=480):
-    models = {Path(p).stem: PPO.load(p, device="cpu") for p in paths}
+    models = {}
+    if paths:
+        # Import différé : comparer les seules baselines ne demande ni torch ni stable-baselines3.
+        from stable_baselines3 import PPO
+        models = {Path(p).stem: PPO.load(p, device="cpu") for p in paths}
     strategies = {"STATIC_FIFO": None, "THRESHOLD": None, **models}
     rows = []
     for load_name, scale in [("low", .2), ("medium", .35), ("saturated", 1.)]:
         for name, model in strategies.items():
-            runs = []
-            for seed in seeds:
-                env = CallCenterEnv(episode_minutes=minutes, arrival_scale=scale)
-                obs, _ = env.reset(seed=seed)
-                done = False
-                while not done:
-                    if model is not None:
-                        action = int(model.predict(obs, deterministic=True)[0])
-                    elif name == "THRESHOLD":
-                        result = threshold(env.api_state(), n=3)["action"]
-                        action = list(env.queues).index(result["to_pool"]) + 1 if result["type"] == "REASSIGN" else 0
-                    else:
-                        action = 0
-                    obs, _, terminated, truncated, info = env.step(action)
-                    done = terminated or truncated
-                runs.append(info["kpis"])
-                env.close()
+            # Même épisode que l'API du jumeau (twin.run_episode) : chiffres identiques.
+            strategy = "PPO" if model is not None else name
+            runs = [run_episode(strategy, seed, scale, minutes, advisors_per_skill=3, model=model)
+                    for seed in seeds]
             rows.append({"load": load_name, "strategy": name, "n": len(runs),
                          "metrics": {k: {"mean": float(np.mean([r[k] for r in runs])),
                                          "std": float(np.std([r[k] for r in runs], ddof=1)) if len(runs)>1 else 0.}
