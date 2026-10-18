@@ -68,6 +68,14 @@ public class ConversationEvents {
         safely(this::kpi);
     }
 
+    /**
+     * The customer removed the conversation from their space. Announced on its skill queue, which
+     * every advisor holding that skill listens to, whichever conversation is on their screen.
+     */
+    public void removedByCustomer(ConversationRecord conversation) {
+        safely(() -> queue(conversation, QueueEvent.Type.CONVERSATION_DELETED_BY_CUSTOMER));
+    }
+
     /** A status change known only by id: the escalation path, which holds no full record. */
     public void statusChanged(UUID conversationId, ConversationStatus status) {
         safely(() -> publisher.publishConversationEvent(

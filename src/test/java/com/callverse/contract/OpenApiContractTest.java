@@ -50,6 +50,7 @@ class OpenApiContractTest extends AbstractPersistenceTest {
             "listOwnAccounts",
             "listOwnTransactions",
             "openOwnConversation",
+            "deleteOwnConversation",
             "downloadOwnStatement",
             "adminProducts",
             "createAdminProduct",

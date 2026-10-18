@@ -23,6 +23,8 @@ public interface ConversationLifecycle {
      *
      * @throws com.callverse.core.application.exceptions.ResourceNotFoundException for an unknown
      *     customer or skill code
+     * @throws com.callverse.core.application.exceptions.ConversationAlreadyOpenException when the
+     *     customer already has a live conversation; checked under a lock on the customer
      */
     ConversationRecord open(UUID customerId, String skillCode, Intent intent, Channel channel, Instant now);
 

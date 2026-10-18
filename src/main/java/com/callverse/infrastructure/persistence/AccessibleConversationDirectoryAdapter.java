@@ -3,6 +3,7 @@ package com.callverse.infrastructure.persistence;
 import com.callverse.core.application.interfaces.AuthenticatedPrincipal;
 import com.callverse.core.application.interfaces.AccessibleConversationDirectory;
 import com.callverse.core.application.exceptions.InvalidRequestException;
+import com.callverse.core.application.features.conversation.ContactSubject;
 import com.callverse.core.domain.enums.ConversationStatus;
 import java.util.Map;
 import java.util.UUID;
@@ -20,15 +21,18 @@ class AccessibleConversationDirectoryAdapter implements AccessibleConversationDi
     @Override
     public Page search(AuthenticatedPrincipal caller, String query, ConversationStatus status, int page) {
         if (page < 0 || page > 10000 || query.length() > 120) throw new InvalidRequestException("Invalid directory filters.");
+        // A customer no longer sees what they removed; staff keep the record.
         String ownership = switch (caller.role()) {
-            case CUSTOMER -> "cu.user_id = :userId";
+            case CUSTOMER -> "cu.user_id = :userId and c.customer_deleted_at is null";
             case ADVISOR -> "a.user_id = :userId";
             case SUPERVISOR, ADMIN -> "true";
         };
+        boolean customer = caller.role() == com.callverse.core.domain.enums.UserRole.CUSTOMER;
         String sql = """
             select c.id, cu.first_name || ' ' || cu.last_name as customer_name,
-                   a.display_name as advisor_name, s.code as skill, c.intent, c.status,
-                   c.queued_at, left(coalesce(m.content, ''), 180) as preview
+                   a.display_name as advisor_name, s.code as skill, s.label as skill_label, c.intent, c.status,
+                   c.queued_at, left(coalesce(m.content, ''), 180) as preview,
+                   c.customer_deleted_at is not null as removed_by_customer
             from conversation c
             join customer cu on cu.id = c.customer_id
             join skill s on s.id = c.skill_id
@@ -47,7 +51,10 @@ class AccessibleConversationDirectoryAdapter implements AccessibleConversationDi
                 (rs, row) -> new Item(rs.getObject("id", UUID.class), rs.getString("customer_name"),
                         rs.getString("advisor_name"), rs.getString("skill"), rs.getString("intent"),
                         ConversationStatus.valueOf(rs.getString("status")), rs.getTimestamp("queued_at").toInstant(),
-                        rs.getString("preview")));
+                        rs.getString("preview"),
+                        customer ? rs.getString("advisor_name") : rs.getString("customer_name"),
+                        ContactSubject.of(rs.getString("intent"), rs.getString("skill_label")),
+                        rs.getBoolean("removed_by_customer")));
         return new Page(items.stream().limit(30).toList(), page, 30, items.size() > 30);
     }
 }

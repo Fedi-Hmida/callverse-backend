@@ -1,7 +1,10 @@
 package com.callverse.infrastructure.persistence;
 
+import com.callverse.core.application.exceptions.ConversationAlreadyOpenException;
+import com.callverse.core.application.exceptions.ConversationUnderSupervisionException;
 import com.callverse.core.application.exceptions.ResourceNotFoundException;
 import com.callverse.core.application.exceptions.SlaPolicyNotFoundException;
+import com.callverse.core.application.interfaces.CustomerConversationRemoval;
 import com.callverse.core.application.interfaces.AdvisorAgent.Source;
 import com.callverse.core.application.interfaces.AdvisorAgent.ToolCall;
 import com.callverse.core.application.interfaces.ConversationLifecycle;
@@ -69,7 +72,7 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Component
 @RequiredArgsConstructor
-class ConversationLifecycleAdapter implements ConversationLifecycle, ConversationMessages {
+class ConversationLifecycleAdapter implements ConversationLifecycle, ConversationMessages, CustomerConversationRemoval {
 
     /** What counts against {@code max_concurrent}: an escalated conversation is the supervisor's. */
     private static final Set<ConversationStatus> HELD_FOR_CAPACITY =
@@ -77,6 +80,10 @@ class ConversationLifecycleAdapter implements ConversationLifecycle, Conversatio
 
     private static final Set<ConversationStatus> HELD =
             EnumSet.of(ConversationStatus.ASSIGNED, ConversationStatus.ACTIVE, ConversationStatus.ESCALATED);
+
+    /** Not ended: a customer has at most one of these at a time. */
+    private static final Set<ConversationStatus> LIVE = EnumSet.of(ConversationStatus.QUEUED,
+            ConversationStatus.ASSIGNED, ConversationStatus.ACTIVE, ConversationStatus.ESCALATED);
 
     private final ConversationRepository conversations;
     private final MessageRepository messages;
@@ -94,8 +101,13 @@ class ConversationLifecycleAdapter implements ConversationLifecycle, Conversatio
     @Override
     @Transactional
     public ConversationRecord open(UUID customerId, String skillCode, Intent intent, Channel channel, Instant now) {
-        Customer customer = customers.findById(customerId)
+        // The customer row is the lock for "one live conversation": a second open waits here, then
+        // sees the first. It locks no conversation, so the advisor-then-conversation order is kept.
+        Customer customer = customers.findByIdForUpdate(customerId)
                 .orElseThrow(() -> new ResourceNotFoundException("Customer", customerId));
+        conversations.findLiveOf(customerId, LIVE).stream().findFirst().ifPresent(open -> {
+            throw new ConversationAlreadyOpenException(open);
+        });
         Skill requestedSkill = skill(skillCode);
         // Intent-only rules are the supported runtime language. Never treat an unknown JSON
         // condition as true; existing advanced predicates remain inactive until implemented.
@@ -192,6 +204,33 @@ class ConversationLifecycleAdapter implements ConversationLifecycle, Conversatio
             pending.setResolvedBy(closedByUserId == null ? null : users.findById(closedByUserId).orElse(null));
         }
         return toRecord(conversation);
+    }
+
+    @Override
+    @Transactional
+    public Removal remove(UUID conversationId, UUID customerUserId, String notice, Instant now) {
+        Conversation conversation = lockLive(conversationId);
+        Customer owner = conversation.getCustomer();
+        if (owner.getUser() == null || !owner.getUser().getId().equals(customerUserId)
+                || conversation.getCustomerDeletedAt() != null) {
+            throw new ResourceNotFoundException("Conversation", conversationId);
+        }
+        ConversationStatus before = conversation.getStatus();
+        if (before == ConversationStatus.ESCALATED) {
+            throw new ConversationUnderSupervisionException(conversationId);
+        }
+        if (LIVE.contains(before)) {
+            close(conversationId, before, ConversationStatus.ABANDONED, customerUserId, now);
+        }
+        Message message = new Message();
+        message.setConversation(conversation);
+        message.setSender(MessageSender.SYSTEM);
+        message.setContent(notice);
+        message.setAiGenerated(false);
+        message.setSentAt(micros(now));
+        Message saved = messages.save(message);
+        conversation.setCustomerDeletedAt(micros(now));
+        return new Removal(before, toRecord(conversation), toRecord(saved));
     }
 
     @Override
@@ -327,7 +366,9 @@ class ConversationLifecycleAdapter implements ConversationLifecycle, Conversatio
         return new ConversationRecord(
                 c.getId(),
                 c.getCustomer().getId(),
-                c.getCustomer().getUser() == null ? null : c.getCustomer().getUser().getId(),
+                // Removed by the customer: no customer may read it any more; staff still can.
+                c.getCustomer().getUser() == null || c.getCustomerDeletedAt() != null
+                        ? null : c.getCustomer().getUser().getId(),
                 advisor == null ? null : advisor.getId(),
                 advisor == null || advisor.getUser() == null ? null : advisor.getUser().getId(),
                 c.getSkill() == null ? null : c.getSkill().getCode(),

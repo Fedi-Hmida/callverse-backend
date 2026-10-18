@@ -23,7 +23,8 @@ class CustomerStatementCsvTest {
                 UUID.randomUUID(), UUID.randomUUID(), TransactionType.REFUND, BigDecimal.ONE, "EUR",
                 "=1+1\ncontinued", "\t@SUM(1;2)\r\ncontinued", TransactionStatus.BOOKED,
                 Instant.parse("2026-10-18T10:00:00Z"))));
-        String csv = new String(new CustomerPortalController(portal).statement(day, day).getBody(), StandardCharsets.UTF_8);
+        String csv = new String(new CustomerPortalController(portal, mock(
+                com.callverse.core.application.features.customer.RemoveOwnConversationCommandHandler.class)).statement(day, day).getBody(), StandardCharsets.UTF_8);
         assertThat(csv).contains("\"'=1+1\ncontinued\"", "\"'\t@SUM(1;2)\r\ncontinued\"");
     }
 }

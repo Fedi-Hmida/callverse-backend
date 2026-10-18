@@ -179,7 +179,8 @@ class ConversationEndpointTest extends AbstractPersistenceTest {
         @DisplayName("staff register a contact; a customer cannot (that needs S-1); anonymous is 401")
         void roles() throws Exception {
             call(open(amina, skill, null, as(UserRole.ADVISOR)), 201);
-            call(open(amina, skill, null, as(UserRole.ADMIN)), 201);
+            // Another customer: Amina already holds a live conversation, and one is the limit.
+            call(open(fx.customer(), skill, null, as(UserRole.ADMIN)), 201);
             call(open(amina, skill, null, aminaLogin()), 403);
             call(open(amina, skill, null, request -> request), 401);
         }

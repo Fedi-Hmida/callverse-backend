@@ -64,6 +64,17 @@ public interface ConversationRepository extends JpaRepository<Conversation, UUID
     @Query("select c from Conversation c where c.id = :id")
     Optional<Conversation> findByIdForUpdate(@Param("id") UUID id);
 
+    /** The customer's live conversations (simulations excluded), oldest first: at most one by rule. */
+    @Query("""
+           select c.id
+             from Conversation c
+            where c.customer.id = :customerId
+              and c.runId is null
+              and c.status in :live
+            order by c.queuedAt asc
+           """)
+    List<UUID> findLiveOf(@Param("customerId") UUID customerId, @Param("live") Collection<ConversationStatus> live);
+
     /**
      * The head of a live skill queue, locked, skipping rows another transaction already holds.
      *

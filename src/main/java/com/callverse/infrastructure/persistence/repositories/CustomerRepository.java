@@ -1,10 +1,14 @@
 package com.callverse.infrastructure.persistence.repositories;
 
 import com.callverse.core.domain.entities.Customer;
+import jakarta.persistence.LockModeType;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -15,6 +19,14 @@ import org.springframework.stereotype.Repository;
 public interface CustomerRepository extends JpaRepository<Customer, UUID> {
 
     Optional<Customer> findByExternalRef(String externalRef);
+
+    /**
+     * The customer, with its row locked until the transaction ends: two contacts opened for one
+     * customer at the same instant queue here, so the second sees the first and is refused.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select c from Customer c where c.id = :id")
+    Optional<Customer> findByIdForUpdate(@Param("id") UUID id);
 
     List<Customer> findByUserIdAndSimulatedFalse(UUID userId);
 

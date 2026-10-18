@@ -158,11 +158,12 @@ class AdminReferenceEndpointTest extends AbstractPersistenceTest {
 
     @Test void routingRulesActuallyChangeNewContactQueueAndInactiveRulesDoNot() throws Exception {
         Map<String, Object> rule = new HashMap<>(Map.of("name", "Route " + suffix(), "intent", "CARD", "skill", "FRAUD", "priority", 0, "active", true));
-        JsonNode createdRule = create("routing-rules", "routing_rule", rule); UUID owner = customer();
-        assertThat(conversations.open(owner, "ACCOUNTS", Intent.CARD, Channel.CHAT, Instant.now()).skill()).isEqualTo("FRAUD");
-        assertThat(conversations.open(owner, "ACCOUNTS", Intent.BALANCE, Channel.CHAT, Instant.now()).skill()).isEqualTo("ACCOUNTS");
+        // One customer per contact: a customer holds one live conversation at a time.
+        JsonNode createdRule = create("routing-rules", "routing_rule", rule);
+        assertThat(conversations.open(customer(), "ACCOUNTS", Intent.CARD, Channel.CHAT, Instant.now()).skill()).isEqualTo("FRAUD");
+        assertThat(conversations.open(customer(), "ACCOUNTS", Intent.BALANCE, Channel.CHAT, Instant.now()).skill()).isEqualTo("ACCOUNTS");
         rule.put("active", false); call(body(put(BASE + "routing-rules/" + createdRule.path("id").asText()), rule), 200);
-        assertThat(conversations.open(owner, "ACCOUNTS", Intent.CARD, Channel.CHAT, Instant.now()).skill()).isEqualTo("ACCOUNTS");
+        assertThat(conversations.open(customer(), "ACCOUNTS", Intent.CARD, Channel.CHAT, Instant.now()).skill()).isEqualTo("ACCOUNTS");
         call(delete(BASE + "routing-rules/" + createdRule.path("id").asText()).with(admin), 204);
     }
 

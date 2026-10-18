@@ -116,4 +116,8 @@ public class Conversation {
     /** Denormalized at assignment against the skill's SLA policy. See decision 2. */
     @Column(name = "sla_met")
     private Boolean slaMet;
+
+    /** When the customer removed it from their own space (V9); the record itself is kept. */
+    @Column(name = "customer_deleted_at")
+    private Instant customerDeletedAt;
 }

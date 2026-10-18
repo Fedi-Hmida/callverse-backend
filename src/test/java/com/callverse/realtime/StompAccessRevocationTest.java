@@ -78,7 +78,10 @@ class StompAccessRevocationTest extends AbstractPersistenceTest {
         assertThat(screen.next()).as("before the block, the banner updates").isNotNull();
 
         assertThat(post("/api/v1/admin/users/" + sarahId + "/block", admin, "")).isEqualTo(200);
-        assertThat(post("/api/v1/conversations", admin, openContact)).isEqualTo(201);
+        // A second customer: the first one already holds their one live conversation.
+        UUID another = fx.customer(null, ChurnRisk.LOW, CustomerSegment.MASS);
+        assertThat(post("/api/v1/conversations", admin,
+                "{\"customerId\": \"" + another + "\", \"skill\": \"" + skill + "\"}")).isEqualTo(201);
 
         colleague.next();   // the first banner
         assertThat(colleague.next()).as("the second banner is really published: a colleague receives it").isNotNull();

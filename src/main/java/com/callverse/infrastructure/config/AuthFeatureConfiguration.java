@@ -14,6 +14,10 @@ import com.callverse.core.application.interfaces.PasswordHasher;
 import com.callverse.core.application.features.auth.commands.RegisterCustomerCommandHandler;
 import com.callverse.core.application.features.auth.commands.SessionTokensHandler;
 import com.callverse.core.application.features.customer.CustomerPortalHandler;
+import com.callverse.core.application.features.customer.RemoveOwnConversationCommandHandler;
+import com.callverse.core.application.features.conversation.ConversationEvents;
+import com.callverse.core.application.interfaces.CustomerConversationRemoval;
+import java.time.Clock;
 import com.callverse.core.application.features.conversation.commands.OpenConversationCommandHandler;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -39,6 +43,11 @@ public class AuthFeatureConfiguration {
     CustomerPortalHandler customerPortalHandler(CurrentPrincipalProvider principals,CustomerSelfService customers,
                                                 CustomerRecords records,OpenConversationCommandHandler conversations) {
         return new CustomerPortalHandler(principals,customers,records,conversations);
+    }
+    @Bean
+    RemoveOwnConversationCommandHandler removeOwnConversationCommandHandler(CurrentPrincipalProvider principals,
+            CustomerConversationRemoval removal, ConversationEvents events, Clock clock) {
+        return new RemoveOwnConversationCommandHandler(principals, removal, events, clock);
     }
 
     @Bean
