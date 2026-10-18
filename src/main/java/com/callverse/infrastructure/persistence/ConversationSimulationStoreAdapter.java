@@ -102,11 +102,10 @@ class ConversationSimulationStoreAdapter implements ConversationSimulationStore 
     @Override
     @Transactional(readOnly = true)
     public Optional<SimulationRecord> find(UUID runId) {
-        return runs.findById(runId).map(run -> {
-            Conversation conversation = conversations.findByRunId(runId).stream().findFirst().orElse(null);
-            long messageCount = conversation == null ? 0 : messages.countByConversationId(conversation.getId());
-            return toRecord(run, conversation, messageCount);
-        });
+        // A conversation simulation always has its conversation (created with the run); a run without
+        // one is a digital twin run, read through /api/v1/twin-runs instead.
+        return runs.findById(runId).flatMap(run -> conversations.findByRunId(runId).stream().findFirst()
+                .map(conversation -> toRecord(run, conversation, messages.countByConversationId(conversation.getId()))));
     }
 
     @Override

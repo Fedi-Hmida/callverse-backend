@@ -4,11 +4,14 @@ import com.callverse.core.domain.entities.Advisor;
 import com.callverse.core.domain.entities.AdvisorSkill;
 import com.callverse.core.domain.entities.AppUser;
 import com.callverse.core.domain.entities.Conversation;
+import com.callverse.core.domain.entities.ControlStrategy;
 import com.callverse.core.domain.entities.Customer;
 import com.callverse.core.domain.entities.Escalation;
 import com.callverse.core.domain.entities.KbArticle;
 import com.callverse.core.domain.entities.Message;
 import com.callverse.core.domain.entities.QualityEvaluation;
+import com.callverse.core.domain.entities.Scenario;
+import com.callverse.core.domain.entities.SimulationRun;
 import com.callverse.core.domain.entities.Skill;
 import com.callverse.core.domain.entities.SlaPolicy;
 import com.callverse.core.domain.enums.AdvisorStatus;
@@ -19,7 +22,9 @@ import com.callverse.core.domain.enums.EscalationRaisedBy;
 import com.callverse.core.domain.enums.EscalationStatus;
 import com.callverse.core.domain.enums.EvaluatorType;
 import com.callverse.core.domain.enums.Intent;
+import com.callverse.core.domain.enums.LoadProfile;
 import com.callverse.core.domain.enums.MessageSender;
+import com.callverse.core.domain.enums.RunStatus;
 import com.callverse.core.domain.enums.UserRole;
 import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
@@ -185,6 +190,40 @@ public final class ConversationFixtures {
             evaluation.setEvaluator(EvaluatorType.valueOf(evaluator));
             em.persist(evaluation);
         });
+    }
+
+    /** A scenario: load profile (LOW, MEDIUM, SATURATED), duration and advisor count. */
+    public UUID scenario(String name, String loadProfile, int durationMinutes, int advisorCount) {
+        return tx.execute(s -> {
+            var json = new com.fasterxml.jackson.databind.ObjectMapper();
+            Scenario scenario = new Scenario();
+            scenario.setName(name);
+            scenario.setLoadProfile(LoadProfile.valueOf(loadProfile));
+            scenario.setDurationMinutes(durationMinutes);
+            scenario.setAdvisorCount(advisorCount);
+            scenario.setSkillDistribution(json.createObjectNode().put("CARDS", 1));
+            scenario.setCustomerProfileMix(json.createObjectNode().put("CALME", 1));
+            em.persist(scenario);
+            em.flush();
+            return scenario.getId();
+        });
+    }
+
+    /** A conversation simulation run (the LLM dialogue kind): a run with one simulated conversation. */
+    public UUID simulationRunWithConversation(UUID scenarioId, String strategyCode, long seed, ConversationStatus status) {
+        UUID runId = tx.execute(s -> {
+            SimulationRun run = new SimulationRun();
+            run.setScenario(em.getReference(Scenario.class, scenarioId));
+            run.setStrategy(em.createQuery("select c from ControlStrategy c where c.code = :code", ControlStrategy.class)
+                    .setParameter("code", strategyCode).getSingleResult());
+            run.setSeed(seed);
+            run.setStatus(RunStatus.RUNNING);
+            em.persist(run);
+            em.flush();
+            return run.getId();
+        });
+        conversation(customer(), skill(60), status, "0", Instant.now(), null, runId);
+        return runId;
     }
 
     /** A knowledge-base article, published. */
