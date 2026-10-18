@@ -56,8 +56,11 @@ class TwinRunStoreAdapter implements TwinRunStore {
                 .orElseThrow(() -> new ResourceNotFoundException("Scenario", scenarioId));
         ControlStrategy strategy = strategies.findByCode(strategyCode)
                 .orElseThrow(() -> new ResourceNotFoundException("Control strategy", strategyCode));
-        if (runs.existsByScenarioIdAndStrategyIdAndSeed(scenario.getId(), strategy.getId(), seed)) {
-            throw new SimulationRunAlreadyExistsException(scenario.getId(), strategy.getCode(), seed);
+        Optional<SimulationRun> existing =
+                runs.findByScenarioIdAndStrategyIdAndSeed(scenario.getId(), strategy.getId(), seed);
+        if (existing.isPresent()) {
+            return restartFailedTwinRun(existing.get(), now)
+                    .orElseThrow(() -> new SimulationRunAlreadyExistsException(scenario.getId(), strategy.getCode(), seed));
         }
         SimulationRun run = new SimulationRun();
         run.setScenario(scenario);
@@ -71,6 +74,20 @@ class TwinRunStoreAdapter implements TwinRunStore {
             throw new SimulationRunAlreadyExistsException(scenario.getId(), strategy.getCode(), seed);
         }
         return toRun(run, null);
+    }
+
+    /**
+     * A FAILED twin run (no conversation) is started again in place, so an outage never burns its
+     * seed. The conditional update lets exactly one of two concurrent restarts win; a completed or
+     * running run, or a conversation simulation, stays a 409.
+     */
+    private Optional<TwinRun> restartFailedTwinRun(SimulationRun run, Instant now) {
+        if (run.getStatus() != RunStatus.FAILED || !conversations.findByRunId(run.getId()).isEmpty()
+                || runs.restartFailed(run.getId(), micros(now)) == 0) {
+            return Optional.empty();
+        }
+        em.refresh(run);
+        return Optional.of(toRun(run, null));
     }
 
     @Override

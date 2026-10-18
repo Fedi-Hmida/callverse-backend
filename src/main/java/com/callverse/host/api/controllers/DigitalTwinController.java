@@ -4,7 +4,10 @@ import com.callverse.core.application.features.simulation.commands.RunDigitalTwi
 import com.callverse.core.application.features.simulation.queries.GetDigitalTwinRunsQueryHandler;
 import com.callverse.host.api.dto.request.RunDigitalTwinRequest;
 import com.callverse.host.api.dto.response.TwinRunResponse;
+import com.callverse.host.api.errorhandling.ErrorResponse;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -38,14 +41,20 @@ public class DigitalTwinController {
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize(Roles.SUPERVISION)
     @ApiResponse(responseCode = "201", description = "Run completed; its KPIs are stored")
+    @ApiResponse(
+            responseCode = "503",
+            description = "The twin is unavailable; the run is kept as FAILED and can be started again",
+            content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class)))
     @Operation(
             operationId = "runDigitalTwin",
             summary = "Replay a scenario under a control strategy",
             description = "Simulates the scenario's day (load profile, duration, advisors spread over the four "
                     + "skills) under STATIC_FIFO, THRESHOLD or RL_PPO_V1 with the given seed, and stores the KPIs. "
                     + "The same seed replays the same customers, so runs with different strategies compare fairly. "
-                    + "A scenario, strategy and seed run once (409). If the twin is unavailable the run is kept "
-                    + "as FAILED and the call answers 503 WORKFORCE_UNAVAILABLE. Supervisors and admins only.")
+                    + "A scenario, strategy and seed complete once (409). A scenario beyond the twin's limits (1 to 1440 "
+                    + "minutes, at most 50 advisors per skill) answers 400. If the twin is unavailable the run is kept "
+                    + "as FAILED, the call answers 503 WORKFORCE_UNAVAILABLE, and the same request can be sent again. "
+                    + "Supervisors and admins only.")
     public ResponseEntity<TwinRunResponse> run(@Valid @RequestBody RunDigitalTwinRequest request) {
         TwinRunResponse response = TwinRunResponse.from(runTwin.handle(request.toCommand()));
         return ResponseEntity.created(URI.create("/api/v1/twin-runs/" + response.runId())).body(response);

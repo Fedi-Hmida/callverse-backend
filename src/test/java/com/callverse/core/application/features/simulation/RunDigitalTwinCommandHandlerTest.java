@@ -96,6 +96,30 @@ class RunDigitalTwinCommandHandlerTest {
     }
 
     @Test
+    void aScenarioTheTwinCannotSimulateIsRefusedBeforeStarting() {
+        for (TwinScenario impossible : java.util.List.of(
+                new TwinScenario(SCENARIO, "Deux jours", LoadProfile.LOW, 2000, 8),
+                new TwinScenario(SCENARIO, "Armée", LoadProfile.LOW, 60, 400))) {
+            when(store.scenario(SCENARIO)).thenReturn(Optional.of(impossible));
+
+            assertThatThrownBy(() -> handler.handle(new RunDigitalTwinCommand(SCENARIO, "THRESHOLD", 1)))
+                    .isInstanceOf(InvalidRequestException.class);
+        }
+        verify(store, never()).start(any(), any(), anyLong(), any());
+        verify(simulator, never()).run(any());
+    }
+
+    @Test
+    void aRunThatCannotBeSavedEndsFailedInsteadOfStayingRunning() {
+        when(simulator.run(any())).thenReturn(KPIS);
+        when(store.complete(RUN, KPIS, NOW)).thenThrow(new IllegalStateException("database blip"));
+
+        assertThatThrownBy(() -> handler.handle(new RunDigitalTwinCommand(SCENARIO, "THRESHOLD", 7)))
+                .isInstanceOf(IllegalStateException.class);
+        verify(store).fail(RUN, "Digital twin result could not be saved.", NOW);
+    }
+
+    @Test
     void aRepeatedRunIsRefusedAndTheTwinIsNotCalled() {
         when(store.start(eq(SCENARIO), eq("THRESHOLD"), eq(7L), eq(NOW)))
                 .thenThrow(new SimulationRunAlreadyExistsException(SCENARIO, "THRESHOLD", 7));

@@ -2,10 +2,12 @@ package com.callverse.infrastructure.persistence.repositories;
 
 import com.callverse.core.domain.entities.SimulationRun;
 import com.callverse.core.domain.enums.RunStatus;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -26,6 +28,19 @@ public interface SimulationRunRepository extends JpaRepository<SimulationRun, UU
             UUID scenarioId, UUID strategyId, long seed);
 
     boolean existsByScenarioIdAndStrategyIdAndSeed(UUID scenarioId, UUID strategyId, long seed);
+
+    /**
+     * Starts a FAILED run again in place. Conditional on the status, so of two concurrent restarts
+     * exactly one updates the row (returns 1) and the other sees 0.
+     */
+    @Modifying(flushAutomatically = true)
+    @Query("""
+           update SimulationRun r
+              set r.status = com.callverse.core.domain.enums.RunStatus.RUNNING,
+                  r.errorMessage = null, r.endedAt = null, r.startedAt = :startedAt
+            where r.id = :id and r.status = com.callverse.core.domain.enums.RunStatus.FAILED
+           """)
+    int restartFailed(@Param("id") UUID id, @Param("startedAt") Instant startedAt);
 
     List<SimulationRun> findByStatus(RunStatus status);
 

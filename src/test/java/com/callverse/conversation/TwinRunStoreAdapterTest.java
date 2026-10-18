@@ -84,6 +84,33 @@ class TwinRunStoreAdapterTest extends AbstractPersistenceTest {
     }
 
     @Test
+    @DisplayName("a FAILED twin run is reused when started again, so an outage never burns its seed")
+    void failedRunIsReused() {
+        UUID scenario = fx.scenario("Lundi", "LOW", 60, 4);
+        UUID first = store.start(scenario, "THRESHOLD", 21, now).runId();
+        store.fail(first, "Digital twin service unavailable.", now);
+
+        TwinRun again = store.start(scenario, "THRESHOLD", 21, now.plusSeconds(60));
+
+        assertThat(again.runId()).isEqualTo(first);
+        assertThat(again.status()).isEqualTo(RunStatus.RUNNING);
+        assertThat(again.errorMessage()).isNull();
+        assertThat(again.endedAt()).isNull();
+        assertThat(again.startedAt()).isEqualTo(now.plusSeconds(60));
+        assertThat(store.complete(first, KPIS, now.plusSeconds(61)).status()).isEqualTo(RunStatus.COMPLETED);
+    }
+
+    @Test
+    @DisplayName("a failed conversation simulation is not taken over by a twin run")
+    void failedConversationRunIsNotReused() {
+        UUID scenario = fx.scenario("Lundi", "LOW", 60, 4);
+        fx.simulationRunWithConversation(scenario, "STATIC_FIFO", 33, ConversationStatus.ACTIVE);
+
+        assertThatThrownBy(() -> store.start(scenario, "STATIC_FIFO", 33, now))
+                .isInstanceOf(SimulationRunAlreadyExistsException.class);
+    }
+
+    @Test
     @DisplayName("the same scenario, strategy and seed cannot run twice; an unknown strategy is refused")
     void uniquenessAndUnknownStrategy() {
         UUID scenario = fx.scenario("Lundi", "LOW", 60, 4);

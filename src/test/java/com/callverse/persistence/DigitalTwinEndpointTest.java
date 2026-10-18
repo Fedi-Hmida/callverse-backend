@@ -113,6 +113,23 @@ class DigitalTwinEndpointTest extends AbstractPersistenceTest {
                                 + "where r.scenario_id = :s and c.code = 'STATIC_FIFO' and r.seed = 11")
                 .setParameter("s", scenario).getSingleResult());
         assertThat(failed).isEqualTo("FAILED");
+
+        // The twin is back: the same scenario, strategy and seed now completes (the seed is not burnt).
+        org.mockito.Mockito.reset(simulator);
+        when(simulator.run(any())).thenReturn(new TwinKpis(431, 402, 0.91, 0.8512, 0.0673, 41.23, 158.79, 12));
+        mockMvc.perform(run("STATIC_FIFO", 11).with(as(UserRole.SUPERVISOR)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("COMPLETED"));
+    }
+
+    @Test
+    void aScenarioBeyondTheTwinsLimitsIsA400NotA503() throws Exception {
+        UUID huge = new ConversationFixtures(em, tx).scenario("Armée", "LOW", 60, 400);
+
+        mockMvc.perform(post("/api/v1/twin-runs").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"scenarioId\":\"" + huge + "\",\"strategyCode\":\"THRESHOLD\",\"seed\":1}")
+                        .with(as(UserRole.SUPERVISOR)))
+                .andExpect(status().isBadRequest());
     }
 
     private MockHttpServletRequestBuilder run(String strategyCode, long seed) throws Exception {
