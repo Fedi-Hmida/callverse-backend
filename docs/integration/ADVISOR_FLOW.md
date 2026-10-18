@@ -126,6 +126,25 @@ déjà lancé quand l'échéance tombe (ticket, geste commercial) peut s'exécut
 côté backend sans qu'aucune réponse ne soit publiée, comme avant avec le délai
 de 30 s du backend.
 
+## Budget d'outils (constaté sur Groq réel, 2026-10-18)
+
+Un message client donne au plus `MAX_ITERATIONS` (4) tours de décision. Le
+dernier est réservé à la conclusion : le modèle n'y voit que `finalize_response`,
+imposé, avec ce qu'il a déjà obtenu des outils. Avant, pour une carte refusée, le
+modèle enchaînait quatre outils (base documentaire, client, état du système,
+transactions), atteignait la limite sans conclure, et l'Advisor renvoyait une
+escalade générique à confiance 0 : chaque carte refusée partait chez le
+superviseur. Chaque résultat d'outil renvoyé au modèle est aussi borné à
+`MAX_TOOL_RESULT_CHARS` (1 500 caractères) ; les sources transmises au backend ne
+le sont pas. Mesuré sur ce cas : environ 6 960 jetons par message au lieu de
+8 560.
+
+Le compte Groq gratuit plafonne `gpt-oss-120b` à 8 000 jetons par minute, soit
+environ un message client par minute. Au-delà, l'appel attend le quota, dépasse
+l'échéance de 25 s et l'ai-service répond 504 : le message du client est gardé
+et un conseiller humain répond. Pour une démonstration à plusieurs
+conversations, il faut une clé d'offre payante (Dev tier).
+
 Limites connues : les conversations `QUEUED` ne sont pas traitées, les traces
 ne sont pas exposées (règle A9 non confirmée), le contexte client est réduit
 aux données que le backend connaît déjà, le **nom du client** atteint encore

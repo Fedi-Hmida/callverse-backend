@@ -1,4 +1,4 @@
-"""Juge Ollama et assemblage déterministe du résultat qualité."""
+"""Juge qualité (Groq par défaut, Ollama en option) et assemblage déterministe du résultat."""
 import json
 import logging
 import re
@@ -133,9 +133,30 @@ def _repair_and_validate_judge_result(raw_content: str, request: QualityRequest)
     return JudgeResult.model_validate(valid_data)
 
 
+GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
+
+
 def call_judge(request: QualityRequest) -> JudgeResult:
-    if not settings.quality_model:
-        raise JudgeUnavailable("Configurer QUALITY_MODEL avec un modèle installé dans Ollama.")
+    provider = settings.quality_provider.strip().lower()
+    if provider == "groq":
+        if not settings.llm_api_key:
+            raise JudgeUnavailable("Configurer llm_api_key pour le juge qualité Groq.")
+        ask = _ask_groq
+    elif provider == "ollama":
+        if not settings.quality_model:
+            raise JudgeUnavailable("Configurer QUALITY_MODEL avec un modèle installé dans Ollama.")
+        ask = _ask_ollama
+    else:
+        raise JudgeUnavailable(f"QUALITY_PROVIDER inconnu : {settings.quality_provider!r} (groq ou ollama).")
+    raw_output = ask(_judge_context(request))
+    try:
+        return _repair_and_validate_judge_result(raw_output, request)
+    except (ValueError, KeyError, TypeError, ValidationError) as exc:
+        logger.warning("Sortie du juge invalide: %s | brut=%s", exc, raw_output)
+        raise InvalidJudgeOutput("Le modèle a produit une évaluation invalide.") from exc
+
+
+def _judge_context(request: QualityRequest) -> dict:
     context = request.model_dump(mode="json")
     # Make the zero-based indices explicit where the model reads each turn.
     # The public request contract stays unchanged.
@@ -153,6 +174,45 @@ def call_judge(request: QualityRequest) -> JudgeResult:
         for i, message in enumerate(request.messages)]
     context["advisor_claim_candidates"] = [candidate for candidate in context["citation_candidates"]
                                            if candidate["sender"] == "ADVISOR"]
+    return context
+
+
+def _ask_groq(context: dict) -> str:
+    """Le schéma attendu est dans le contexte (output_schema) ; json_object impose un JSON valide."""
+    try:
+        with httpx.Client(timeout=httpx.Timeout(settings.quality_timeout_seconds, connect=10.0)) as client:
+            response = client.post(
+                GROQ_CHAT_URL,
+                headers={"Authorization": f"Bearer {settings.llm_api_key}"},
+                json={"model": settings.quality_groq_model, "temperature": 0,
+                      "response_format": {"type": "json_object"},
+                      "messages": [{"role": "system", "content": SYSTEM_PROMPT},
+                                   {"role": "user", "content": json.dumps(context, ensure_ascii=False)}]},
+            )
+            response.raise_for_status()
+    except httpx.TimeoutException as exc:
+        logger.warning("Groq judge timeout: model=%s", settings.quality_groq_model)
+        raise JudgeTimeout(
+            f"Groq n'a pas termine l'evaluation dans le delai de {settings.quality_timeout_seconds:g} secondes."
+        ) from exc
+    except httpx.ConnectError as exc:
+        raise JudgeUnavailable("Connexion a Groq impossible. Verifier l'acces reseau.") from exc
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code
+        logger.warning("Groq judge HTTP error: status=%s model=%s", status, settings.quality_groq_model)
+        if status == 429:
+            raise JudgeUnavailable("Groq : quota de jetons atteint, reessayer plus tard.") from exc
+        raise JudgeUnavailable(f"Groq a renvoye HTTP {status}.") from exc
+    except httpx.HTTPError as exc:
+        raise JudgeUnavailable("La communication avec Groq a echoue.") from exc
+
+    try:
+        return response.json()["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise InvalidJudgeOutput("Réponse Groq malformée (pas de champ content).") from exc
+
+
+def _ask_ollama(context: dict) -> str:
     try:
         with httpx.Client(timeout=httpx.Timeout(settings.quality_timeout_seconds, connect=10.0)) as client:
             response = client.post(
@@ -191,15 +251,9 @@ def call_judge(request: QualityRequest) -> JudgeResult:
         raise JudgeUnavailable("La communication avec Ollama a echoue.") from exc
 
     try:
-        raw_output = response.json()["message"]["content"]
+        return response.json()["message"]["content"]
     except (KeyError, TypeError) as exc:
         raise InvalidJudgeOutput("Réponse Ollama malformée (pas de champ content).") from exc
-
-    try:
-        return _repair_and_validate_judge_result(raw_output, request)
-    except (ValueError, KeyError, TypeError, ValidationError) as exc:
-        logger.warning("Sortie du juge invalide: %s | brut=%s", exc, raw_output)
-        raise InvalidJudgeOutput("Le modèle a produit une évaluation invalide.") from exc
 
 def evaluate(request: QualityRequest) -> QualityScore:
     validate_rubric()

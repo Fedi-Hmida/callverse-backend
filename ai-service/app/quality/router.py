@@ -7,8 +7,8 @@ router = APIRouter()
 
 @router.post("/evaluate", response_model=QualityScore, responses={
     502: {"description": "Sortie du juge invalide"},
-    503: {"description": "Ollama non configure, inaccessible ou en erreur"},
-    504: {"description": "Delai de generation Ollama depasse"},
+    503: {"description": "Juge (Groq ou Ollama) non configure, inaccessible ou quota atteint"},
+    504: {"description": "Delai de generation du juge depasse"},
 })
 def quality_evaluate(payload: QualityRequest):
     try:

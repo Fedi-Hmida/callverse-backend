@@ -85,6 +85,7 @@ def test_ollama_schema_transport(monkeypatch):
         assert body["format"] == JudgeResult.model_json_schema()
         return httpx.Response(200, json={"message": {"content": result().model_dump_json()}})
     original = httpx.Client
+    monkeypatch.setattr(judge.settings, "quality_provider", "ollama", raising=False)
     monkeypatch.setattr(judge.settings, "quality_model", "test-model")
     monkeypatch.setattr(judge.httpx, "Client",
                         lambda **kw: original(transport=httpx.MockTransport(handler), **kw))
@@ -117,6 +118,7 @@ def test_ollama_errors_are_distinguishable(monkeypatch, failure, expected_status
         return httpx.Response(404 if failure == "missing_model" else 500,
                               json={"error": "provider detail"})
     original = httpx.Client
+    monkeypatch.setattr(judge.settings, "quality_provider", "ollama", raising=False)
     monkeypatch.setattr(judge.settings, "quality_model", "test-model")
     monkeypatch.setattr(judge.settings, "quality_timeout_seconds", 600.)
     monkeypatch.setattr(judge.httpx, "Client",
