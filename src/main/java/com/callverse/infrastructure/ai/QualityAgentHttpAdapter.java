@@ -33,10 +33,14 @@ class QualityAgentHttpAdapter implements QualityAgent {
     QualityAgentHttpAdapter(
             RestClient.Builder builder,
             @Value("${ai.service.base-url:http://localhost:8000}") String baseUrl,
-            @Value("${ai.service.api-key:}") String apiKey) {
+            @Value("${ai.service.api-key:}") String apiKey,
+            @Value("${ai.service.quality-read-timeout-seconds:30}") int readTimeoutSeconds) {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(Duration.ofSeconds(2));
-        requestFactory.setReadTimeout(Duration.ofSeconds(30));
+        if (readTimeoutSeconds < 1 || readTimeoutSeconds > 300) {
+            throw new IllegalArgumentException("Quality read timeout must be between 1 and 300 seconds");
+        }
+        requestFactory.setReadTimeout(Duration.ofSeconds(readTimeoutSeconds));
         this.client = builder.baseUrl(baseUrl).requestFactory(requestFactory).build();
         this.apiKey = apiKey;
     }

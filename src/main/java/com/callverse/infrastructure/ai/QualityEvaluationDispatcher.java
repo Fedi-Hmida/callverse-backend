@@ -1,6 +1,7 @@
 package com.callverse.infrastructure.ai;
 
 import com.callverse.core.application.features.quality.commands.QualityEvaluationCommandHandler;
+import com.callverse.core.application.interfaces.QualityEvaluationQueue;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
 import java.util.Set;
@@ -13,7 +14,7 @@ import org.springframework.stereotype.Component;
 
 /** Submits resolved conversation evaluations to a bounded worker pool. */
 @Component
-class QualityEvaluationDispatcher {
+class QualityEvaluationDispatcher implements QualityEvaluationQueue {
 
     private static final Logger LOG = System.getLogger(QualityEvaluationDispatcher.class.getName());
 
@@ -26,6 +27,9 @@ class QualityEvaluationDispatcher {
         this.handler = handler;
         this.executor = executor;
     }
+
+    @Override
+    public void enqueue(UUID conversationId) { dispatch(conversationId); }
 
     void dispatch(UUID conversationId) {
         if (!inFlight.add(conversationId)) {

@@ -8,7 +8,7 @@ from app.config import settings
 from app.contracts.quality import JudgeResult, QualityFlags, QualityRequest, QualityScore
 from .prompts import SYSTEM_PROMPT
 from .rubric import RUBRIC, compute_global_score, validate_rubric
-from .sourcing_check import missing_source_keys, validate_references
+from .sourcing_check import align_reference_indices, missing_source_keys, validate_references
 
 class JudgeUnavailable(RuntimeError):
     pass
@@ -145,6 +145,10 @@ def call_judge(request: QualityRequest) -> JudgeResult:
     if not settings.quality_model:
         raise JudgeUnavailable("Configurer QUALITY_MODEL avec un modèle installé dans Ollama.")
     context = request.model_dump(mode="json")
+    # Make the zero-based indices explicit where the model reads each turn.
+    # The public request contract stays unchanged.
+    context["messages"] = [dict(message, message_index=i)
+                           for i, message in enumerate(context["messages"])]
     context["rubric"] = [vars(c) for c in RUBRIC]
     context["output_schema"] = JudgeResult.model_json_schema()
     context["available_source_keys"] = [
@@ -155,6 +159,8 @@ def call_judge(request: QualityRequest) -> JudgeResult:
              part for part in re.split(r"(?<=[.!?])\s+", message.content)
              if part != message.content]}
         for i, message in enumerate(request.messages)]
+    context["advisor_claim_candidates"] = [candidate for candidate in context["citation_candidates"]
+                                           if candidate["sender"] == "ADVISOR"]
     try:
         with httpx.Client(timeout=httpx.Timeout(settings.quality_timeout_seconds, connect=10.0)) as client:
             response = client.post(
@@ -206,6 +212,7 @@ def call_judge(request: QualityRequest) -> JudgeResult:
 def evaluate(request: QualityRequest) -> QualityScore:
     validate_rubric()
     result = call_judge(request)
+    align_reference_indices(request, result)
     try:
         validate_references(request, result)
     except ValueError as exc:

@@ -1,6 +1,8 @@
 package com.callverse.infrastructure.config;
 
 import com.callverse.core.application.features.quality.commands.QualityEvaluationCommandHandler;
+import com.callverse.core.application.features.quality.commands.RequestQualityEvaluationCommandHandler;
+import com.callverse.core.application.interfaces.QualityEvaluationQueue;
 import com.callverse.core.application.interfaces.ConversationLifecycle;
 import com.callverse.core.application.interfaces.ConversationMessages;
 import com.callverse.core.application.interfaces.QualityAgent;
@@ -14,6 +16,14 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 /** Wires asynchronous Quality Analyst evaluations after conversation resolution. */
 @Configuration
 public class QualityFeatureConfiguration {
+
+    @Bean
+    RequestQualityEvaluationCommandHandler requestQualityEvaluation(
+            ConversationLifecycle conversations, ConversationMessages messages,
+            QualityEvaluationQueue queue) {
+        return new RequestQualityEvaluationCommandHandler(
+                conversations, messages, queue);
+    }
 
     @Bean
     QualityEvaluationCommandHandler qualityEvaluationCommandHandler(

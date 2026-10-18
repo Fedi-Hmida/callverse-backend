@@ -13,7 +13,10 @@ def _normalize(text: str) -> str:
                 .replace("\u00a0", " ").replace("\u202f", " "))
     text = unicodedata.normalize("NFKD", text)
     text = "".join(c for c in text if not unicodedata.combining(c))
-    return re.sub(r"\s+", " ", text).strip().casefold()
+    text = re.sub(r"\s+", " ", text).strip().casefold()
+    # French typography allows a space before these punctuation marks. Its
+    # omission must not turn an otherwise identical quote into fabricated text.
+    return re.sub(r"\s+([!?;:])", r"\1", text)
 
 def missing_source_keys(request: QualityRequest) -> list[str]:
     if request.advisor_response is None:
@@ -23,6 +26,26 @@ def missing_source_keys(request: QualityRequest) -> list[str]:
     provided = {d.doc_id for d in request.source_documents}
     return sorted({str(s.kb_article_id) for s in request.advisor_response.sources
                    if str(s.kb_article_id) not in provided})
+
+def align_reference_indices(request: QualityRequest, result: JudgeResult) -> None:
+    """Repair a model's wrong index only when its quote uniquely identifies text.
+
+    Never invent or rewrite a quote. Claims can only be aligned to advisor text;
+    absent/ambiguous matches are left unchanged for strict validation to reject.
+    """
+    for item in [*result.evidence, *result.claims]:
+        if not 0 <= item.message_index < len(request.messages):
+            continue
+        is_evidence = hasattr(item, "evidence")
+        quote = _normalize(item.evidence if is_evidence else item.excerpt)
+        if not quote:
+            continue
+        matches = [i for i, message in enumerate(request.messages)
+                   if (is_evidence or message.sender == "ADVISOR")
+                   and quote in _normalize(message.content)]
+        if item.message_index not in matches and len(matches) == 1:
+            item.message_index = matches[0]
+
 
 def validate_references(request: QualityRequest, result: JudgeResult) -> None:
     for item in [*result.evidence, *result.claims]:

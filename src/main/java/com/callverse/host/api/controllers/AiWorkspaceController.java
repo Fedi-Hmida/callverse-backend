@@ -1,6 +1,7 @@
 package com.callverse.host.api.controllers;
 
 import com.callverse.core.application.features.quality.queries.AiWorkspaceQueryHandler;
+import com.callverse.core.application.features.quality.commands.RequestQualityEvaluationCommandHandler;
 import com.callverse.core.application.features.simulation.commands.CreateDialogueScenarioCommandHandler;
 import com.callverse.core.application.interfaces.AiWorkspaceRead;
 import com.callverse.core.application.interfaces.ConversationSimulationStore.TranscriptMessage;
@@ -8,6 +9,7 @@ import com.callverse.host.api.dto.response.ConversationSimulationResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -31,6 +33,7 @@ import org.springframework.http.HttpStatus;
 public class AiWorkspaceController {
     private final AiWorkspaceQueryHandler queries;
     private final CreateDialogueScenarioCommandHandler createScenario;
+    private final RequestQualityEvaluationCommandHandler requestQuality;
 
     @GetMapping("/simulation-runs/options")
     @Operation(operationId = "getSimulationOptions", summary = "List existing scenarios and strategies")
@@ -59,5 +62,13 @@ public class AiWorkspaceController {
     @Operation(operationId = "getConversationQuality", summary = "Read persisted live quality evaluations; empty while unavailable")
     public List<AiWorkspaceRead.QualityView> quality(@PathVariable UUID conversationId) {
         return queries.quality(conversationId);
+    }
+
+    @PostMapping("/supervision/conversations/{conversationId}/quality")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    @Operation(operationId = "requestConversationQuality", summary = "Request or retry asynchronous quality analysis of a resolved conversation")
+    public Map<String, String> requestQuality(@PathVariable UUID conversationId) {
+        requestQuality.handle(conversationId);
+        return Map.of("status", "ACCEPTED");
     }
 }

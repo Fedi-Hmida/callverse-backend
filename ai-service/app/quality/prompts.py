@@ -19,6 +19,11 @@ Une absence de procédure peut être justifiée par l'extrait où elle aurait d�
 resolved est un indice d'issue déclaré, pas une preuve d'exécution.
 
 Examine toutes les affirmations factuelles des messages ADVISOR.
+Pour claims, utilise uniquement advisor_claim_candidates : jamais une question,
+un besoin ou une confirmation du CUSTOMER. Une formule de politesse ou une
+proposition d'écoute n'est pas une affirmation factuelle bancaire.
+Si le conseiller ne formule aucune affirmation factuelle à vérifier, claims=[]
+est la sortie correcte. Ne remplis pas cette liste avec les phrases du client.
 Le message_index d'une affirmation est celui d'un message dont le champ sender vaut ADVISOR
 (voir citation_candidates), jamais celui d'un message CUSTOMER.
 Pour chaque affirmation, produis un excerpt exact, message_index, justification :
