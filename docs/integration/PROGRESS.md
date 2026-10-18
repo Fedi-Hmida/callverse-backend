@@ -343,13 +343,114 @@ de test d'une ligne ; le test passe seul. `StompConversationTest` a réussi
 
 ---
 
+## Étape 7 — Phase P0 de l'audit (2026-10-17)
+
+Suite de l'audit d'intégration du 2026-10-17 (note 6,2/10, « non prêt »). P0.1
+(fichier `.env`) est traité hors de cette branche par décision de Fedi.
+
+| Point | Problème mesuré à l'audit | Correction | Preuve |
+|---|---|---|---|
+| P0.2 | L'IA répondait à chaque message client, même quand un conseiller humain écrivait : deux réponses (scénario S1g) | `ai.advisor.mode` = `OFF` (défaut) ou `AUTONOMOUS` ; en `AUTONOMOUS`, l'IA se tait dès qu'un humain a écrit (reprise par l'humain). Règle dans le cœur (`AiAdvisorMode`, `AdvisorTurnCommandHandler`), requête `humanAdvisorHasReplied` | Tests unitaires et Testcontainers ; S1g en direct : 1 seul tour IA après l'intervention de Karim ; mode par défaut : 0 appel à l'IA |
+| P0.3 | Le second message rapide du client restait sans réponse 9 fois sur 10 (S1h) | `AdvisorTurnDispatcher` regroupe au lieu d'abandonner : un message en attente par conversation (le plus récent), un tour par tâche puis remise en file (équité entre conversations), sans réveil perdu ; un rejet de l'exécuteur garde le message en attente | 9 tests dont un test de concurrence réelle (50 conversations × 20 messages) et un test d'équité ; S1h en direct : 10/10 |
+| P0.4 | Le LLM choisissait `customer_id` et `conversation_id` (lecture ou escalade d'un autre client possible) | `TRUSTED_IDENTIFIERS` injecte les identifiants depuis la requête ; retirés des schémas d'outils et du prompt | 7 tests pytest dont une tentative d'injection |
+| P0.5 | `/ai/*` ouvert quand `AI_SERVICE_KEY` était vide (valeur par défaut) | Démarrage refusé sans clé ; opt-out explicite `AI_SERVICE_AUTH_DISABLED=true` pour le développement ; compose exige la clé pour l'ai-service | 4 tests pytest |
+| P0.6 | 14 commits portent un `Co-authored-by` d'outil | Pas de réécriture d'historique sur cette branche partagée : à traiter au moment de la fusion dans `main` (squash) | Les nouveaux commits n'en portent aucun |
+
+Tests modifiés volontairement (comportement changé, non affaiblis) :
+`test_ai_routes_remain_compatible_when_key_is_unconfigured` devient le cas
+fermé ; le test `create_case` attend l'identifiant client de confiance (et
+reçoit le `mode` manquant qui le faisait échouer) ; dans
+`AdvisorTurnIntegrationTest`, la salutation initiale devient un tour IA, car une
+salutation humaine signifie désormais la reprise par l'humain.
+
+### Validations P0 réellement exécutées
+
+| Vérification | Résultat |
+|---|---|
+| `mvnw clean verify` (Testcontainers) | **470 tests, 0 échec** (458 → 470) |
+| `pytest tests/advisor tests/test_ai_service_auth.py tests/test_backend_client_contract.py tests/quality tests/simulator` | **84 réussis, 2 échecs connus** (Groq sans clé, identiques sur le code d'origine) |
+| Mutations des 10 nouvelles règles | **10/10 détectées** |
+| Scénarios en direct (backend + Postgres jetable + maquette IA) | S1g corrigé, S1h 10/10, mode par défaut silencieux |
+| Revue indépendante | 1 point important corrigé (équité de l'exécuteur), compose vérifié (`docker compose config` sans profil `ai`), 5 points mineurs corrigés |
+
+Environnement Python : venv local sans torch ; `sentence_transformers` remplacé
+par un module factice hors dépôt, uniquement pour l'import (les tests
+concernés n'encodent rien). Les tests workforce n'ont pas été exécutés ici.
+
+---
+
+## Étape 8 — Phase P1 de l'audit (2026-10-18)
+
+| Point | Problème mesuré | Correction | Preuve |
+|---|---|---|---|
+| P1.1 | « Je transmets à un superviseur » sans escalade réelle | L'action `ESCALATE` devient une vraie escalade (`raised_by = AI`) après publication de la réponse ; l'outil `escalate`, qui faisait perdre la réponse, est retiré | Tests unitaires et Testcontainers ; en direct : conversation `ESCALATED`, alerte et liste superviseur |
+| P1.2 | IBAN brut envoyé au LLM externe | `PersonalDataRedactor` (cœur) : IBAN toutes formes (mod 97), carte (Luhn), e-mail, téléphone, avant l'Advisor et le Quality Analyst | 8 cas de masquage ; en direct : le LLM reçoit `FR76 **** **** 0189`, la base garde l'original |
+| P1.3 | Délais incohérents (30 s Java, 120 s juge, Advisor sans échéance) | Échéance 25 s par requête Advisor/Simulator (504), lecture Java Quality 130 s, erreurs sans détail, pool dédié au Simulator, fin de tour Simulator conforme au contrat | 7 tests pytest |
+| P1.4 | Notes inventées (5 par défaut), juge sans contexte | Sortie incomplète rejetée (502), affirmation mal située écartée ; le backend envoie les articles cités par l'IA (10 au plus, 1 500 caractères) et les 5 règles de la banque (livret § 3.3) | Tests pytest, unitaires et Testcontainers ; en direct : 1 article et 5 règles reçus |
+| P1.8 | Ni Dockerfile ni image | Dockerfile CPU, utilisateur non root, `.dockerignore`, compose construit l'image, `env_file` optionnel, volume du modèle d'embeddings, workflow GitHub Actions | Image construite ; sans clé : refus de démarrer ; avec clé : `/health` 200, `/ai/*` 401 sans clé, décision PPO réelle dans le conteneur |
+| P1.9 | Test de plan d'index instable dans la suite complète | `enable_seqscan = off` + statistiques fraîches ; vérifie une recherche par index sur `status` et `skill_id` | Échec déterministe reproduit (3/3), puis vert 3/3 ; un mutant de requête est détecté |
+| P1.10 | `pytest` sans argument interrompu ; test e2e obsolète | `testpaths = tests`, marqueur `llm` exclu par défaut, test « mocked » rendu réellement sans LLM, compétences bancaires dans l'e2e | `pytest` : 122 réussis, 1 désélectionné (`-m llm`) |
+
+Non traités ici, et pourquoi : **P1.5** (rejet d'une proposition Workforce : demande
+une évolution du schéma, décision du propriétaire du schéma) ; **P1.6** (démonstration
+avec un vrai LLM : demande une clé d'équipe) ; **P1.7** (évaluation PPO banking_v1 :
+environnement d'entraînement d'Ines). Restent à prévoir : relance d'une évaluation
+qualité rejetée, nom du client et libellés de transactions vers le LLM, versions des
+dépendances figées.
+
+### Validations P1 réellement exécutées
+
+| Vérification | Résultat |
+|---|---|
+| `mvnw clean verify` (Testcontainers) | **491 tests, 0 échec** (470 → 491) |
+| `pytest` (sans argument) | **122 réussis**, 1 test `llm` désélectionné |
+| Mutations des règles P1 | **19/19 détectées** |
+| Scénarios en direct (backend + Postgres jetable + maquette IA) | escalade, masquage, contexte qualité : 6/6 |
+| Image Docker | construite et testée (refus sans clé, 401, décision PPO) |
+| Revue indépendante | 1 point critique corrigé (`NameError` dans la réparation des affirmations), 5 points importants dont 4 corrigés et 1 en partie (relance des évaluations rejetées prévue en P2), mineurs corrigés ou documentés |
+
+---
+
+## Étape 9 — Phase P2 et audit final (2026-10-18)
+
+| Point | Livré | Preuve |
+|---|---|---|
+| P2.5 | `requirements.lock` (87 versions exactes résolues sur Linux, torch CPU inclus) utilisé par le Dockerfile et la CI | `pytest` dans un conteneur `python:3.12-slim` propre : 137 réussis ; image reconstruite et testée |
+| P2.1 | Les notes IA perdues (juge indisponible, sortie rejetée) sont retentées toutes les 10 minutes : conversations résolues sans note IA, terminées entre 5 minutes et 24 heures plus tôt, les plus récentes d'abord, 20 au plus, par le dispatcher existant ; désactivable (`ai.quality.retry.enabled`), coupé dans les tests | Tests unitaires et Testcontainers |
+| P2.3 | Jumeau numérique : `POST/GET /api/v1/twin-runs` (superviseur, admin) ; KPI dans `run_kpi` ; comparaison par scénario ; run FAILED relançable ; scénario hors limites refusé en 400 ; détails dans [TWIN_FLOW.md](./TWIN_FLOW.md) | Tests unitaires, HTTP, Testcontainers et API ; en direct sur l'image IA réelle : 3 stratégies × 3 charges |
+| Transparence | Les messages écrits par l'IA portent `aiGenerated` (transcription REST et événement temps réel `MESSAGE_POSTED`) | Test d'intégration et test STOMP |
+
+### Audit final avant fusion
+
+| Vérification | Résultat |
+|---|---|
+| `mvnw clean verify` | **518 tests, 0 échec** avant les corrections, puis suite complète relancée après (voir le récapitulatif de fusion) |
+| `pytest` (Linux, dépendances réelles) | **137 réussis** |
+| Mutations P0, P1, P2 | 44/45 détectées ; la survivante (charge saturée allégée) est désormais détectée par un test |
+| En direct A (image IA réelle, sans LLM) | 21/21 : authentification, administration des accès, cycle de conversation, liste superviseur, KPI, `/internal`, recommandation PPO réelle, jumeau |
+| En direct B (maquette IA, mode AUTONOMOUS) | 36/36 : reprise par l'humain, messages regroupés, masquage, escalade réelle, contexte qualité, IA indisponible, simulation, isolement, révocation admin |
+| Revue indépendante | « fusionner après corrections » : run FAILED relançable, limites du scénario en 400, ordre du rattrapage qualité, rattrapage coupé dans les tests, run jamais laissé RUNNING, 503 documenté — tous corrigés |
+
+Points ouverts après fusion : P1.5 (validation Workforce, schéma), P1.6 (démonstration
+LLM réelle, clé d'équipe), P1.7 (évaluation PPO banking_v1), nouveaux outils bancaires
+de l'IA (P2.2, décision d'équipe pour le blocage de carte), masquage du nom du client
+(P2.4), Langfuse, jeu de validation humaine de la qualité.
+
+---
+
 ## Prochaines étapes
 
 - [x] Terminer le flux Advisor backend → ai-service et sa documentation.
 - [x] Raccorder le Workforce en propositions supervisées uniquement.
 - [x] Raccorder le Quality Analyst après résolution, avec contexte réduit et persistance existante.
 - [x] Raccorder le Client Simulator à l'Advisor dans des runs explicitement simulés.
-- [ ] Pousser `integration/backend-fedi` après revue ; aucun push n'a été effectué.
+- [x] Phase P0 de l'audit (P0.2 à P0.5) ; P0.6 au moment de la fusion.
+- [x] Phase P1 de l'audit, sauf P1.5 (schéma), P1.6 (clé LLM) et P1.7 (entraînement).
+- [ ] P1.5 : validation ou rejet des propositions Workforce (décision du propriétaire du schéma).
+- [ ] P1.6 : une démonstration enregistrée avec un vrai LLM (clé d'équipe, hors Git).
+- [ ] P1.7 : évaluation PPO banking_v1 commitée (au moins 3 graines).
+- [x] Phase P2 (vague 1) et audit final.
+- [ ] Fusionner dans `main` par squash, sans mention d'outil dans l'historique.
 - [ ] Décider si un test HTTP réel sur Neon est nécessaire ; ne pas lire `.env` ni `ai-service/.env`.
 
 ---

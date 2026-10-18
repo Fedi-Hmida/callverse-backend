@@ -11,14 +11,30 @@ Le cas d'usage charge au plus 500 messages récents, dans l'ordre chronologique,
 et n'envoie que les rôles `CUSTOMER` et `ADVISOR`. Il ignore l'évaluation si le
 transcript ne contient pas au moins deux messages et un message `ADVISOR`.
 Le corps envoyé à `POST /ai/quality/evaluate` contient `conversation_id`,
-`messages` et `resolved=true`; `source_documents` et `applicable_rules` sont
-vides. `advisor_response` est omis. L'appel utilise `X-AI-Key` et les délais
-existants de 2 secondes à la connexion et 30 secondes en lecture.
+`messages` (IBAN, numéros de carte, e-mails et téléphones masqués) et
+`resolved=true`, ainsi que le contexte de notation :
 
-Les colonnes privées `sources` et `tool_calls` du transcript ne sont ni chargées
-ni transmises. Le Quality Analyst dispose donc d'un contexte réduit et ne peut
-pas vérifier les déclarations contre les documents RAG. Cette intégration ne
-confirme pas la règle A9 et n'expose pas les traces.
+- `source_documents` : les articles de la base de connaissances **cités par
+  l'IA** dans ses tours de la conversation (trace privée `sources`), un document
+  par article (`doc_id` = identifiant de l'article, `chunk_id` = `article`,
+  contenu = titre et texte, 1 500 caractères au plus), les 10 premiers articles
+  encore existants dans l'ordre des citations ;
+- `applicable_rules` : les cinq règles propres à la banque du livret conceptuel
+  (§ 3.3), détenues par le backend (`BankingProcedureRules`).
+
+`advisor_response` est omis. L'appel utilise `X-AI-Key`, 2 secondes à la
+connexion et **130 secondes en lecture**, au-delà du délai du juge (120 s par
+défaut) : l'appel tourne en arrière-plan, attendre ne coûte rien, abandonner
+avant ferait perdre une note en cours.
+
+Le juge rejette (502) une sortie incomplète au lieu de l'inventer : un score
+absent ou illisible, une preuve absente ou un index de message invalide ne sont
+plus remplacés par 5 ou par une preuve par défaut. Une affirmation mal située
+(index invalide ou message du client) est écartée. **Un rejet est définitif** :
+l'évaluation n'est pas retentée et la conversation reste sans note IA (reprise
+à prévoir en P2). L'article envoyé est sa version actuelle, même s'il a été
+modifié depuis que l'IA l'a cité. Les traces ne sont pas exposées par l'API
+(règle A9 non confirmée).
 
 ## Persistance et comportement dégradé
 

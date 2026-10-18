@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.callverse.core.application.interfaces.ConversationSimulationStore;
+import com.callverse.core.application.interfaces.TwinRunStore;
 import com.callverse.core.application.interfaces.ConversationSimulationStore.SimulationSetup;
 import com.callverse.core.domain.entities.Conversation;
 import com.callverse.core.domain.entities.Customer;
@@ -20,6 +21,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.Comparator;
+import java.util.stream.StreamSupport;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -36,12 +39,17 @@ class AiWorkspaceIntegrationTest extends AbstractPersistenceTest {
     @Autowired ObjectMapper json;
     @Autowired ScenarioRepository scenarios;
     @Autowired ConversationSimulationStore simulations;
+    @Autowired TwinRunStore twins;
     @Autowired CustomerRepository customers;
     @Autowired ConversationRepository conversations;
     @Autowired QualityEvaluationRepository evaluations;
 
     @Test
     void everyReadRequiresSupervisionEvenInTheSecurityFilterChain() throws Exception {
+        String qualityRequest = "/api/v1/supervision/conversations/" + UUID.randomUUID() + "/quality";
+        mvc.perform(post(qualityRequest)).andExpect(status().isUnauthorized());
+        mvc.perform(post(qualityRequest).with(as(UserRole.ADVISOR))).andExpect(status().isForbidden());
+        mvc.perform(post(qualityRequest).with(as(UserRole.SUPERVISOR))).andExpect(status().isNotFound());
         for (String route : new String[] {"/simulation-runs/options", "/simulation-runs",
                 "/simulation-runs/" + UUID.randomUUID() + "/messages",
                 "/supervision/conversations/" + UUID.randomUUID() + "/quality"}) {
@@ -78,13 +86,36 @@ class AiWorkspaceIntegrationTest extends AbstractPersistenceTest {
         String catalog = mvc.perform(get("/api/v1/simulation-runs/options").with(as(UserRole.SUPERVISOR)))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat(catalog).contains(scenario.getId().toString()).doesNotContain("customerProfileMix");
-        mvc.perform(get("/api/v1/simulation-runs").with(as(UserRole.SUPERVISOR)))
-                .andExpect(status().isOk()).andExpect(jsonPath("$[0].runId").value(run.runId().toString()));
+        // Other integration classes can leave runs with a future fixed clock in the shared
+        // disposable database. Assert membership, not that wall-clock now is globally newest.
+        String recent = mvc.perform(get("/api/v1/simulation-runs").with(as(UserRole.SUPERVISOR)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(recent).contains(run.runId().toString());
+        var dates = StreamSupport.stream(json.readTree(recent).spliterator(), false)
+                .filter(item -> item.get("startedAt").isTextual())
+                .map(item -> Instant.parse(item.get("startedAt").asText())).toList();
+        assertThat(dates).isSortedAccordingTo(Comparator.reverseOrder());
         mvc.perform(get("/api/v1/simulation-runs/" + run.runId() + "/messages").with(as(UserRole.SUPERVISOR)))
                 .andExpect(status().isOk()).andExpect(jsonPath("$[0].content").value("Quel est ce débit ?"))
                 .andExpect(jsonPath("$[0].sources").doesNotExist()).andExpect(jsonPath("$[0].toolCalls").doesNotExist());
         mvc.perform(get("/api/v1/conversations/" + run.conversationId()).with(as(UserRole.SUPERVISOR)))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void twinRunsDoNotConsumeTheRecentDialoguePage() throws Exception {
+        Scenario scenario = new Scenario();
+        scenario.setName("mixed-runs-" + UUID.randomUUID()); scenario.setLoadProfile(LoadProfile.LOW);
+        scenario.setDurationMinutes(480); scenario.setAdvisorCount(12);
+        scenario.setSkillDistribution(json.createObjectNode()); scenario.setCustomerProfileMix(json.createObjectNode());
+        scenarios.saveAndFlush(scenario);
+        Instant now = Instant.now();
+        var dialogue = simulations.start(new SimulationSetup(scenario.getId(), "STATIC_FIFO", 2000,
+                SimulatorProfile.CALME, "Test", 100, 50, 3, CustomerSegment.MASS, 12), now);
+        for (int i = 0; i < 21; i++) twins.start(scenario.getId(), "THRESHOLD", 3000 + i, now.plusSeconds(100 + i));
+        String recent = mvc.perform(get("/api/v1/simulation-runs").with(as(UserRole.SUPERVISOR)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(recent).contains(dialogue.runId().toString());
     }
 
     @Test

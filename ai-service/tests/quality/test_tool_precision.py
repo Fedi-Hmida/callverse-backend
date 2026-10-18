@@ -3,15 +3,17 @@ from app.quality.tool_precision import ToolCase, evaluate_case, summarize
 
 
 def _make_response(tool_names: list[str]) -> AdvisorResponse:
+    # "escalate" n'est plus un outil : c'est l'action ESCALATE de la décision finale.
     return AdvisorResponse(
         reply="ok",
         intent="CARD",
         confidence=0.9,
         tool_calls=[
-            ToolCall(tool=name, args={}, result_summary="", ok=True) for name in tool_names
+            ToolCall(tool=name, args={}, result_summary="", ok=True)
+            for name in tool_names if name != "escalate"
         ],
         sources=[],
-        action=Action(type="NONE"),
+        action=Action(type="ESCALATE" if "escalate" in tool_names else "NONE"),
         latency_ms=0,
     )
 

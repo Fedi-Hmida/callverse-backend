@@ -39,6 +39,8 @@ tags:
   name: Queues
 - description: "Customer records and history, for staff"
   name: Customers
+- description: "Scenario runs under a control strategy, and their comparison"
+  name: Digital twin
 - description: Exchanging credentials for an access token
   name: Authentication
 - description: The life of a customer conversation
@@ -775,6 +777,90 @@ paths:
       summary: Register an incoming customer contact
       tags:
       - Conversations
+  /api/v1/conversations/accessible:
+    get:
+      operationId: listAccessibleConversations
+      parameters:
+      - in: query
+        name: q
+        required: false
+        schema:
+          type: string
+          default: ""
+      - in: query
+        name: status
+        required: false
+        schema:
+          type: string
+          enum:
+          - QUEUED
+          - ASSIGNED
+          - ACTIVE
+          - ESCALATED
+          - RESOLVED
+          - ABANDONED
+      - in: query
+        name: page
+        required: false
+        schema:
+          type: integer
+          format: int32
+          default: 0
+      responses:
+        "200":
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/Page"
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Rejected before any business rule ran: the body is not valid\
+            \ JSON (code MALFORMED_REQUEST), a parameter or field broke a rule (code\
+            \ VALIDATION_FAILED), or a use-case precondition was unmet."
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Not authenticated. code UNAUTHENTICATED: no bearer token,\
+            \ or one that is expired, malformed or wrongly signed - all indistinguishable,\
+            \ and the signal to refresh or log in again. code INVALID_CREDENTIALS:\
+            \ login refused; an unknown email and a wrong password are deliberately\
+            \ indistinguishable."
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Authenticated, but not permitted: code ACCESS_DENIED. Re-authenticating\
+            \ will not help, so clients must not refresh on it."
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "No such route, or a referenced resource does not exist."
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: A business rule refused the operation. The request was well-formed;
+            the current state of the business forbids it.
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Unexpected failure. message is deliberately generic and carries
+            no internal detail; see the server log for the stack trace.
+      summary: Browse conversations authorized for the signed-in role
+      tags:
+      - conversation-directory-controller
   /api/v1/conversations/mine:
     get:
       description: "Everything the advisor holds now: ASSIGNED, ACTIVE and ESCALATED,\
@@ -1352,6 +1438,78 @@ paths:
       summary: Find a customer by reference
       tags:
       - Customers
+  /api/v1/customers/directory:
+    get:
+      operationId: listCustomersForContact
+      parameters:
+      - in: query
+        name: q
+        required: false
+        schema:
+          type: string
+          default: ""
+      - in: query
+        name: page
+        required: false
+        schema:
+          type: integer
+          format: int32
+          default: 0
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Page"
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Rejected before any business rule ran: the body is not valid\
+            \ JSON (code MALFORMED_REQUEST), a parameter or field broke a rule (code\
+            \ VALIDATION_FAILED), or a use-case precondition was unmet."
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Not authenticated. code UNAUTHENTICATED: no bearer token,\
+            \ or one that is expired, malformed or wrongly signed - all indistinguishable,\
+            \ and the signal to refresh or log in again. code INVALID_CREDENTIALS:\
+            \ login refused; an unknown email and a wrong password are deliberately\
+            \ indistinguishable."
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Authenticated, but not permitted: code ACCESS_DENIED. Re-authenticating\
+            \ will not help, so clients must not refresh on it."
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "No such route, or a referenced resource does not exist."
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: A business rule refused the operation. The request was well-formed;
+            the current state of the business forbids it.
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Unexpected failure. message is deliberately generic and carries
+            no internal detail; see the server log for the stack trace.
+      summary: "Browse real customers for contact registration, staff only"
+      tags:
+      - customer-directory-controller
   /api/v1/customers/{id}:
     get:
       description: "Returns the customer, their accounts and the products they hold.\
@@ -1774,6 +1932,70 @@ paths:
       summary: Take the next conversation from a queue
       tags:
       - Queues
+  /api/v1/scenarios:
+    get:
+      description: "Every scenario by name, with its load profile, duration and advisor\
+        \ count: what the twin screen offers to run. Supervisors and admins only."
+      operationId: listScenarios
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Scenario"
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Rejected before any business rule ran: the body is not valid\
+            \ JSON (code MALFORMED_REQUEST), a parameter or field broke a rule (code\
+            \ VALIDATION_FAILED), or a use-case precondition was unmet."
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Not authenticated. code UNAUTHENTICATED: no bearer token,\
+            \ or one that is expired, malformed or wrongly signed - all indistinguishable,\
+            \ and the signal to refresh or log in again. code INVALID_CREDENTIALS:\
+            \ login refused; an unknown email and a wrong password are deliberately\
+            \ indistinguishable."
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Authenticated, but not permitted: code ACCESS_DENIED. Re-authenticating\
+            \ will not help, so clients must not refresh on it."
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "No such route, or a referenced resource does not exist."
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: A business rule refused the operation. The request was well-formed;
+            the current state of the business forbids it.
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Unexpected failure. message is deliberately generic and carries
+            no internal detail; see the server log for the stack trace.
+      security:
+      - bearerAuth: []
+      summary: List the digital twin scenarios
+      tags:
+      - Digital twin
   /api/v1/service-incidents:
     get:
       description: Live outages for a region plus national ones; every active outage
@@ -2438,6 +2660,74 @@ paths:
       summary: Read persisted live quality evaluations; empty while unavailable
       tags:
       - ai-workspace-controller
+    post:
+      operationId: requestConversationQuality
+      parameters:
+      - in: path
+        name: conversationId
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        "202":
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+          description: Accepted
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Rejected before any business rule ran: the body is not valid\
+            \ JSON (code MALFORMED_REQUEST), a parameter or field broke a rule (code\
+            \ VALIDATION_FAILED), or a use-case precondition was unmet."
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Not authenticated. code UNAUTHENTICATED: no bearer token,\
+            \ or one that is expired, malformed or wrongly signed - all indistinguishable,\
+            \ and the signal to refresh or log in again. code INVALID_CREDENTIALS:\
+            \ login refused; an unknown email and a wrong password are deliberately\
+            \ indistinguishable."
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Authenticated, but not permitted: code ACCESS_DENIED. Re-authenticating\
+            \ will not help, so clients must not refresh on it."
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "No such route, or a referenced resource does not exist."
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: A business rule refused the operation. The request was well-formed;
+            the current state of the business forbids it.
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Unexpected failure. message is deliberately generic and carries
+            no internal detail; see the server log for the stack trace.
+      security:
+      - bearerAuth: []
+      summary: Request or retry asynchronous quality analysis of a resolved conversation
+      tags:
+      - ai-workspace-controller
   /api/v1/supervision/kpi:
     get:
       description: "Queues now, plus today's average wait, SLA ratio, abandon rate\
@@ -2641,6 +2931,226 @@ paths:
       summary: Open a support ticket
       tags:
       - Tickets
+  /api/v1/twin-runs:
+    get:
+      description: "The scenario's completed twin runs with their KPIs, ordered by\
+        \ strategy then seed."
+      operationId: compareDigitalTwinRuns
+      parameters:
+      - in: query
+        name: scenarioId
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TwinRun"
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Rejected before any business rule ran: the body is not valid\
+            \ JSON (code MALFORMED_REQUEST), a parameter or field broke a rule (code\
+            \ VALIDATION_FAILED), or a use-case precondition was unmet."
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Not authenticated. code UNAUTHENTICATED: no bearer token,\
+            \ or one that is expired, malformed or wrongly signed - all indistinguishable,\
+            \ and the signal to refresh or log in again. code INVALID_CREDENTIALS:\
+            \ login refused; an unknown email and a wrong password are deliberately\
+            \ indistinguishable."
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Authenticated, but not permitted: code ACCESS_DENIED. Re-authenticating\
+            \ will not help, so clients must not refresh on it."
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "No such route, or a referenced resource does not exist."
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: A business rule refused the operation. The request was well-formed;
+            the current state of the business forbids it.
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Unexpected failure. message is deliberately generic and carries
+            no internal detail; see the server log for the stack trace.
+      security:
+      - bearerAuth: []
+      summary: Compare the strategies on a scenario
+      tags:
+      - Digital twin
+    post:
+      description: "Simulates the scenario's day (load profile, duration, advisors\
+        \ spread over the four skills) under STATIC_FIFO, THRESHOLD or RL_PPO_V1 with\
+        \ the given seed, and stores the KPIs. The same seed replays the same customers,\
+        \ so runs with different strategies compare fairly. A scenario, strategy and\
+        \ seed complete once (409). A scenario beyond the twin's limits (1 to 1440\
+        \ minutes, at most 50 advisors per skill) answers 400. If the twin is unavailable\
+        \ the run is kept as FAILED, the call answers 503 WORKFORCE_UNAVAILABLE, and\
+        \ the same request can be sent again. Supervisors and admins only."
+      operationId: runDigitalTwin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RunDigitalTwinRequest"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TwinRun"
+          description: Run completed; its KPIs are stored
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Rejected before any business rule ran: the body is not valid\
+            \ JSON (code MALFORMED_REQUEST), a parameter or field broke a rule (code\
+            \ VALIDATION_FAILED), or a use-case precondition was unmet."
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Not authenticated. code UNAUTHENTICATED: no bearer token,\
+            \ or one that is expired, malformed or wrongly signed - all indistinguishable,\
+            \ and the signal to refresh or log in again. code INVALID_CREDENTIALS:\
+            \ login refused; an unknown email and a wrong password are deliberately\
+            \ indistinguishable."
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Authenticated, but not permitted: code ACCESS_DENIED. Re-authenticating\
+            \ will not help, so clients must not refresh on it."
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "No such route, or a referenced resource does not exist."
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: A business rule refused the operation. The request was well-formed;
+            the current state of the business forbids it.
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Unexpected failure. message is deliberately generic and carries
+            no internal detail; see the server log for the stack trace.
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: The twin is unavailable; the run is kept as FAILED and can
+            be started again
+      security:
+      - bearerAuth: []
+      summary: Replay a scenario under a control strategy
+      tags:
+      - Digital twin
+  /api/v1/twin-runs/{runId}:
+    get:
+      description: "A conversation simulation run is not a twin run: its id answers\
+        \ 404 here."
+      operationId: getDigitalTwinRun
+      parameters:
+      - in: path
+        name: runId
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TwinRun"
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Rejected before any business rule ran: the body is not valid\
+            \ JSON (code MALFORMED_REQUEST), a parameter or field broke a rule (code\
+            \ VALIDATION_FAILED), or a use-case precondition was unmet."
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Not authenticated. code UNAUTHENTICATED: no bearer token,\
+            \ or one that is expired, malformed or wrongly signed - all indistinguishable,\
+            \ and the signal to refresh or log in again. code INVALID_CREDENTIALS:\
+            \ login refused; an unknown email and a wrong password are deliberately\
+            \ indistinguishable."
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Authenticated, but not permitted: code ACCESS_DENIED. Re-authenticating\
+            \ will not help, so clients must not refresh on it."
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "No such route, or a referenced resource does not exist."
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: A business rule refused the operation. The request was well-formed;
+            the current state of the business forbids it.
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Unexpected failure. message is deliberately generic and carries
+            no internal detail; see the server log for the stack trace.
+      security:
+      - bearerAuth: []
+      summary: Get a digital twin run
+      tags:
+      - Digital twin
   /internal/conversations/{id}/escalate:
     post:
       description: Records the escalation as raised by AI and moves the conversation
@@ -3632,6 +4142,18 @@ components:
       - conversationId
       - customerId
       - title
+    Item:
+      type: object
+      properties:
+        firstName:
+          type: string
+        id:
+          type: string
+          format: uuid
+        lastName:
+          type: string
+        region:
+          type: string
     JsonNode:
       type: object
     KnowledgeArticle:
@@ -3755,6 +4277,10 @@ components:
     Message:
       type: object
       properties:
+        aiGenerated:
+          type: boolean
+          description: "True when the AI Advisor wrote this message. Show it: nobody\
+            \ should mistake an AI reply for a person's."
         content:
           type: string
         conversationId:
@@ -3774,6 +4300,7 @@ components:
           type: string
           format: date-time
       required:
+      - aiGenerated
       - content
       - conversationId
       - id
@@ -3863,6 +4390,21 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/StrategyOption"
+    Page:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: "#/components/schemas/Item"
+        hasNext:
+          type: boolean
+        page:
+          type: integer
+          format: int32
+        size:
+          type: integer
+          format: int32
     PageInfo:
       type: object
       properties:
@@ -3931,6 +4473,60 @@ components:
             $ref: "#/components/schemas/Queue"
       required:
       - queues
+    RunDigitalTwinRequest:
+      type: object
+      properties:
+        scenarioId:
+          type: string
+          format: uuid
+          description: "Scenario: load profile, duration and staff"
+        seed:
+          type: integer
+          format: int64
+          description: "Seed of the simulated day: the same seed gives the same customers\
+            \ for every strategy"
+          example: 7
+          minimum: 0
+        strategyCode:
+          type: string
+          description: "Control strategy code: STATIC_FIFO, THRESHOLD or RL_PPO_V1"
+          example: RL_PPO_V1
+          maxLength: 40
+          minLength: 0
+      required:
+      - scenarioId
+      - seed
+      - strategyCode
+    Scenario:
+      type: object
+      properties:
+        advisorCount:
+          type: integer
+          format: int32
+          description: Spread over the four skills by the twin
+          example: 12
+        durationMinutes:
+          type: integer
+          format: int32
+          example: 480
+        id:
+          type: string
+          format: uuid
+        loadProfile:
+          type: string
+          enum:
+          - LOW
+          - MEDIUM
+          - SATURATED
+        name:
+          type: string
+          example: Démo — journée chargée
+      required:
+      - advisorCount
+      - durationMinutes
+      - id
+      - loadProfile
+      - name
     ScenarioOption:
       type: object
       properties:
@@ -4337,6 +4933,76 @@ components:
         sentAt:
           type: string
           format: date-time
+    TwinRun:
+      type: object
+      properties:
+        endedAt:
+          type: string
+          format: date-time
+        errorMessage:
+          type: string
+          description: Safe failure reason when FAILED
+        kpis:
+          $ref: "#/components/schemas/TwinRunKpis"
+        runId:
+          type: string
+          format: uuid
+        scenarioId:
+          type: string
+          format: uuid
+        seed:
+          type: integer
+          format: int64
+          example: 7
+        startedAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum:
+          - PENDING
+          - RUNNING
+          - COMPLETED
+          - FAILED
+        strategyCode:
+          type: string
+          example: RL_PPO_V1
+      required:
+      - runId
+      - scenarioId
+      - seed
+      - status
+      - strategyCode
+    TwinRunKpis:
+      type: object
+      description: Null until COMPLETED
+      properties:
+        abandonRatio:
+          type: number
+          format: double
+          example: 0.0673
+        avgWaitSeconds:
+          type: number
+          format: double
+          example: 41.23
+        p95WaitSeconds:
+          type: number
+          format: double
+          example: 158.79
+        slaRatio:
+          type: number
+          format: double
+          example: 0.8512
+        totalConversations:
+          type: integer
+          format: int32
+          description: Customers who arrived during the simulated day
+      required:
+      - abandonRatio
+      - avgWaitSeconds
+      - p95WaitSeconds
+      - slaRatio
+      - totalConversations
     User:
       type: object
       properties:

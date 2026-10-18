@@ -45,6 +45,8 @@ services:
       # which overrides the localhost default meant for running outside Docker.
       AI_SERVICE_BASE_URL: ${AI_SERVICE_BASE_URL:-http://ai-service:8000}
       AI_SERVICE_KEY: ${AI_SERVICE_KEY:-}
+      # OFF unless asked: AUTONOMOUS lets the AI answer until a human advisor writes.
+      AI_ADVISOR_MODE: ${AI_ADVISOR_MODE:-OFF}
       INTERNAL_API_PREFIX: ${INTERNAL_API_PREFIX:-/internal}
       # Shared service key. Must match the ai-service's INTERNAL_SERVICE_KEY exactly.
       INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY:?set INTERNAL_SERVICE_KEY in .env}
@@ -61,35 +63,50 @@ services:
     # probe from outside, which is where that check belongs.
 
   ai-service:
-    # Placeholder for the Python/FastAPI service running the LangGraph agents and
-    # the reinforcement-learning policy. It lives in its own repository and is not
-    # built from here.
+    # The Python/FastAPI service running the LangGraph agents and the
+    # reinforcement-learning policy, built from ai-service/Dockerfile (CPU only).
     #
-    # Behind a compose profile so that `docker compose up` works today, before the
-    # image exists. Once it does:  docker compose --profile ai up
+    # Behind a compose profile so that `docker compose up` does not need it:
+    #   docker compose --profile ai up --build
     profiles:
       - ai
+    build: ./ai-service
     image: callverse-ai:${CALLVERSE_AI_VERSION:-local}
     container_name: callverse-ai
     restart: unless-stopped
+    # The LLM key, the pgvector DSN and the Quality model live in ai-service/.env
+    # (see ai-service/.env.example), never in the image. Optional, so the file can
+    # be absent for a run that only exercises the RL policy ("required: false"
+    # needs Docker Compose 2.24 or later).
+    env_file:
+      - path: ai-service/.env
+        required: false
     environment:
       # The agents' tools are REST endpoints of the backend, which stays the authority
       # on business rules. The /internal tool API uses the service key below.
-      # docker-compose.yml uses CALLVERSE_BACKEND_BASE_URL; ai-service/app/config.py
-      # reads backend_base_url — align both to the same env var name.
+      # ai-service/app/config.py reads this exact name (validation alias).
       CALLVERSE_BACKEND_BASE_URL: http://backend:8080
       # Shared service key. Must match the backend's INTERNAL_SERVICE_KEY exactly.
       # The :? syntax fails docker compose up with an explicit error if the variable
       # is missing from .env, rather than starting with an empty key.
       INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY:?set INTERNAL_SERVICE_KEY in .env}
-      # Optional Advisor API authentication; when set, backend and AI service must match.
+      # Required: the AI service itself refuses to start without it (fail closed). Not
+      # ":?" here, because Compose interpolates every service, profile or not, and that
+      # would break `docker compose up` for anyone who does not run the AI. The backend
+      # sends the same value as X-AI-Key.
       AI_SERVICE_KEY: ${AI_SERVICE_KEY:-}
     ports:
       - "${AI_SERVICE_PORT:-8000}:8000"
+    # The embedding model downloads on first use; keep it across containers.
+    volumes:
+      - ai-model-cache:/home/callverse/.cache
     depends_on:
       - backend
     networks:
       - callverse
+
+volumes:
+  ai-model-cache:
 
 networks:
   callverse:

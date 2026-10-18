@@ -135,5 +135,20 @@ class DemoDataLoaderTest extends AbstractPersistenceTest {
         assertThat(em.createQuery(
                         "select count(a) from Advisor a where a.user.email = 'advisor@callverse.local'", Long.class)
                 .getSingleResult()).isEqualTo(1);
+        assertThat(demoScenarioLoads()).as("still one scenario per load after a second run")
+                .containsExactly("LOW", "MEDIUM", "SATURATED");
+    }
+
+    @Test
+    @DisplayName("three digital twin scenarios are seeded, one per load profile, for the twin screen")
+    void twinScenariosAreSeeded() {
+        assertThat(demoScenarioLoads()).containsExactly("LOW", "MEDIUM", "SATURATED");
+    }
+
+    private java.util.List<String> demoScenarioLoads() {
+        return em.createQuery(
+                        "select s.loadProfile from Scenario s where s.name like 'Démo — %' order by s.loadProfile",
+                        com.callverse.core.domain.enums.LoadProfile.class)
+                .getResultList().stream().map(Enum::name).toList();
     }
 }

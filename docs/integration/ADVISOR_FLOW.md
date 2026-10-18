@@ -12,7 +12,8 @@ Client
   └─ POST /api/v1/conversations/{id}/messages
        └─ backend persiste le message client et valide la transaction
             └─ publication MESSAGE_POSTED
-                 └─ exécuteur borné, une tâche en cours par conversation
+                 └─ si AI_ADVISOR_MODE=AUTONOMOUS : exécuteur borné, une tâche en cours
+                    par conversation, messages arrivés entre-temps regroupés sur le dernier
                       └─ POST {AI_SERVICE_BASE_URL}/ai/advisor/respond
                            └─ ai-service appelle l'Advisor et ses outils /internal
                                 └─ backend persiste le tour Advisor
@@ -22,6 +23,20 @@ Client
 Seuls les messages dont l'émetteur est `CUSTOMER` déclenchent ce flux. Les
 conversations doivent être `ASSIGNED` ou `ACTIVE`. Les conversations `QUEUED`
 et `ESCALATED` sont ignorées ; la machine d'états n'est pas modifiée.
+
+## Mode de l'Advisor et reprise par l'humain
+
+`ai.advisor.mode` (variable `AI_ADVISOR_MODE`) vaut `OFF` par défaut : une
+conversation en direct appartient à son conseiller humain et rien n'est planifié.
+En `AUTONOMOUS`, l'IA répond aux messages du client **jusqu'à ce qu'un conseiller
+humain écrive** dans la conversation (message `ADVISOR` avec `ai_generated=false`).
+Dès lors l'humain a repris la main et l'IA se tait : le client ne reçoit jamais
+deux réponses. Si l'humain écrit pendant que l'IA réfléchit, son message devient
+le plus récent et la vérification sous verrou abandonne la réponse de l'IA.
+
+Si le client envoie un second message pendant qu'un tour est en cours, il n'est
+plus perdu : le message est mis en attente et traité dès la fin du tour en cours,
+en ne gardant que le plus récent (l'historique contient les précédents).
 
 ## Contrat HTTP Advisor
 
@@ -49,14 +64,19 @@ persistance.
 client envoie `AI_SERVICE_KEY` dans l'en-tête `X-AI-Key`. Le délai de connexion
 est de 2 secondes et le délai de lecture de 30 secondes.
 
-Lorsque `AI_SERVICE_KEY` est défini, l'ai-service exige la même valeur sur les
-routes `/ai/*`, sous l'en-tête `X-AI-Key`. `/health` reste accessible sans clé.
-Lorsque la variable est vide ou absente, cette authentification est désactivée
-pour conserver la compatibilité des environnements qui ne l'ont pas configurée.
-Pour activer la protection, configurez la même clé dans l'environnement du
-backend et de l'ai-service ; ne placez jamais sa valeur dans un fichier suivi
-par Git. `INTERNAL_SERVICE_KEY` est une clé distincte utilisée dans l'autre
-sens, pour protéger les appels outils de l'ai-service vers `/internal/**`.
+L'ai-service exige `AI_SERVICE_KEY` sur les routes `/ai/*`, sous l'en-tête
+`X-AI-Key`. `/health` reste accessible sans clé. **Sans clé, le service refuse
+de démarrer** (fail closed) ; seul `AI_SERVICE_AUTH_DISABLED=true`, réservé au
+développement local, le laisse démarrer avec des routes ouvertes. Configurez la
+même clé dans l'environnement du backend et de l'ai-service ; ne placez jamais
+sa valeur dans un fichier suivi par Git. `INTERNAL_SERVICE_KEY` est une clé
+distincte utilisée dans l'autre sens, pour protéger les appels outils de
+l'ai-service vers `/internal/**`.
+
+Les outils reçoivent `customer_id` et `conversation_id` **de la requête du
+backend, jamais du LLM** (`TRUSTED_IDENTIFIERS` dans `app/advisor/nodes.py`) ;
+ces champs ne figurent plus dans les schémas d'outils. Un message client
+malveillant ne peut donc pas orienter un outil vers un autre client.
 
 ## Persistance, diffusion et comportement dégradé
 
@@ -73,6 +93,43 @@ Un échec réseau, un délai dépassé, une réponse invalide ou une saturation 
 l'exécuteur est journalisé sans secret ; la conversation reste disponible pour
 un conseiller humain. Aucun échec n'entraîne d'escalade automatique.
 
+## Escalade demandée par l'IA
+
+Quand l'Advisor renvoie `action.type = ESCALATE` (confiance basse ou demande
+explicite), le backend publie d'abord la réponse (« je transmets à un
+superviseur »), ce qui fait passer la conversation de `ASSIGNED` à `ACTIVE`,
+puis lève une **vraie escalade** par le cas d'usage existant, avec
+`raised_by = AI` et la raison fournie (« Escalade demandée par l'assistant IA »
+si absente, 255 caractères au plus). Le superviseur reçoit l'alerte et voit la
+conversation `ESCALATED` dans sa liste. Un refus (conversation déjà résolue ou
+déjà escaladée) est journalisé et laisse la réponse publiée.
+
+C'est le **seul chemin d'escalade** : l'outil `escalate` a été retiré de l'Advisor.
+Escalader par l'outil `/internal` en cours de tour faisait passer la conversation
+en `ESCALATED` avant la réponse, qui était alors abandonnée (le client ne
+recevait rien), ou échouait en 409 au premier tour (`ASSIGNED`).
+
+## Données personnelles et délais
+
+Avant tout appel au modèle, le message et l'historique sont masqués
+(`PersonalDataRedactor`) : IBAN sous toutes ses formes (groupes de 4, groupes du
+RIB, tirets, espace après le code pays ; contrôle ISO 13616 mod 97), numéro de
+carte valide (contrôle de Luhn, même collé à un autre nombre), e-mail et
+téléphone (0X, +33, 0033, +33 (0)). La base garde l'original.
+
+L'ai-service borne chaque requête Advisor ou Simulator à
+`ai_request_deadline_seconds` (25 s par défaut) et répond 504 au-delà, avant le
+délai de lecture de 30 s du backend. Une erreur interne renvoie un message
+générique ; son détail reste dans les journaux. Le Simulator tourne dans un pool
+de threads dédié et borné (4), pour ne pas priver l'Advisor de threads. Un outil
+déjà lancé quand l'échéance tombe (ticket, geste commercial) peut s'exécuter
+côté backend sans qu'aucune réponse ne soit publiée, comme avant avec le délai
+de 30 s du backend.
+
 Limites connues : les conversations `QUEUED` ne sont pas traitées, les traces
-ne sont pas exposées (règle A9 non confirmée) et le contexte client est réduit
-aux données que le backend connaît déjà.
+ne sont pas exposées (règle A9 non confirmée), le contexte client est réduit
+aux données que le backend connaît déjà, le **nom du client** atteint encore
+le modèle par l'outil `get_customer`, et les libellés de transactions renvoyés
+par `/internal` n'ont que leurs IBAN masqués (cartes, e-mails et téléphones
+non) : les masquer sur cette route les masquerait aussi pour le personnel, une
+décision à prendre en équipe.

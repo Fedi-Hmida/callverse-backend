@@ -1,5 +1,6 @@
 package com.callverse.core.application.features.quality.commands;
 
+import com.callverse.core.application.interfaces.CitedKnowledge;
 import com.callverse.core.application.interfaces.ConversationLifecycle;
 import com.callverse.core.application.interfaces.ConversationMessages;
 import com.callverse.core.application.interfaces.ConversationMessages.MessageRecord;
@@ -10,6 +11,8 @@ import com.callverse.core.application.interfaces.QualityAgent.QualityResult;
 import com.callverse.core.application.interfaces.QualityEvaluationStore;
 import com.callverse.core.domain.enums.ConversationStatus;
 import com.callverse.core.domain.enums.MessageSender;
+import com.callverse.core.domain.services.BankingProcedureRules;
+import com.callverse.core.domain.services.PersonalDataRedactor;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
@@ -28,16 +31,19 @@ public class QualityEvaluationCommandHandler {
     private final ConversationLifecycle conversations;
     private final ConversationMessages messages;
     private final QualityEvaluationStore evaluations;
+    private final CitedKnowledge citedKnowledge;
 
     public QualityEvaluationCommandHandler(
             QualityAgent agent,
             ConversationLifecycle conversations,
             ConversationMessages messages,
-            QualityEvaluationStore evaluations) {
+            QualityEvaluationStore evaluations,
+            CitedKnowledge citedKnowledge) {
         this.agent = Objects.requireNonNull(agent, "agent must not be null");
         this.conversations = Objects.requireNonNull(conversations, "conversations must not be null");
         this.messages = Objects.requireNonNull(messages, "messages must not be null");
         this.evaluations = Objects.requireNonNull(evaluations, "evaluations must not be null");
+        this.citedKnowledge = Objects.requireNonNull(citedKnowledge, "citedKnowledge must not be null");
     }
 
     /**
@@ -62,14 +68,22 @@ public class QualityEvaluationCommandHandler {
             return false;
         }
 
-        QualityResult result = agent.evaluate(new QualityRequest(conversationId, transcript, true));
+        // Grounding: without the articles the AI used and the bank's rules, accuracy and compliance
+        // would be graded against nothing.
+        QualityResult result = agent.evaluate(new QualityRequest(
+                conversationId,
+                transcript,
+                true,
+                citedKnowledge.citedInAiTurns(conversationId),
+                BankingProcedureRules.ALL));
         validateResult(conversationId, result);
         evaluations.save(result);
         return true;
     }
 
+    /** The judge is an external model: identifiers are masked, the stored transcript is not. */
     private static QualityMessage toQualityMessage(MessageRecord message) {
-        return new QualityMessage(message.sender(), message.content());
+        return new QualityMessage(message.sender(), PersonalDataRedactor.redact(message.content()));
     }
 
     private static void validateResult(UUID conversationId, QualityResult result) {

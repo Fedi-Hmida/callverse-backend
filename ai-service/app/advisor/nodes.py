@@ -99,11 +99,10 @@ def _build_messages(state: AdvisorGraphState) -> list:
     request = state["request"]
     messages = [SystemMessage(content=ADVISOR_SYSTEM_PROMPT)]
 
+    # No identifier here: tools receive customer_id and conversation_id from the request
+    # (TRUSTED_IDENTIFIERS), so the model never needs, sees or repeats them.
     context_details = [
-        f"[Contexte client] customer_id: {request.customer_id} "
-        f"(utilise EXACTEMENT cette valeur pour tout appel d'outil necessitant "
-        f"customer_id, ne l'invente jamais). "
-        f"anciennete: {request.context.tenure_months} mois"
+        f"[Contexte client] anciennete: {request.context.tenure_months} mois"
     ]
     if request.context.segment is not None:
         context_details.append(f"segment: {request.context.segment}")
@@ -181,10 +180,27 @@ async def decide(state: AdvisorGraphState) -> dict:
     return {"decision": decision, "iterations": state.get("iterations", 0) + 1}
 
 
+TRUSTED_IDENTIFIERS: dict[str, tuple[str, ...]] = {
+    "get_customer": ("customer_id",),
+    "get_transactions": ("customer_id",),
+    "create_case": ("customer_id", "conversation_id"),
+    "apply_credit": ("customer_id",),
+}
+"""Arguments taken from the backend's request, never from the LLM: a customer message cannot
+steer a tool towards another customer or conversation. They are absent from TOOL_SPECS."""
+
+
+def _with_trusted_identifiers(tool_name: str, arguments: dict, request) -> dict:
+    trusted = dict(arguments)
+    for identifier in TRUSTED_IDENTIFIERS.get(tool_name, ()):
+        trusted[identifier] = str(getattr(request, identifier))
+    return trusted
+
+
 async def execute_tool(state: AdvisorGraphState) -> dict:
     decision = state["decision"]
     tool_name = decision["tool_name"]
-    arguments = dict(decision.get("arguments") or {})
+    arguments = _with_trusted_identifiers(tool_name, decision.get("arguments") or {}, state["request"])
     if state["request"].mode == Mode.simulation and tool_name != "search_knowledge_base":
         call = {
             "name": tool_name,
@@ -193,8 +209,6 @@ async def execute_tool(state: AdvisorGraphState) -> dict:
             "error": "Backend tools are disabled in simulation mode.",
         }
         return {"tool_calls": list(state.get("tool_calls", [])) + [call]}
-    if tool_name == "create_case":
-        arguments["conversation_id"] = str(state["request"].conversation_id)
 
     call = {"name": tool_name, "arguments": arguments, "result": None, "error": None}
     retrieved_documents = list(state.get("retrieved_documents", []))

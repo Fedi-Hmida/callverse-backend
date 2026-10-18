@@ -7,8 +7,25 @@ from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 
+_MISSING_KEY = (
+    "AI_SERVICE_KEY is required: /ai/* would otherwise be open to anyone who can reach the service. "
+    "Set the same value as the backend's AI_SERVICE_KEY, or AI_SERVICE_AUTH_DISABLED=true for local "
+    "development only."
+)
+
+
+def require_ai_service_key(ai_service_key: str, auth_disabled: bool) -> None:
+    """Fails at startup, not at the first request, when /ai/* would run unauthenticated."""
+    if not ai_service_key.strip() and not auth_disabled:
+        raise RuntimeError(_MISSING_KEY)
+
+
 class AIServiceKeyMiddleware:
-    def __init__(self, app: ASGIApp, ai_service_key: str) -> None:
+    """Requires X-AI-Key on /ai/*. Fails closed: an empty key is refused unless explicitly allowed."""
+
+    def __init__(self, app: ASGIApp, ai_service_key: str, allow_unauthenticated: bool = False) -> None:
+        if not ai_service_key.strip() and not allow_unauthenticated:
+            raise ValueError(_MISSING_KEY)
         self.app = app
         self.ai_service_key = ai_service_key
 

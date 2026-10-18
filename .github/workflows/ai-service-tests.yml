@@ -1,0 +1,32 @@
+name: ai-service tests
+
+# Python tests of the AI service, on any change under ai-service/. Tests that need a real LLM are
+# marked "llm" and excluded by the pytest configuration; no secret is used here.
+on:
+  push:
+    paths: ["ai-service/**", ".github/workflows/ai-service-tests.yml"]
+  pull_request:
+    paths: ["ai-service/**", ".github/workflows/ai-service-tests.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ai-service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            ai-service/requirements.lock
+            ai-service/requirements-dev.txt
+      - name: Install the locked dependencies (CPU torch included) and the test tools
+        run: pip install -r requirements-dev.txt
+      - name: Run pytest (no LLM)
+        run: pytest -q

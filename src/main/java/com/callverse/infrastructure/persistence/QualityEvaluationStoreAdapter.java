@@ -12,6 +12,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.RoundingMode;
 import java.util.Locale;
 import java.util.Map;
+import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -25,6 +27,12 @@ class QualityEvaluationStoreAdapter implements QualityEvaluationStore {
     private final ConversationRepository conversations;
     private final QualityEvaluationRepository evaluations;
     private final ObjectMapper objectMapper;
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<UUID> ungradedResolved(Instant endedAfter, Instant endedBefore, int limit) {
+        return conversations.findUngradedResolved(endedAfter, endedBefore, limit);
+    }
 
     @Override
     @Transactional(readOnly = true)

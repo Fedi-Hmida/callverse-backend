@@ -34,7 +34,7 @@ class QualityAgentHttpAdapter implements QualityAgent {
             RestClient.Builder builder,
             @Value("${ai.service.base-url:http://localhost:8000}") String baseUrl,
             @Value("${ai.service.api-key:}") String apiKey,
-            @Value("${ai.service.quality-read-timeout-seconds:30}") int readTimeoutSeconds) {
+            @Value("${ai.service.quality-read-timeout-seconds:130}") int readTimeoutSeconds) {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(Duration.ofSeconds(2));
         if (readTimeoutSeconds < 1 || readTimeoutSeconds > 300) {
@@ -77,9 +77,12 @@ class QualityAgentHttpAdapter implements QualityAgent {
         return new QualityRequestWire(
                 request.conversationId().toString(),
                 request.messages().stream().map(QualityAgentHttpAdapter::toWire).toList(),
-                List.of(),
+                request.sourceDocuments().stream()
+                        .map(document -> new SourceDocumentWire(
+                                document.documentId(), document.chunkId(), document.content()))
+                        .toList(),
                 request.resolved(),
-                List.of());
+                request.applicableRules());
     }
 
     private static QualityMessageWire toWire(QualityMessage message) {

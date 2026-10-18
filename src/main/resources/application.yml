@@ -91,6 +91,17 @@ ai:
     # The Python FastAPI service hosting the LangGraph agents and the RL policy.
     base-url: ${AI_SERVICE_BASE_URL:http://localhost:8000}
     api-key: ${AI_SERVICE_KEY:}
+  advisor:
+    # OFF (default): live conversations belong to their human advisor.
+    # AUTONOMOUS: the AI answers customer messages until a human advisor writes in that
+    # conversation (human takeover); it never speaks over a person.
+    mode: ${AI_ADVISOR_MODE:OFF}
+  quality:
+    retry:
+      # Resolved conversations without an AI grade (judge down, incomplete answer) are sent
+      # again, 5 minutes to 24 hours after resolution, at most 20 per sweep.
+      enabled: ${AI_QUALITY_RETRY_ENABLED:true}
+      interval: ${AI_QUALITY_RETRY_INTERVAL:PT10M}
 
 internal:
   # Shared path prefix for the internal tool API; the security chain uses this same value.

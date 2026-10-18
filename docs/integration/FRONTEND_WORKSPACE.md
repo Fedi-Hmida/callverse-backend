@@ -1,42 +1,43 @@
-# Frontend AI workspace
+# Integrated frontend workspace — 2026-10-18
 
-Branch `integration/ai-frontend` extends Douaa's `integration/backend-fedi` at
-`b54dde3` without changing that branch or `main`. The matching frontend is
-`integration/ai-connected` in `bellaaghaaziz/callverse-frontend`.
+This branch integrates Fedi's `main` at `bcc172c` while retaining the frontend workspace
+extensions. `docs/frontend/AI_INTEGRATION_GUIDE.md` describes upstream; its “no quality
+read route yet” and “no dialogue scenario creation” statements do not apply to these extensions.
 
-Five operations expose the data needed by the supervisor/admin interface:
+## Retained extensions
 
-- `GET /api/v1/simulation-runs/options`: existing scenario and strategy references.
-- `POST /api/v1/simulation-runs/scenarios`: a named minimal single-dialogue scenario,
-  validated as non-blank and at most 120 characters. This does not configure load campaigns.
-- `GET /api/v1/simulation-runs`: the twenty most recent runs, newest first.
-- `GET /api/v1/simulation-runs/{runId}/messages`: the isolated dialogue, not private
-  sources or tool calls. The run is checked before reading its conversation.
-- `GET /api/v1/supervision/conversations/{conversationId}/quality`: persisted live
-  evaluations (score, criteria, explanation, evaluator, date), without agent traces.
-  Missing evaluation is an empty list; unknown or simulated conversation is 404.
+- GET `/api/v1/customers/directory`: paginated minimal real-customer directory, staff only.
+- GET `/api/v1/conversations/accessible`: role/ownership-scoped searchable conversations.
+- GET `/api/v1/simulation-runs/options`: scenario and strategy catalog for dialogues.
+- POST `/api/v1/simulation-runs/scenarios`: named minimal single-dialogue scenarios.
+- GET `/api/v1/simulation-runs`: twenty latest dialogue runs; twin runs are filtered before pagination.
+- GET `/api/v1/simulation-runs/{runId}/messages`: isolated transcript without private traces.
+- GET `/api/v1/supervision/conversations/{id}/quality`: stored live evaluations.
+- POST `/api/v1/supervision/conversations/{id}/quality`: queue an eligible unresolved-grade
+  analysis asynchronously (202); an already evaluated conversation is not overwritten.
 
-All operations require SUPERVISOR/ADMIN. The production filter chain explicitly
-admits authenticated requests and method authorization checks the role. Both roles
-can discover reference options; customers and advisors cannot use these operations.
-No migration, live queue modification, new AI write tool, assignment application,
-or re-evaluation trigger is introduced. Sources and tool traces remain private.
+The six simulation/quality routes require SUPERVISOR/ADMIN; customer directory requires
+staff. Production filter-chain rules and method authorization both remain enabled.
+Conversation selection uses the signed-in role's ownership policy. No raw IDs are required in forms.
 
-The existing Workforce recommendation route is called on demand. The existing
-asynchronous Simulator/Advisor routes provide run creation/status. Quality remains
-the existing post-resolution live evaluation; the frontend adds reading only.
-The simulation strategy is metadata in this conversational runner, not a comparison
-of staffing policies. No simulated transcript is exposed through live routes/topics.
+## Upstream functionality kept
 
-`AiWorkspaceIntegrationTest` validates production access controls, scenario creation,
-catalog reads, transcript isolation and quality absence/persistence. OpenAPI and its
-operation-id test include the five new operations. The frontend types were generated
-from this contract. All thirteen workspace/contract/architecture tests pass.
+Human takeover and OFF/AUTONOMOUS modes; real AI escalation; trusted tool identifiers;
+personal-data masking; fail-closed service authentication; ordered live events; strict quality
+scores/evidence; cited-document and procedure grounding; scheduled quality retries;
+digital-twin scenarios, runs and comparison with retryable failed calculations.
 
-The pgvector adapter imports the embedding library lazily so the API and Workforce
-can start without initializing document embedding dependencies. RAG itself still
-requires the library, configured vector database and indexed documents.
+Quality HTTP read timeout remains configurable, default 130 seconds (above Python's default 120).
+Manual quality requests and automatic retry use the same guarded dispatcher.
+Lazy embedding imports and safe quote-typography/unique in-range index alignment are retained.
+Invented/ambiguous quotes, customer-only claims and invalid indices remain rejected.
 
-For local startup and UI verification, see `docs/AI_CONNECTED.md` in the frontend.
-An actual Spring-to-Python PPO request succeeded; browser workflow tests intercept
-mutations. Full real-LLM dialogues and quality scores require configured model services.
+## Contract and verification
+
+OpenAPI includes upstream plus the eight directory/workspace operations. The published
+operation-id test and generated frontend types are updated together.
+544 backend tests pass, including production access, paging, twin/dialogue isolation,
+quality requests and ArchUnit. 143 Python tests pass (one real-LLM test excluded by default).
+Frontend tests/build and real local PPO twin comparisons are documented in the frontend's
+`docs/AI_CONNECTED.md`. No Groq key or secret is committed; real autonomous LLM dialogue
+still depends on environment configuration.

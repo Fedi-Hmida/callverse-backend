@@ -15,25 +15,39 @@ import com.callverse.core.application.interfaces.ConversationMessages.MessageRec
 import com.callverse.core.application.interfaces.ConversationMessages.PostedMessage;
 import com.callverse.core.application.interfaces.CustomerProfile;
 import com.callverse.core.application.interfaces.CustomerRecords;
+import com.callverse.core.domain.enums.AiAdvisorMode;
 import com.callverse.core.domain.enums.ConversationStatus;
+import com.callverse.core.domain.enums.EscalationRaisedBy;
 import com.callverse.core.domain.enums.MessageSender;
+import com.callverse.core.domain.services.PersonalDataRedactor;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
 import java.time.Clock;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Obtains and stores one Customer Advisor turn after the triggering customer message has committed.
  *
  * <p>No database lock is held while the outbound AI call runs. The final write rechecks the state
  * and triggering message under the conversation row lock, discarding a stale response.
+ *
+ * <p>Runs only in {@link AiAdvisorMode#AUTONOMOUS}, and only until a human advisor has written in the
+ * conversation. A human reply that lands while the AI is thinking becomes the latest message, so the
+ * locked recheck discards the AI response as well.
  */
 public class AdvisorTurnCommandHandler {
 
     private static final Logger LOG = System.getLogger(AdvisorTurnCommandHandler.class.getName());
     private static final int TRANSCRIPT_LIMIT = 200;
     private static final int HISTORY_LIMIT = 20;
+    private static final String ESCALATE = "ESCALATE";
+    private static final String DEFAULT_ESCALATION_REASON = "Escalade demandée par l'assistant IA";
+    /** The escalation reason column and request limit. */
+    private static final int MAX_ESCALATION_REASON = 255;
 
     private final AdvisorAgent agent;
     private final ConversationLifecycle conversations;
@@ -41,6 +55,8 @@ public class AdvisorTurnCommandHandler {
     private final CustomerRecords customers;
     private final ConversationEvents events;
     private final Clock clock;
+    private final AiAdvisorMode mode;
+    private final EscalateConversationCommandHandler escalation;
 
     public AdvisorTurnCommandHandler(
             AdvisorAgent agent,
@@ -48,17 +64,29 @@ public class AdvisorTurnCommandHandler {
             ConversationMessages messages,
             CustomerRecords customers,
             ConversationEvents events,
-            Clock clock) {
+            Clock clock,
+            AiAdvisorMode mode,
+            EscalateConversationCommandHandler escalation) {
         this.agent = Objects.requireNonNull(agent, "agent must not be null");
         this.conversations = Objects.requireNonNull(conversations, "conversations must not be null");
         this.messages = Objects.requireNonNull(messages, "messages must not be null");
         this.customers = Objects.requireNonNull(customers, "customers must not be null");
         this.events = Objects.requireNonNull(events, "events must not be null");
         this.clock = Objects.requireNonNull(clock, "clock must not be null");
+        this.mode = Objects.requireNonNull(mode, "mode must not be null");
+        this.escalation = Objects.requireNonNull(escalation, "escalation must not be null");
+    }
+
+    /** False in {@code OFF} mode, so callers can skip scheduling a turn at all. */
+    public boolean enabled() {
+        return mode != AiAdvisorMode.OFF;
     }
 
     public void handle(AdvisorTurnCommand command) {
         Objects.requireNonNull(command, "command must not be null");
+        if (!enabled()) {
+            return;
+        }
         ConversationRecord conversation = conversations.find(command.conversationId()).orElse(null);
         if (conversation == null) {
             LOG.log(Level.WARNING, "AI Advisor skipped: conversation no longer exists");
@@ -68,6 +96,12 @@ public class AdvisorTurnCommandHandler {
                 && conversation.status() != ConversationStatus.ACTIVE) {
             LOG.log(Level.INFO, "AI Advisor skipped for conversation {0} in state {1}",
                     conversation.id(), conversation.status());
+            return;
+        }
+        // Human takeover: once the assigned advisor has written, the AI never speaks over them.
+        if (messages.humanAdvisorHasReplied(conversation.id())) {
+            LOG.log(Level.INFO, "AI Advisor skipped for conversation {0}: a human advisor has taken over",
+                    conversation.id());
             return;
         }
 
@@ -91,15 +125,17 @@ public class AdvisorTurnCommandHandler {
                 .toList();
         int historyStart = Math.max(0, previousMessages.size() - HISTORY_LIMIT);
         List<HistoryMessage> history = previousMessages.subList(historyStart, previousMessages.size()).stream()
-                .map(message -> new HistoryMessage(message.sender(), message.content(), message.sentAt()))
+                .map(message -> new HistoryMessage(
+                        message.sender(), PersonalDataRedactor.redact(message.content()), message.sentAt()))
                 .toList();
 
+        // Text crosses to an external model: identifiers are masked here, the database keeps them.
         AdvisorResponse response;
         try {
             response = agent.respond(new AdvisorRequest(
                     conversation.id(),
                     conversation.customerId(),
-                    customerMessage.content(),
+                    PersonalDataRedactor.redact(customerMessage.content()),
                     history,
                     new CustomerContext(customer.tenureMonths(), customer.segment())));
             validate(response);
@@ -109,16 +145,41 @@ public class AdvisorTurnCommandHandler {
             return;
         }
 
-        messages.postAgentTurn(
-                        conversation.id(),
-                        customerMessage.id(),
-                        response.reply(),
-                        response.sources(),
-                        response.toolCalls(),
-                        clock.instant())
-                .ifPresentOrElse(events::messagePosted, () -> LOG.log(
-                        Level.INFO, "AI Advisor response discarded for conversation {0}: it moved on",
-                        conversation.id()));
+        Optional<PostedMessage> posted = messages.postAgentTurn(
+                conversation.id(),
+                customerMessage.id(),
+                response.reply(),
+                response.sources(),
+                response.toolCalls(),
+                clock.instant());
+        if (posted.isEmpty()) {
+            LOG.log(Level.INFO, "AI Advisor response discarded for conversation {0}: it moved on",
+                    conversation.id());
+            return;
+        }
+        events.messagePosted(posted.get());
+        if (ESCALATE.equals(response.actionType())) {
+            escalate(conversation.id(), response.actionPayload());
+        }
+    }
+
+    /**
+     * The reply told the customer a supervisor takes over, so a real escalation must follow. It
+     * runs after the reply is posted: that write moves ASSIGNED to ACTIVE, the only state the
+     * escalation rules accept. A refusal (already resolved, already escalated) leaves the reply.
+     */
+    private void escalate(UUID conversationId, Map<String, Object> payload) {
+        Object given = payload == null ? null : payload.get("reason");
+        String reason = given instanceof String text && !text.isBlank() ? text.strip() : DEFAULT_ESCALATION_REASON;
+        if (reason.length() > MAX_ESCALATION_REASON) {
+            reason = reason.substring(0, MAX_ESCALATION_REASON);
+        }
+        try {
+            escalation.handle(new EscalateConversationCommand(conversationId, reason, EscalationRaisedBy.AI, null));
+        } catch (RuntimeException exception) {
+            LOG.log(Level.WARNING, "AI Advisor escalation refused for conversation {0}: {1}",
+                    conversationId, exception.getClass().getSimpleName());
+        }
     }
 
     private static void validate(AdvisorResponse response) {

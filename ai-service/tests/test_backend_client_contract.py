@@ -8,6 +8,7 @@ import pytest
 from app.advisor.nodes import execute_tool
 from app.clients.backend_client import BackendClient
 from app.config import Settings
+from app.contracts.advisor import Mode
 
 
 def _use_transport(monkeypatch, handler):
@@ -106,7 +107,9 @@ async def test_execute_tool_injects_conversation_id_from_advisor_request(monkeyp
         {"create_case": implementation},
     )
     state = {
-        "request": SimpleNamespace(conversation_id="trusted-conversation-id"),
+        "request": SimpleNamespace(
+            conversation_id="trusted-conversation-id", customer_id="trusted-customer-id", mode=Mode.live
+        ),
         "decision": {
             "action": "call_tool",
             "tool_name": "create_case",
@@ -117,7 +120,7 @@ async def test_execute_tool_injects_conversation_id_from_advisor_request(monkeyp
     result = await execute_tool(state)
 
     implementation.assert_awaited_once_with(
-        customer_id="customer-1",
+        customer_id="trusted-customer-id",
         subject="Carte refusée",
         conversation_id="trusted-conversation-id",
     )

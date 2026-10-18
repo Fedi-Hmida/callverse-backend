@@ -60,6 +60,7 @@ class AdvisorTurnIntegrationTest extends AbstractPersistenceTest {
     static void advisorProperties(DynamicPropertyRegistry registry) {
         registry.add("ai.service.base-url", () -> "http://127.0.0.1:" + AI_SERVER.getAddress().getPort());
         registry.add("ai.service.api-key", () -> API_KEY);
+        registry.add("ai.advisor.mode", () -> "AUTONOMOUS");
     }
 
     @AfterAll
@@ -83,14 +84,14 @@ class AdvisorTurnIntegrationTest extends AbstractPersistenceTest {
         Instant queuedAt = Instant.now().minusSeconds(60);
         UUID conversationId = fixtures.conversation(
                 customerId, skill, ConversationStatus.ASSIGNED, "0", queuedAt, advisorId, null);
-        fixtures.message(conversationId, MessageSender.ADVISOR, "Bonjour.", queuedAt.plusSeconds(11));
+        fixtures.aiAdvisorMessage(conversationId, "Bonjour.", queuedAt.plusSeconds(11));
 
-        MvcResult result = mockMvc.perform(customerMessage(conversationId, customerUserId))
+        MvcResult result = mockMvc.perform(customerMessage(conversationId, customerUserId, "customer-advisor-test"))
                 .andExpect(status().isCreated())
                 .andReturn();
         JsonNode customerMessage = objectMapper.readTree(result.getResponse().getContentAsString());
 
-        List<Message> aiTurns = awaitAiTurn(conversationId);
+        List<Message> aiTurns = awaitAiTurn(conversationId, queuedAt.plusSeconds(11));
 
         assertThat(aiTurns).hasSize(1);
         Message aiTurn = aiTurns.getFirst();
@@ -115,23 +116,100 @@ class AdvisorTurnIntegrationTest extends AbstractPersistenceTest {
         assertThat(publicMessage.get("id").asLong()).isEqualTo(customerMessage.get("id").asLong());
         assertThat(publicMessage.has("sources")).isFalse();
         assertThat(publicMessage.has("toolCalls")).isFalse();
+        assertThat(publicMessage.get("aiGenerated").asBoolean()).as("the customer's own message").isFalse();
+
+        // Transparency: the transcript tells the AI's replies apart from a person's.
+        JsonNode transcript = objectMapper.readTree(mockMvc.perform(
+                        org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                                .get("/api/v1/conversations/{id}/messages", conversationId)
+                                .with(bearer(tokenForExistingAccount(
+                                        customerUserId, "customer-advisor-test@accounts.test", UserRole.CUSTOMER))))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8)).get("messages");
+        JsonNode last = transcript.get(transcript.size() - 1);
+        assertThat(last.get("content").asText()).isEqualTo("Je vérifie ce paiement.");
+        assertThat(last.get("aiGenerated").asBoolean()).isTrue();
+        assertThat(transcript.get(transcript.size() - 2).get("aiGenerated").asBoolean()).isFalse();
     }
 
-    private MockHttpServletRequestBuilder customerMessage(UUID conversationId, UUID customerUserId) {
+    @Test
+    void aiStaysSilentOnceTheHumanAdvisorHasWritten() throws Exception {
+        String skill = fixtures.skill(60);
+        UUID customerUserId = fixtures.user(UserRole.CUSTOMER);
+        UUID customerId = fixtures.customer(customerUserId, ChurnRisk.LOW, CustomerSegment.MASS);
+        UUID advisorId = fixtures.advisor(fixtures.user(UserRole.ADVISOR), 1, skill);
+        Instant queuedAt = Instant.now().minusSeconds(60);
+        UUID conversationId = fixtures.conversation(
+                customerId, skill, ConversationStatus.ACTIVE, "0", queuedAt, advisorId, null);
+        fixtures.message(conversationId, MessageSender.ADVISOR, "Bonjour, Karim ici.", queuedAt.plusSeconds(11));
+
+        mockMvc.perform(customerMessage(conversationId, customerUserId, "customer-takeover-test"))
+                .andExpect(status().isCreated());
+
+        // Long enough for an AI turn to land if one had been scheduled (the first test sees it in ms).
+        assertThat(awaitAiTurn(conversationId, queuedAt, java.time.Duration.ofMillis(1500))).isEmpty();
+        assertThat(LAST_ADVISOR_REQUEST.get()).as("the AI service was never called").isNull();
+    }
+
+    @Test
+    void anEscalateActionMovesTheConversationToEscalatedAsRaisedByTheAi() throws Exception {
+        String skill = fixtures.skill(60);
+        UUID customerUserId = fixtures.user(UserRole.CUSTOMER);
+        UUID customerId = fixtures.customer(customerUserId, ChurnRisk.LOW, CustomerSegment.MASS);
+        UUID advisorId = fixtures.advisor(fixtures.user(UserRole.ADVISOR), 1, skill);
+        Instant queuedAt = Instant.now().minusSeconds(60);
+        // ASSIGNED: the AI reply moves it to ACTIVE, the only state the escalation rules accept.
+        UUID conversationId = fixtures.conversation(
+                customerId, skill, ConversationStatus.ASSIGNED, "0", queuedAt, advisorId, null);
+
+        mockMvc.perform(customerMessage(
+                        conversationId, customerUserId, "customer-escalate-test", "Je veux parler à un superviseur."))
+                .andExpect(status().isCreated());
+
+        long deadline = System.nanoTime() + java.time.Duration.ofSeconds(10).toNanos();
+        while (System.nanoTime() < deadline
+                && fixtures.reload(conversationId).getStatus() != ConversationStatus.ESCALATED) {
+            Thread.sleep(25);
+        }
+        assertThat(fixtures.reload(conversationId).getStatus()).isEqualTo(ConversationStatus.ESCALATED);
+        Object[] escalation = tx.execute(status -> (Object[]) em.createNativeQuery(
+                        "select raised_by, reason, status from escalation where conversation_id = :id")
+                .setParameter("id", conversationId)
+                .getSingleResult());
+        assertThat(escalation).containsExactly("AI", "Le client demande un superviseur", "PENDING");
+        assertThat(awaitAiTurn(conversationId, queuedAt)).as("the reply is posted before escalating").hasSize(1);
+    }
+
+    private MockHttpServletRequestBuilder customerMessage(UUID conversationId, UUID customerUserId, String login)
+            throws Exception {
+        return customerMessage(conversationId, customerUserId, login, "Je ne reconnais pas ce paiement.");
+    }
+
+    private MockHttpServletRequestBuilder customerMessage(
+            UUID conversationId, UUID customerUserId, String login, String content) throws Exception {
         RequestPostProcessor authentication = bearer(tokenForExistingAccount(
-                customerUserId, "customer-advisor-test@accounts.test", UserRole.CUSTOMER));
+                customerUserId, login + "@accounts.test", UserRole.CUSTOMER));
         return post("/api/v1/conversations/{id}/messages", conversationId)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"content\":\"Je ne reconnais pas ce paiement.\"}")
+                .content(new ObjectMapper().writeValueAsString(java.util.Map.of("content", content)))
                 .with(authentication);
     }
 
-    private List<Message> awaitAiTurn(UUID conversationId) throws InterruptedException {
-        long deadline = System.nanoTime() + java.time.Duration.ofSeconds(10).toNanos();
+    /** AI turns written after {@code after}, so a seeded AI greeting does not count as the answer. */
+    private List<Message> awaitAiTurn(UUID conversationId, Instant after) throws InterruptedException {
+        return awaitAiTurn(conversationId, after, java.time.Duration.ofSeconds(10));
+    }
+
+    private List<Message> awaitAiTurn(UUID conversationId, Instant after, java.time.Duration timeout)
+            throws InterruptedException {
+        long deadline = System.nanoTime() + timeout.toNanos();
         List<Message> found = List.of();
         while (System.nanoTime() < deadline) {
             found = tx.execute(status -> messageRepository.findByConversationIdAndAiGeneratedTrueOrderBySentAtAsc(
-                    conversationId));
+                            conversationId)
+                    .stream()
+                    .filter(message -> message.getSentAt().isAfter(after))
+                    .toList());
             if (!found.isEmpty()) {
                 return found;
             }
@@ -146,7 +224,12 @@ class AdvisorTurnIntegrationTest extends AbstractPersistenceTest {
             server.createContext("/ai/advisor/respond", exchange -> {
                 byte[] requestBody = exchange.getRequestBody().readAllBytes();
                 ObjectMapper mapper = new ObjectMapper();
-                LAST_ADVISOR_REQUEST.set(mapper.readTree(requestBody));
+                JsonNode request = mapper.readTree(requestBody);
+                LAST_ADVISOR_REQUEST.set(request);
+                // A customer asking for a supervisor gets the Advisor's ESCALATE action.
+                String action = request.path("message").asText().contains("superviseur")
+                        ? "{\"type\":\"ESCALATE\",\"payload\":{\"reason\":\"Le client demande un superviseur\"}}"
+                        : "{\"type\":\"NONE\",\"payload\":{}}";
                 byte[] response = """
                         {
                           "reply": "Je vérifie ce paiement.",
@@ -158,10 +241,10 @@ class AdvisorTurnIntegrationTest extends AbstractPersistenceTest {
                           "sources": [
                             {"kb_article_id":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","score":0.91}
                           ],
-                          "action": {"type":"NONE","payload":{}},
+                          "action": %s,
                           "latency_ms":17
                         }
-                        """.getBytes(StandardCharsets.UTF_8);
+                        """.formatted(action).getBytes(StandardCharsets.UTF_8);
                 exchange.getResponseHeaders().add("Content-Type", MediaType.APPLICATION_JSON_VALUE);
                 exchange.sendResponseHeaders(200, response.length);
                 exchange.getResponseBody().write(response);

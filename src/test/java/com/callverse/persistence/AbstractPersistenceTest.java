@@ -113,5 +113,8 @@ public abstract class AbstractPersistenceTest {
         // to start on a well-known key. Tests must therefore supply one.
         registry.add("jwt.secret", () -> TEST_JWT_SECRET);
         registry.add("internal.service-key", () -> TEST_INTERNAL_SERVICE_KEY);
+        // The scheduled Quality retry would fire after ten minutes of a long suite, against the real
+        // clock, and send test conversations to whatever stub AI server a test started.
+        registry.add("ai.quality.retry.enabled", () -> "false");
     }
 }

@@ -1,7 +1,8 @@
 """API de propositions Workforce, sans exécution d'opérations."""
 from fastapi import APIRouter, HTTPException, Query
-from app.contracts.workforce import SKILLS, Strategy, WorkforceState, WorkforceAction
-from .policy import decide, model_path, PolicyUnavailable
+from app.contracts.workforce import SKILLS, Strategy, TwinRunRequest, TwinRunResult, WorkforceState, WorkforceAction
+from .policy import decide, load_policy, model_path, PolicyUnavailable
+from .twin import LOAD_SCALES, run_episode
 
 router = APIRouter()
 
@@ -15,6 +16,23 @@ def workforce_decide(state: WorkforceState,
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+@router.post("/twin-run", response_model=TwinRunResult)
+def twin_run(request: TwinRunRequest):
+    """Un run du jumeau numérique : rejoue une journée simulée sous une stratégie de pilotage."""
+    model = None
+    if request.strategy == "PPO":
+        path = model_path()
+        if not path.is_file():
+            raise HTTPException(status_code=503, detail="Modèle PPO introuvable. Configurer WORKFORCE_MODEL_PATH.")
+        try:
+            model = load_policy(str(path))
+        except PolicyUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+    kpis = run_episode(request.strategy, request.seed, LOAD_SCALES[request.load_profile],
+                       request.duration_minutes, request.advisors_per_skill, model=model)
+    return TwinRunResult(strategy=request.strategy, seed=request.seed,
+                         load_profile=request.load_profile, **kpis)
 
 @router.get("/capabilities")
 def capabilities():

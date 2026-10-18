@@ -53,7 +53,7 @@ class AiWorkspaceDataAdapter implements AiWorkspaceRead, DialogueScenarioStore {
 
     @Override
     public List<UUID> recentRunIds() {
-        return runs.findAll(PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "startedAt")))
+        return runs.findDialogueRuns(PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "startedAt", "id")))
                 .stream().map(r -> r.getId()).toList();
     }
 

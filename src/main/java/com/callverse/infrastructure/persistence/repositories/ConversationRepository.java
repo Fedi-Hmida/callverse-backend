@@ -6,6 +6,7 @@ import jakarta.persistence.LockModeType;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.time.Instant;
 import java.util.UUID;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -136,4 +137,23 @@ public interface ConversationRepository extends JpaRepository<Conversation, UUID
      * is what business reporting must use rather than {@code findAll}.
      */
     List<Conversation> findByRunIdIsNullAndStatus(ConversationStatus status);
+
+    /**
+     * The Quality retry backlog: live conversations resolved in the window with no AI evaluation,
+     * newest first, so a batch of conversations the judge keeps failing on cannot hold every slot
+     * for the whole window. A HUMAN evaluation does not count: the AI grade is what Cohen's kappa
+     * compares.
+     */
+    @Query(value = """
+            select c.id from conversation c
+             where c.run_id is null
+               and c.status = 'RESOLVED'
+               and c.ended_at >= :after and c.ended_at < :before
+               and not exists (select 1 from quality_evaluation q
+                                where q.conversation_id = c.id and q.evaluator = 'AI')
+             order by c.ended_at desc
+             limit :limit
+            """, nativeQuery = true)
+    List<UUID> findUngradedResolved(
+            @Param("after") Instant after, @Param("before") Instant before, @Param("limit") int limit);
 }

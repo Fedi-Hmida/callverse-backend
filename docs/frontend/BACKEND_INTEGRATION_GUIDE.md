@@ -4,6 +4,11 @@
 > **Backend version:** commit `5812921` on `main`, 344 tests green.
 > **Source of truth:** `openapi.yaml` at the repository root. If this guide and that file ever disagree,
 > the file wins, and please tell me.
+>
+> **AI integration (2026-10-18):** the AI Advisor in the chat, `aiGenerated` on messages, the workforce
+> recommendation, the digital twin and the conversation simulation are described in
+> [AI_INTEGRATION_GUIDE.md](./AI_INTEGRATION_GUIDE.md). Read it too: the backend now needs
+> `INTERNAL_SERVICE_KEY` to start.
 
 ---
 
@@ -17,15 +22,17 @@
 | **Conversation core**: queue, take a call, chat, resolve, abandon, escalate | ✅ yes | 10 operations, new this week |
 | Live supervision KPIs | ✅ yes | REST + live topic |
 | **Live channel (STOMP/WebSocket)**: queue, conversation, KPI, alerts | ✅ yes | 4 of 5 topics live |
-| Simulation studio (runs, experiment KPIs, comparison) | ❌ not yet | mock it; AI phase, later |
+| Simulation studio: digital twin runs, strategy comparison, conversation simulation | ✅ yes | see [AI_INTEGRATION_GUIDE.md](./AI_INTEGRATION_GUIDE.md) |
+| AI Advisor in the chat (`aiGenerated` badge), workforce recommendation | ✅ yes | see [AI_INTEGRATION_GUIDE.md](./AI_INTEGRATION_GUIDE.md) |
 | Quality review screen | ❌ not yet | next backend phase (FS-4) |
 | Customer self-service (a customer opening their own chat, their own accounts) | ❌ not yet | blocked on a schema change |
 | **Account administration**: create users, change roles, block / unblock | ✅ yes | 6 operations, new 2026-10-03 |
 | Back-office CRUD (KB, products, advisor skills, rules) | ❌ not yet | mock it |
 | Advisor presence (available/break/offline) and supervisor reassignment | ❌ not yet | mock it |
 
-**28 REST operations** in total, every one with a fixed `operationId` that the build pins: a renamed
-route or field breaks the backend build before it can break you.
+**41 REST operations** in total (28 described here, 13 more in the AI guide, six of them
+server-to-server only), every one with a fixed `operationId` that the build pins: a renamed route or
+field breaks the backend build before it can break you.
 
 ---
 
@@ -701,10 +708,10 @@ export interface SupervisionAlert {
 | Advisor presence (available / break / offline) and the advisor list | next phase | a static list |
 | Supervisor reassigning a call | next phase | disabled button |
 | "Waited too long" SLA alerts | needs a background job | nothing |
-| Simulation runs, experiment KPIs, run comparison, `/topic/runs/{runId}` | AI phase, later | JSON fixtures |
+| A live progress topic for simulation runs (`/topic/runs/{runId}`) | not needed: twin runs answer in under a second, conversation simulations are polled | — |
 | Quality scores | FS-4, next | JSON fixtures |
 | Commercial credit (goodwill gesture) | decisions pending | disabled button with the ceiling shown |
-| AI reply suggestion with sources | AI phase | static suggestion |
+| AI reply *suggestion* with sources (copilot mode) | the AI answers directly in AUTONOMOUS mode; a suggestion-only mode is planned | static suggestion |
 | Pagination | no list is paginated yet; lists are bounded instead | — |
 
 ---
@@ -744,3 +751,4 @@ export interface SupervisionAlert {
 | 2026-10-02 | Conversation core (10 operations): queues, take next, chat, resolve, abandon; escalation now moves the conversation to ESCALATED and only its own advisor may escalate; live queue, conversation and KPI topics |
 | 2026-10-03 | Account administration (6 operations): create users, change roles, block and unblock, effective at once (REST and live channel) |
 | 2026-10-10 | Supervisors browse every live conversation (`listSupervisedConversations`): filters by client, advisor, status, skill, text and date, with operating figures per row |
+| 2026-10-18 | AI integration: AI Advisor in live chats, `aiGenerated` on messages (REST and live), live events delivered in publish order, workforce recommendation, digital twin and scenarios, conversation simulation; `INTERNAL_SERVICE_KEY` now required. Details in [AI_INTEGRATION_GUIDE.md](./AI_INTEGRATION_GUIDE.md) |

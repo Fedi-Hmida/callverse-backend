@@ -21,6 +21,10 @@ dependencies = [
 dev = ["pytest", "pytest-asyncio"]
 
 [tool.pytest.ini_options]
-addopts = "--ignore=tests/workforce/test_train_model.py"
+# tests/ only: scripts/ are manual runs that call the LLM at import time.
+testpaths = ["tests"]
+# Tests that need a real LLM key are opt-in: pytest -m llm
+addopts = "--ignore=tests/workforce/test_train_model.py -m 'not llm'"
+markers = ["llm: needs a real LLM (GROQ_API_KEY); excluded by default, run with -m llm"]
 pythonpath = ["."]
 asyncio_mode = "auto"

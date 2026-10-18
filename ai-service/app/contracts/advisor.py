@@ -63,7 +63,6 @@ BankingTool = Literal[
     "search_knowledge_base",
     "create_case",
     "apply_credit",
-    "escalate",
 ]
 
 

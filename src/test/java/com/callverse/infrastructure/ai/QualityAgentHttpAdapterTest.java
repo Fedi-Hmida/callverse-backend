@@ -13,6 +13,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import com.callverse.core.application.exceptions.QualityServiceUnavailableException;
 import com.callverse.core.application.interfaces.QualityAgent.QualityMessage;
 import com.callverse.core.application.interfaces.QualityAgent.QualityRequest;
+import com.callverse.core.application.interfaces.QualityAgent.SourceDocument;
 import com.callverse.core.domain.enums.MessageSender;
 import java.io.IOException;
 import java.net.SocketTimeoutException;
@@ -91,6 +92,25 @@ class QualityAgentHttpAdapterTest {
         assertThat(result.globalScore()).isEqualByComparingTo("8.4");
         assertThat(result.scores()).containsEntry("accuracy", 8).hasSize(6);
         assertThat(result.flags().unverifiableClaims()).isEqualTo(1);
+    }
+
+    @Test
+    void sendsTheCitedArticlesAndTheBankRulesAsGrounding() {
+        server.expect(requestTo(BASE_URL + "/ai/quality/evaluate"))
+                .andExpect(jsonPath("$.source_documents.length()").value(1))
+                .andExpect(jsonPath("$.source_documents[0].doc_id").value("kb-1"))
+                .andExpect(jsonPath("$.source_documents[0].chunk_id").value("article"))
+                .andExpect(jsonPath("$.source_documents[0].content").value("Opposition\nAppeler le canal sécurisé."))
+                .andExpect(jsonPath("$.applicable_rules[0]").value("Identifier le client."))
+                .andRespond(withServerError());
+        QualityRequest grounded = new QualityRequest(
+                CONVERSATION_ID,
+                request().messages(),
+                true,
+                List.of(new SourceDocument("kb-1", "article", "Opposition\nAppeler le canal sécurisé.")),
+                List.of("Identifier le client."));
+
+        assertThatThrownBy(() -> adapter.evaluate(grounded)).isInstanceOf(QualityServiceUnavailableException.class);
     }
 
     @Test

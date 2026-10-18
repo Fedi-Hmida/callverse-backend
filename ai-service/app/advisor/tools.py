@@ -14,20 +14,12 @@ TOOL_SPECS: list[dict[str, Any]] = [
     {
         "name": "get_customer",
         "description": "Récupère la fiche client (comptes, cartes, segment et ancienneté).",
-        "input_schema": {
-            "type": "object",
-            "properties": {"customer_id": {"type": "string"}},
-            "required": ["customer_id"],
-        },
+        "input_schema": {"type": "object", "properties": {}},
     },
     {
         "name": "get_transactions",
         "description": "Récupère les transactions récentes du client.",
-        "input_schema": {
-            "type": "object",
-            "properties": {"customer_id": {"type": "string"}},
-            "required": ["customer_id"],
-        },
+        "input_schema": {"type": "object", "properties": {}},
     },
     {
         "name": "check_system_status",
@@ -53,7 +45,6 @@ TOOL_SPECS: list[dict[str, Any]] = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "customer_id": {"type": "string"},
                 "subject": {"type": "string"},
                 "incident_id": {"type": "string"},
                 "category": {
@@ -62,7 +53,7 @@ TOOL_SPECS: list[dict[str, Any]] = [
                     "description": "Intention métier du ticket ; utilise OTHER si elle est inconnue.",
                 },
             },
-            "required": ["customer_id", "subject"],
+            "required": ["subject"],
         },
     },
     {
@@ -70,23 +61,15 @@ TOOL_SPECS: list[dict[str, Any]] = [
         "description": "Applique un geste commercial. Refusé côté backend si hors plafond.",
         "input_schema": {
             "type": "object",
-            "properties": {"customer_id": {"type": "string"}, "amount": {"type": "number"}},
-            "required": ["customer_id", "amount"],
-        },
-    },
-    {
-        "name": "escalate",
-        "description": "Remonte la demande au superviseur.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "conversation_id": {"type": "string"},
-                "reason": {"type": "string"},
-            },
-            "required": ["conversation_id", "reason"],
+            "properties": {"amount": {"type": "number"}},
+            "required": ["amount"],
         },
     },
 ]
+# customer_id et conversation_id ne figurent dans aucun schéma : nodes.TRUSTED_IDENTIFIERS
+# les injecte depuis la requête du backend, le LLM ne peut pas les choisir.
+# Pas d'outil d'escalade : l'escalade est l'action ESCALATE de la décision finale, que le
+# backend transforme en vraie escalade après avoir publié la réponse (un seul chemin).
 
 TOOL_IMPLEMENTATIONS = {
     "get_customer": backend_client.get_customer,
@@ -94,6 +77,5 @@ TOOL_IMPLEMENTATIONS = {
     "check_system_status": backend_client.check_system_status,
     "create_case": backend_client.create_case,
     "apply_credit": backend_client.apply_credit,
-    "escalate": backend_client.escalate,
     # search_knowledge_base volontairement absent : géré via app/advisor/kb/retriever.py
 }
