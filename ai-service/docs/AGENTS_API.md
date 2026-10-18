@@ -25,9 +25,9 @@ l'adresse du service FastAPI dans le réseau Docker.
 Variables .env :
 ```dotenv
 WORKFORCE_MODEL_PATH=workforce_policy.zip
-QUALITY_OLLAMA_URL=http://localhost:11434
-QUALITY_MODEL=nom-exact-du-modele-installe
-QUALITY_TIMEOUT_SECONDS=600
+QUALITY_PROVIDER=groq
+QUALITY_GROQ_MODEL=openai/gpt-oss-20b
+QUALITY_TIMEOUT_SECONDS=120
 ```
 
 ## Endpoints
@@ -181,7 +181,7 @@ doit traduire ces erreurs pour le frontend, sans les convertir en note zéro.
 ## Erreurs et persistance
 
 422 : données invalides ou stratégie inconnue.
-503 : PPO absent/incompatible ou Ollama/modèle qualité indisponible.
+503 : PPO absent/incompatible, ou juge qualité (Groq ou Ollama) indisponible ou quota atteint.
 502 : JSON du juge invalide ou extraits/références non vérifiables.
 
 Les endpoints ne modifient pas le centre et n'écrivent pas en base.
@@ -191,5 +191,5 @@ Pour Quality, stocker la conversation et le résultat, evaluator=AI,
 la version de grille et le modèle ; garder les annotations HUMAN séparément.
 L'API n'inclut pas encore de CRUD ni de calcul NLP intention/sentiment.
 
-504 : delai de generation Ollama depasse. Le client Spring utilise un delai
-superieur au delai Ollama configure (660 s pour 600 s).
+504 : delai de generation du juge depasse. Le client Spring attend 130 s :
+garder QUALITY_TIMEOUT_SECONDS en dessous (120 s par defaut).

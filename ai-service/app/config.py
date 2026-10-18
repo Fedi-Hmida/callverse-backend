@@ -10,6 +10,11 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     workforce_model_path: str = "artifacts/workforce_banking_v1/best/best_model.zip"
+    # Juge qualité : "groq" (défaut, même clé llm_api_key que l'Advisor) ou "ollama" (modèle local).
+    # Sur CPU, Ollama dépassait le délai de lecture du backend (130 s) : aucune note n'était enregistrée.
+    quality_provider: str = "groq"
+    # Modèle léger : son quota Groq est distinct de celui de l'Advisor (gpt-oss-120b).
+    quality_groq_model: str = "openai/gpt-oss-20b"
     quality_ollama_url: str = "http://localhost:11434"
     quality_model: str = ""
     quality_timeout_seconds: float = 120.0

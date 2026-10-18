@@ -32,20 +32,27 @@ notes par critère et `procedure_violations`, pas seulement le total.
 
 ## Configuration locale
 
-Ollama est le premier adaptateur utilisé ; aucune dépendance Python supplémentaire.
-Choisir un modèle déjà installé, par exemple via `ollama list`, et configurer
-dans `.env` :
+Le juge tourne sur **Groq** par défaut, avec la même clé `llm_api_key` que
+l'Advisor ; aucune installation locale n'est nécessaire :
 
 ```dotenv
-QUALITY_MODEL=nom-exact-du-modele-installe
-QUALITY_OLLAMA_URL=http://localhost:11434
-QUALITY_TIMEOUT_SECONDS=600
+QUALITY_PROVIDER=groq
+QUALITY_GROQ_MODEL=openai/gpt-oss-20b
+QUALITY_TIMEOUT_SECONDS=120
 ```
 
-Démarrer Ollama puis `uvicorn app.main:app --reload`.
+`gpt-oss-20b` a un quota distinct de celui de l'Advisor (`gpt-oss-120b`). Le
+schéma attendu est envoyé dans le contexte et `response_format=json_object`
+impose un JSON valide ; la réparation et la vérification des preuves restent
+les mêmes. Garder `QUALITY_TIMEOUT_SECONDS` sous le délai de lecture du
+backend (130 s).
+
+**Option locale, Ollama** : `QUALITY_PROVIDER=ollama`, `QUALITY_MODEL` (un modèle
+installé, `ollama list`) et `QUALITY_OLLAMA_URL`. Le transport utilise /api/chat,
+stream=false et le schéma JSON dans format. Mesuré le 2026-10-18 : sur CPU, sans
+GPU, qwen2.5:3b dépasse 5 minutes par évaluation, au-delà du délai du backend.
+
 Dans http://localhost:8000/docs, utiliser POST /ai/quality/evaluate.
-Le transport utilise /api/chat, stream=false et le schéma JSON dans format :
-[documentation Ollama](https://docs.ollama.com/capabilities/structured-outputs).
 
 Exemple de corps :
 
