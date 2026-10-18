@@ -39,11 +39,10 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
  *
  * <p><strong>Still to come, and where.</strong> Role rules on individual endpoints are
  * {@code @PreAuthorize} in sub-phase 2.5 (blocked on schema change S-1). STOMP frames are
- * authenticated in 2.8. These two chains are the only ones: the AI service's {@code /internal/**}
- * chain and its service-key scheme were withdrawn on 2026-09-30 pending the AI-integration phase
- * (git tag {@code internal-tools-http-surface}), so {@code /internal/**} now falls to whichever of
- * these is active. No {@code UserDetailsService} is planned: the token's claims are the
- * principal, so there is nothing for one to load.
+ * authenticated in 2.8. The AI service's {@code /internal/**} tool API has its own chain,
+ * {@code InternalApiSecurityConfiguration}, ordered first ({@code @Order(1)}) and authenticated by
+ * the shared service key, so a user token opens nothing there. No {@code UserDetailsService} is
+ * planned: the token's claims are the principal, so there is nothing for one to load.
  */
 @Configuration
 @EnableWebSecurity
@@ -63,7 +62,7 @@ public class SecurityConfiguration {
      * authorize.
      */
     @Bean
-    @Order(2) // slot 1 stays free for the /internal chain the AI-integration phase restores
+    @Order(2) // slot 1 is the /internal chain (InternalApiSecurityConfiguration)
     @Profile("dev")
     SecurityFilterChain developmentFilterChain(
             HttpSecurity http,
@@ -99,7 +98,7 @@ public class SecurityConfiguration {
      * fail to load — for example a DevTools restart while {@code mvn clean} empties target/classes.
      */
     @Bean
-    @Order(2) // slot 1 stays free for the /internal chain the AI-integration phase restores
+    @Order(2) // slot 1 is the /internal chain (InternalApiSecurityConfiguration)
     @Profile("!dev")
     SecurityFilterChain defaultFilterChain(
             HttpSecurity http,
