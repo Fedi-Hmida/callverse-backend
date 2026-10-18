@@ -11,8 +11,9 @@ import java.util.UUID;
  * allowed to read it: its customer, its advisor, supervisors.
  *
  * <p>{@code MESSAGE_POSTED} carries the message ({@code messageId}, {@code sender}, {@code content},
- * {@code sentAt}); {@code STATUS_CHANGED} leaves those null. {@code status} is always the
- * conversation's status after the event.
+ * {@code sentAt}, {@code aiGenerated}); {@code STATUS_CHANGED} leaves those null. {@code status} is
+ * always the conversation's status after the event. {@code aiGenerated} is an added field: clients
+ * that ignore unknown fields are unaffected, so {@link #SCHEMA_VERSION} stays 1.
  */
 public record ConversationEvent(
         int schemaVersion,
@@ -23,7 +24,8 @@ public record ConversationEvent(
         Long messageId,
         MessageSender sender,
         String content,
-        Instant sentAt) {
+        Instant sentAt,
+        Boolean aiGenerated) {
 
     public static final int SCHEMA_VERSION = 1;
 
@@ -34,11 +36,11 @@ public record ConversationEvent(
 
     public static ConversationEvent messagePosted(MessageRecord message, ConversationStatus status) {
         return new ConversationEvent(SCHEMA_VERSION, Type.MESSAGE_POSTED, message.sentAt(), message.conversationId(),
-                status, message.id(), message.sender(), message.content(), message.sentAt());
+                status, message.id(), message.sender(), message.content(), message.sentAt(), message.aiGenerated());
     }
 
     public static ConversationEvent statusChanged(UUID conversationId, ConversationStatus status, Instant occurredAt) {
         return new ConversationEvent(SCHEMA_VERSION, Type.STATUS_CHANGED, occurredAt, conversationId, status,
-                null, null, null, null);
+                null, null, null, null, null);
     }
 }

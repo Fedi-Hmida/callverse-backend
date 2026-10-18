@@ -16,10 +16,14 @@ public record MessageResponse(
         @Schema(requiredMode = REQUIRED, example = "ADVISOR", allowableValues = {"CUSTOMER", "ADVISOR", "SYSTEM"})
                 String sender,
         @Schema(requiredMode = REQUIRED) String content,
-        @Schema(requiredMode = REQUIRED) Instant sentAt) {
+        @Schema(requiredMode = REQUIRED) Instant sentAt,
+        @Schema(requiredMode = REQUIRED, description = "True when the AI Advisor wrote this message. Show it: "
+                + "nobody should mistake an AI reply for a person's.")
+                boolean aiGenerated) {
 
     public static MessageResponse from(MessageRecord m) {
-        return new MessageResponse(m.id(), m.conversationId(), m.sender().name(), m.content(), m.sentAt());
+        return new MessageResponse(
+                m.id(), m.conversationId(), m.sender().name(), m.content(), m.sentAt(), m.aiGenerated());
     }
 
     /** The most recent messages of one conversation, oldest first. */

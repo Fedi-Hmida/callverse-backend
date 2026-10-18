@@ -116,6 +116,20 @@ class AdvisorTurnIntegrationTest extends AbstractPersistenceTest {
         assertThat(publicMessage.get("id").asLong()).isEqualTo(customerMessage.get("id").asLong());
         assertThat(publicMessage.has("sources")).isFalse();
         assertThat(publicMessage.has("toolCalls")).isFalse();
+        assertThat(publicMessage.get("aiGenerated").asBoolean()).as("the customer's own message").isFalse();
+
+        // Transparency: the transcript tells the AI's replies apart from a person's.
+        JsonNode transcript = objectMapper.readTree(mockMvc.perform(
+                        org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                                .get("/api/v1/conversations/{id}/messages", conversationId)
+                                .with(bearer(tokenForExistingAccount(
+                                        customerUserId, "customer-advisor-test@accounts.test", UserRole.CUSTOMER))))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8)).get("messages");
+        JsonNode last = transcript.get(transcript.size() - 1);
+        assertThat(last.get("content").asText()).isEqualTo("Je vérifie ce paiement.");
+        assertThat(last.get("aiGenerated").asBoolean()).isTrue();
+        assertThat(transcript.get(transcript.size() - 2).get("aiGenerated").asBoolean()).isFalse();
     }
 
     @Test

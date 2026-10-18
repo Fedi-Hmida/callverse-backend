@@ -320,6 +320,7 @@ class ConversationLifecycleAdapter implements ConversationLifecycle, Conversatio
     }
 
     private static MessageRecord toRecord(Message m) {
-        return new MessageRecord(m.getId(), m.getConversation().getId(), m.getSender(), m.getContent(), m.getSentAt());
+        return new MessageRecord(
+                m.getId(), m.getConversation().getId(), m.getSender(), m.getContent(), m.getSentAt(), m.isAiGenerated());
     }
 }

@@ -57,8 +57,20 @@ public interface ConversationMessages {
     /** The {@code limit} most recent messages, oldest first. */
     List<MessageRecord> recent(UUID conversationId, int limit);
 
-    /** Public transcript projection; sources and tool calls remain private to persistence. */
-    record MessageRecord(long id, UUID conversationId, MessageSender sender, String content, Instant sentAt) {}
+    /**
+     * Public transcript projection; sources and tool calls remain private to persistence.
+     *
+     * @param aiGenerated true when the AI Advisor wrote it: shown to everyone who reads the
+     *     conversation, so nobody mistakes an AI reply for a person's
+     */
+    record MessageRecord(
+            long id, UUID conversationId, MessageSender sender, String content, Instant sentAt, boolean aiGenerated) {
+
+        /** A message written by a person. */
+        public MessageRecord(long id, UUID conversationId, MessageSender sender, String content, Instant sentAt) {
+            this(id, conversationId, sender, content, sentAt, false);
+        }
+    }
 
     /**
      * @param conversation the conversation after the message

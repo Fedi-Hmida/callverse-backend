@@ -124,8 +124,9 @@ class StompConversationTest extends AbstractPersistenceTest {
         assertThat(toAmina.get("content").asText()).isEqualTo("Bonjour Madame Haddad");
         assertThat(toAmina.get("status").asText()).isEqualTo("ACTIVE");
         assertThat(keys(toAmina)).containsExactly(
-                "content", "conversationId", "messageId", "occurredAt", "schemaVersion", "sender", "sentAt", "status",
-                "type");
+                "aiGenerated", "content", "conversationId", "messageId", "occurredAt", "schemaVersion", "sender",
+                "sentAt", "status", "type");
+        assertThat(toAmina.get("aiGenerated").asBoolean()).as("Karim is a person").isFalse();
         JsonNode engaged = aminaScreen.next("STATUS_CHANGED");
         assertThat(engaged).isNotNull();
         assertThat(engaged.get("status").asText()).isEqualTo("ACTIVE");
