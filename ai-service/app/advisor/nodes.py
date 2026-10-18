@@ -24,6 +24,19 @@ from app.contracts.advisor import Mode
 logger = logging.getLogger(__name__)
 
 MAX_ITERATIONS = 4
+"""Tours de decide() par message client. Le dernier est reserve a la conclusion (finalize_response
+impose) : sans cela, un modele qui enchaine les outils atteignait la limite sans jamais repondre."""
+
+MAX_TOOL_RESULT_CHARS = 1500
+"""Longueur maximale d'un resultat d'outil renvoye au modele. Chaque tour renvoie tous les resultats
+precedents : sans borne, les extraits documentaires pesaient ~800 jetons par tour, et un seul message
+depassait le quota Groq de 8 000 jetons par minute. Les sources transmises au backend ne sont pas tronquees."""
+
+_BUDGET_NOTE = (
+    "[Budget d'outils atteint] N'appelle plus d'outil metier : conclus maintenant avec "
+    "finalize_response a partir des resultats ci-dessus (respond si tu peux repondre, "
+    "escalate sinon)."
+)
 
 _FINALIZE_TOOL_SPEC = {
     "name": "finalize_response",
@@ -77,22 +90,40 @@ def _to_openai_tool(spec: dict) -> dict:
 
 
 _decide_llm = None
+_final_llm = None
 
 
-def _get_decide_llm():
-    global _decide_llm
+def _get_decide_llm(final: bool = False):
+    """LLM de decision. final=True : seul finalize_response est propose, et il est impose."""
+    global _decide_llm, _final_llm
+    if final:
+        if _final_llm is None:
+            _final_llm = _new_groq().bind_tools(
+                [_to_openai_tool(_FINALIZE_TOOL_SPEC)], tool_choice=_FINALIZE_TOOL_SPEC["name"]
+            )
+        return _final_llm
     if _decide_llm is None:
-        llm = ChatGroq(
-            model=settings.llm_model_advanced,
-            api_key=settings.llm_api_key,
-            temperature=0.2,
-            max_retries=1,
-            timeout=20,
-        )
         all_specs = TOOL_SPECS + [_FINALIZE_TOOL_SPEC]
         tools = [_to_openai_tool(s) for s in all_specs]
-        _decide_llm = llm.bind_tools(tools, tool_choice="required")
+        _decide_llm = _new_groq().bind_tools(tools, tool_choice="required")
     return _decide_llm
+
+
+def _new_groq() -> ChatGroq:
+    return ChatGroq(
+        model=settings.llm_model_advanced,
+        api_key=settings.llm_api_key,
+        temperature=0.2,
+        max_retries=1,
+        timeout=20,
+    )
+
+
+def _bounded(value) -> str:
+    text = str(value)
+    if len(text) <= MAX_TOOL_RESULT_CHARS:
+        return text
+    return text[:MAX_TOOL_RESULT_CHARS] + " […tronqué]"
 
 
 def _build_messages(state: AdvisorGraphState) -> list:
@@ -122,7 +153,7 @@ def _build_messages(state: AdvisorGraphState) -> list:
     already_called = state.get("tool_calls", [])
     if already_called:
         summary = "; ".join(
-            f"{c['name']}({c['arguments']}) -> {c.get('result') or c.get('error')}"
+            f"{c['name']}({c['arguments']}) -> {_bounded(c.get('result') or c.get('error'))}"
             for c in already_called
         )
         messages.append(SystemMessage(content=f"[Outils deja appeles ce tour] {summary}"))
@@ -133,8 +164,11 @@ def _build_messages(state: AdvisorGraphState) -> list:
 async def decide(state: AdvisorGraphState) -> dict:
     from groq import BadRequestError
 
-    llm = _get_decide_llm()
+    final = state.get("iterations", 0) >= MAX_ITERATIONS - 1
+    llm = _get_decide_llm(final=final)
     messages = _build_messages(state)
+    if final:
+        messages.append(SystemMessage(content=_BUDGET_NOTE))
 
     response = None
     for _attempt in range(2):
@@ -283,7 +317,8 @@ async def finalize(state: AdvisorGraphState) -> dict:
     contract_tool_calls = [_tool_call_to_contract_shape(c) for c in tool_calls]
     intent = decision.get("intent", "OTHER")
 
-    if decision["action"] == "escalate" or state.get("iterations", 0) >= MAX_ITERATIONS:
+    # call_tool ici : budget epuise sans conclusion (le tour final impose n'a pas abouti).
+    if decision["action"] in ("escalate", "call_tool"):
         return {
             "reply": decision.get("reply", "Je transmets votre demande à un superviseur."),
             "intent": intent,
