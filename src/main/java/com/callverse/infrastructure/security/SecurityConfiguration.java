@@ -121,6 +121,8 @@ public class SecurityConfiguration {
                         // route unreachable outside dev, and dropping the annotation makes
                         // it readable by every authenticated caller.
                         .requestMatchers(HttpMethod.GET, "/api/v1/customers/**").authenticated()
+                        // Opening a customer: same two layers, the controller requires staff.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/customers").authenticated()
                         // The WebSocket handshake. Authentication happens one step later, on the
                         // STOMP CONNECT frame (StompAuthorizationInterceptor): a browser cannot put a
                         // bearer header on the upgrade request itself.

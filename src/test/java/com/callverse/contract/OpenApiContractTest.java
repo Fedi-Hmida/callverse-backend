@@ -72,6 +72,7 @@ class OpenApiContractTest extends AbstractPersistenceTest {
             "getCurrentUser",
             "getHealthStatus",
             "getCustomer",
+            "onboardCustomer",
             "findCustomerByReference",
             "listCustomerTransactions",
             "listActiveServiceIncidents",

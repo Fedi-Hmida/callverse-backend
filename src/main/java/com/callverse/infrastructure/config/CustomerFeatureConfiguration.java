@@ -3,7 +3,11 @@ package com.callverse.infrastructure.config;
 import com.callverse.core.application.features.customer.queries.FindCustomerByReferenceQueryHandler;
 import com.callverse.core.application.features.customer.queries.GetCustomerProfileQueryHandler;
 import com.callverse.core.application.features.customer.queries.GetRecentTransactionsQueryHandler;
+import com.callverse.core.application.features.customer.OnboardCustomerCommandHandler;
+import com.callverse.core.application.interfaces.CurrentPrincipalProvider;
+import com.callverse.core.application.interfaces.CustomerOnboarding;
 import com.callverse.core.application.interfaces.CustomerRecords;
+import com.callverse.core.application.interfaces.PasswordHasher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -35,5 +39,11 @@ public class CustomerFeatureConfiguration {
     @Bean
     GetRecentTransactionsQueryHandler getRecentTransactionsQueryHandler(CustomerRecords customers) {
         return new GetRecentTransactionsQueryHandler(customers);
+    }
+
+    @Bean
+    OnboardCustomerCommandHandler onboardCustomerCommandHandler(CurrentPrincipalProvider principals,
+            CustomerOnboarding onboarding, PasswordHasher hasher) {
+        return new OnboardCustomerCommandHandler(principals, onboarding, hasher);
     }
 }

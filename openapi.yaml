@@ -3033,6 +3033,75 @@ paths:
       summary: Find a customer by reference
       tags:
       - Customers
+    post:
+      description: "Staff only (advisor, supervisor, admin). One transaction: a taken\
+        \ e-mail is 409 EMAIL_ALREADY_USED and writes nothing. The customer signs\
+        \ in with the temporary password. Only current accounts open here (CUR_ESSENTIAL,\
+        \ CUR_PREMIUM); invalid input is 400."
+      operationId: onboardCustomer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OnboardCustomerRequest"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerOnboarded"
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Rejected before any business rule ran: the body is not valid\
+            \ JSON (code MALFORMED_REQUEST), a parameter or field broke a rule (code\
+            \ VALIDATION_FAILED), or a use-case precondition was unmet."
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Not authenticated. code UNAUTHENTICATED: no bearer token,\
+            \ or one that is expired, malformed or wrongly signed - all indistinguishable,\
+            \ and the signal to refresh or log in again. code INVALID_CREDENTIALS:\
+            \ login refused; an unknown email and a wrong password are deliberately\
+            \ indistinguishable."
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Authenticated, but not permitted: code ACCESS_DENIED. Re-authenticating\
+            \ will not help, so clients must not refresh on it."
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "No such route, or a referenced resource does not exist."
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: A business rule refused the operation. The request was well-formed;
+            the current state of the business forbids it.
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Unexpected failure. message is deliberately generic and carries
+            no internal detail; see the server log for the stack trace.
+      security:
+      - bearerAuth: []
+      summary: "Open a customer: login, profile, current account and debit card"
+      tags:
+      - Customers
   /api/v1/customers/directory:
     get:
       operationId: listCustomersForContact
@@ -6700,6 +6769,29 @@ components:
       - category
       - code
       - name
+    CustomerOnboarded:
+      type: object
+      properties:
+        cardLast4:
+          type: string
+          example: "4821"
+        customerId:
+          type: string
+          format: uuid
+        email:
+          type: string
+        externalRef:
+          type: string
+          example: CV-04821937
+        maskedIban:
+          type: string
+          example: FR76 **** **** 0142
+      required:
+      - cardLast4
+      - customerId
+      - email
+      - externalRef
+      - maskedIban
     CustomerResponse:
       type: object
       description: "A bank customer, their accounts and the products they hold"
@@ -7123,6 +7215,67 @@ components:
           minLength: 0
       required:
       - content
+    OnboardCustomerRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          example: nadia.benali@example.fr
+          maxLength: 180
+          minLength: 0
+        firstName:
+          type: string
+          example: Nadia
+          maxLength: 80
+          minLength: 0
+        initialDeposit:
+          type: number
+          description: Opening deposit in euros; 0 or absent for none
+          example: 250.0
+          exclusiveMaximum: false
+          exclusiveMinimum: false
+          maximum: 1000000.00
+          minimum: 0.00
+        lastName:
+          type: string
+          example: Benali
+          maxLength: 80
+          minLength: 0
+        phone:
+          type: string
+          example: +33 6 12 34 56 78
+          maxLength: 30
+          minLength: 0
+        productCode:
+          type: string
+          enum:
+          - CUR_ESSENTIAL
+          - CUR_PREMIUM
+        region:
+          type: string
+          example: Lyon
+          maxLength: 40
+          minLength: 0
+        segment:
+          type: string
+          enum:
+          - MASS
+          - AFFLUENT
+          - PRIVATE
+          - PROFESSIONAL
+        temporaryPassword:
+          type: string
+          description: "Temporary password, given to the customer in person"
+          maxLength: 72
+          minLength: 12
+      required:
+      - email
+      - firstName
+      - lastName
+      - productCode
+      - region
+      - segment
+      - temporaryPassword
     OpenConversationRequest:
       type: object
       properties:

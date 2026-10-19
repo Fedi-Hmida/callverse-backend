@@ -1,11 +1,15 @@
 package com.callverse.host.api.controllers;
 
+import com.callverse.core.application.features.customer.OnboardCustomerCommand;
+import com.callverse.core.application.features.customer.OnboardCustomerCommandHandler;
 import com.callverse.core.application.features.customer.queries.FindCustomerByReferenceQuery;
 import com.callverse.core.application.features.customer.queries.FindCustomerByReferenceQueryHandler;
 import com.callverse.core.application.features.customer.queries.GetCustomerProfileQuery;
 import com.callverse.core.application.features.customer.queries.GetCustomerProfileQueryHandler;
 import com.callverse.core.application.features.customer.queries.GetRecentTransactionsQuery;
 import com.callverse.core.application.features.customer.queries.GetRecentTransactionsQueryHandler;
+import com.callverse.host.api.dto.request.OnboardCustomerRequest;
+import com.callverse.host.api.dto.response.CustomerOnboardedResponse;
 import com.callverse.host.api.dto.response.CustomerResponse;
 import com.callverse.host.api.dto.response.TransactionsResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -15,7 +19,12 @@ import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
+import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -47,6 +56,23 @@ public class CustomerController {
     private final GetCustomerProfileQueryHandler getCustomerProfile;
     private final FindCustomerByReferenceQueryHandler findCustomerByReference;
     private final GetRecentTransactionsQueryHandler getRecentTransactions;
+    private final OnboardCustomerCommandHandler onboardCustomer;
+
+    @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
+    @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize(Roles.STAFF)
+    @SecurityRequirement(name = "bearerAuth")
+    @Operation(
+            operationId = "onboardCustomer",
+            summary = "Open a customer: login, profile, current account and debit card",
+            description = "Staff only (advisor, supervisor, admin). One transaction: a taken e-mail is 409 "
+                    + "EMAIL_ALREADY_USED and writes nothing. The customer signs in with the temporary password. "
+                    + "Only current accounts open here (CUR_ESSENTIAL, CUR_PREMIUM); invalid input is 400.")
+    public CustomerOnboardedResponse onboard(@Valid @RequestBody OnboardCustomerRequest request) {
+        return CustomerOnboardedResponse.from(onboardCustomer.handle(new OnboardCustomerCommand(request.email(),
+                request.firstName(), request.lastName(), request.phone(), request.region(), request.segment(),
+                request.productCode(), request.initialDeposit(), request.temporaryPassword())));
+    }
 
     @GetMapping
     @PreAuthorize(Roles.STAFF)
