@@ -15,11 +15,12 @@ from app.simulator.assessment import informational_answer_verified, parse_turn, 
 from .state import SimulatorState
 
 
-def _get_llm(max_tokens: int = 600) -> ChatGroq:
+def _get_llm(max_tokens: int = 2048) -> ChatGroq:
     return ChatGroq(
         model=settings.llm_model_light,
         api_key=settings.llm_api_key,
         temperature=0.7,
+        **({"reasoning_effort": "low"} if settings.llm_model_light.startswith("openai/gpt-oss-") else {}),
         max_retries=1,
         timeout=15,
         max_tokens=max_tokens,
@@ -54,7 +55,7 @@ def generer_message(state: SimulatorState) -> SimulatorState:
     if not raw:
         # filet de securite : un message vide n'est jamais acceptable,
         # on relance une fois avec une instruction plus explicite
-        raw = _get_llm(max_tokens=400).invoke(
+        raw = _get_llm(max_tokens=2048).invoke(
             f"{prompt}\n\nIMPORTANT: reponds obligatoirement par une phrase "
             f"en français, jamais par un message vide."
         ).content.strip()

@@ -95,6 +95,7 @@ class ConversationLifecycleAdapter implements ConversationLifecycle, Conversatio
     private final AppUserRepository users;
     private final ObjectMapper objectMapper;
     private final RoutingRuleRepository routingRules;
+    private final com.callverse.infrastructure.persistence.repositories.AgentDecisionRepository agentDecisions;
 
     // ------------------------------------------------------------------ lifecycle
 
@@ -281,7 +282,13 @@ class ConversationLifecycleAdapter implements ConversationLifecycle, Conversatio
             Instant now) {
         Conversation conversation = lockLive(conversationId);
         ConversationStatus before = conversation.getStatus();
-        if (before != ConversationStatus.ASSIGNED && before != ConversationStatus.ACTIVE) {
+        if (before.isTerminal()) {
+            return Optional.empty();
+        }
+
+        // The human may have replied while the model was running. Check under the same
+        // row lock used for human messages, even if a new customer message follows them.
+        if (messages.existsByConversationIdAndSenderAndAiGeneratedFalse(conversationId, MessageSender.ADVISOR)) {
             return Optional.empty();
         }
 
@@ -296,7 +303,9 @@ class ConversationLifecycleAdapter implements ConversationLifecycle, Conversatio
             return Optional.empty();
         }
 
-        ConversationStatus after = ConversationRules.statusAfterAdvisorMessage(before);
+        // AI assistance does not claim a queued contact or clear an escalation.
+        ConversationStatus after = before == ConversationStatus.QUEUED
+                ? before : ConversationRules.statusAfterAdvisorMessage(before);
         conversation.setStatus(after);
         Message message = new Message();
         message.setConversation(conversation);
@@ -318,6 +327,32 @@ class ConversationLifecycleAdapter implements ConversationLifecycle, Conversatio
         message.setSentAt(micros(now));
         Message saved = messages.save(message);
         return Optional.of(new PostedMessage(toRecord(saved), toRecord(conversation), after != before));
+    }
+
+    @Override
+    @Transactional
+    public Optional<PostedMessage> postExplainedAgentTurn(UUID conversationId, long triggeringCustomerMessageId,
+            com.callverse.core.application.interfaces.AdvisorAgent.AdvisorResponse response, Instant now) {
+        Optional<PostedMessage> posted = postAgentTurn(conversationId, triggeringCustomerMessageId,
+                response.reply(), response.sources(), response.toolCalls(), now);
+        if (posted.isEmpty()) return posted;
+        var decision = new com.callverse.core.domain.entities.AgentDecision();
+        decision.setAgentType(com.callverse.core.domain.enums.AgentType.CUSTOMER_ADVISOR);
+        decision.setObservation(objectMapper.valueToTree(Map.of(
+                "conversationId", conversationId.toString(), "messageId", posted.get().message().id(),
+                "triggeringCustomerMessageId", triggeringCustomerMessageId)));
+        String reason = response.actionPayload().get("reason") instanceof String given ? given : "";
+        if (reason.isBlank()) reason = !response.sources().isEmpty()
+                ? "Réponse fondée sur les documents consultés."
+                : !response.toolCalls().isEmpty() ? "Réponse préparée à partir des vérifications listées."
+                : "Réponse générale, sans consultation du dossier bancaire.";
+        decision.setReason(reason);
+        decision.setAction(objectMapper.valueToTree(Map.of("intent", response.intent(),
+                "confidence", response.confidence(), "type", response.actionType(), "reason", reason,
+                "latencyMs", response.latencyMs())));
+        decision.setCreatedAt(micros(now));
+        agentDecisions.save(decision);
+        return posted;
     }
 
     @Override

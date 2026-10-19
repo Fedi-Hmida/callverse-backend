@@ -158,7 +158,7 @@ async def test_execute_tool_capture_les_erreurs_sans_planter():
 async def test_finalize_reponse_normale_confiance_haute():
     state = {
         "request": _make_request(),
-        "decision": {"action": "respond", "reply": "Votre carte a été bloquée.", "confidence": 0.9, "intent": "CARD"},
+        "decision": {"action": "respond", "reply": "Je peux vous aider avec votre carte.", "confidence": 0.9, "intent": "CARD"},
         "iterations": 1,
         "tool_calls": [],
         "retrieved_documents": [],

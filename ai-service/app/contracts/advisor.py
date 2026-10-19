@@ -40,6 +40,7 @@ class AdvisorContext(BaseModel):
 class Mode(str, Enum):
     live = "LIVE"
     simulation = "SIMULATION"
+    preview = "PREVIEW"
 
 
 class AdvisorRequest(BaseModel):

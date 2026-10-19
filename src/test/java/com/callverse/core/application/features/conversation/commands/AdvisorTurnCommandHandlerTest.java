@@ -56,6 +56,7 @@ class AdvisorTurnCommandHandlerTest {
 
     @BeforeEach
     void setUp() {
+        org.mockito.Mockito.doCallRealMethod().when(messages).postExplainedAgentTurn(any(), anyLong(), any(), any());
         conversation = new ConversationRecord(
                 CONVERSATION_ID,
                 CUSTOMER_ID,
@@ -70,7 +71,7 @@ class AdvisorTurnCommandHandlerTest {
                 NOW.minusSeconds(20),
                 null);
         customerMessage = new MessageRecord(
-                3L, CONVERSATION_ID, MessageSender.CUSTOMER, "Je ne reconnais pas ce paiement.", NOW.minusSeconds(1));
+                3L, CONVERSATION_ID, MessageSender.CUSTOMER, "Pouvez-vous vérifier ce paiement ?", NOW.minusSeconds(1));
         when(conversations.find(CONVERSATION_ID)).thenReturn(Optional.of(conversation));
         when(messages.recent(CONVERSATION_ID, 200)).thenReturn(List.of(
                 new MessageRecord(1L, CONVERSATION_ID, MessageSender.SYSTEM, "Ouverture", NOW.minusSeconds(30)),
@@ -79,7 +80,7 @@ class AdvisorTurnCommandHandlerTest {
         when(customers.findProfile(CUSTOMER_ID)).thenReturn(Optional.of(new CustomerProfile(
                 CUSTOMER_ID, "CV-TEST", "Test", "Customer", "NORTH", CustomerSegment.AFFLUENT, 24, List.of())));
         when(agent.respond(any())).thenReturn(new AdvisorResponse(
-                "Je vérifie ce paiement.", "FRAUD", 0.9, List.of(), List.of(), "NONE", Map.of(), 12));
+                "Je vérifie ce paiement.", "CARD", 0.9, List.of(), List.of(), "NONE", Map.of(), 12));
     }
 
     @Test
@@ -108,8 +109,8 @@ class AdvisorTurnCommandHandlerTest {
     }
 
     @Test
-    void skipsQueuedAndEscalatedConversations() {
-        for (ConversationStatus status : List.of(ConversationStatus.QUEUED, ConversationStatus.ESCALATED)) {
+    void skipsTerminalConversations() {
+        for (ConversationStatus status : List.of(ConversationStatus.RESOLVED, ConversationStatus.ABANDONED)) {
             when(conversations.find(CONVERSATION_ID)).thenReturn(Optional.of(withStatus(status)));
 
             handler.handle(new AdvisorTurnCommand(CONVERSATION_ID, customerMessage.id()));
@@ -132,13 +133,20 @@ class AdvisorTurnCommandHandlerTest {
     }
 
     @Test
-    void staysSilentOnceAHumanAdvisorHasReplied() {
+    void staysSilentAfterHumanTakeover() {
         when(messages.humanAdvisorHasReplied(CONVERSATION_ID)).thenReturn(true);
-
         handler.handle(new AdvisorTurnCommand(CONVERSATION_ID, customerMessage.id()));
-
         verify(agent, never()).respond(any());
         verify(messages, never()).postAgentTurn(any(), anyLong(), any(), any(), any(), any());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = ConversationStatus.class, names = {"QUEUED", "ESCALATED"})
+    void respondsBeforeAssignmentAndDuringEscalation(ConversationStatus status) {
+        when(conversations.find(CONVERSATION_ID)).thenReturn(Optional.of(withStatus(status)));
+        handler.handle(new AdvisorTurnCommand(CONVERSATION_ID, customerMessage.id()));
+        verify(agent).respond(any());
+        verify(messages).postAgentTurn(any(), anyLong(), any(), any(), any(), any());
     }
 
     @Test
@@ -212,9 +220,63 @@ class AdvisorTurnCommandHandlerTest {
         verify(events).messagePosted(posted);
     }
 
+    @Test
+    void providerFailurePostsAnHonestHandoverAndEscalates() {
+        agentAnswers("NONE", Map.of());
+        when(agent.respond(any())).thenThrow(new IllegalStateException("quota"));
+        handler.handle(new AdvisorTurnCommand(CONVERSATION_ID, customerMessage.id()));
+        verify(escalation).handle(new EscalateConversationCommand(CONVERSATION_ID,
+                "Assistant IA indisponible : reprise humaine nécessaire", EscalationRaisedBy.AI, null));
+        ArgumentCaptor<String> reply = ArgumentCaptor.forClass(String.class);
+        verify(messages).postAgentTurn(any(), anyLong(), reply.capture(), any(), any(), any());
+        assertThat(reply.getValue()).contains("temporairement indisponible");
+    }
+
+    @Test
+    void aPersonalFraudReportEscalatesWithoutCallingTheProvider() {
+        agentAnswers("NONE", Map.of());
+        when(messages.recent(CONVERSATION_ID, 200)).thenReturn(List.of(new MessageRecord(
+                3L, CONVERSATION_ID, MessageSender.CUSTOMER, "Je ne reconnais pas ce paiement.", NOW)));
+        handler.handle(new AdvisorTurnCommand(CONVERSATION_ID, 3L));
+        verify(agent, never()).respond(any());
+        verify(escalation).handle(new EscalateConversationCommand(CONVERSATION_ID,
+                "Suspicion de fraude : prise en charge humaine obligatoire", EscalationRaisedBy.AI, null));
+    }
+
+    @Test
+    void fraudIntentCannotSuppressMandatoryEscalation() {
+        agentAnswers("NONE", Map.of());
+        when(agent.respond(any())).thenReturn(new AdvisorResponse(
+                "Tout va bien.", "FRAUD", .99, List.of(), List.of(), "NONE", Map.of(), 12));
+        handler.handle(new AdvisorTurnCommand(CONVERSATION_ID, customerMessage.id()));
+        verify(escalation).handle(new EscalateConversationCommand(CONVERSATION_ID,
+                "Suspicion de fraude : prise en charge humaine obligatoire", EscalationRaisedBy.AI, null));
+    }
+
+    @Test
+    void failedProviderCannotEscalateAConversationThatMovedOn() {
+        when(agent.respond(any())).thenThrow(new IllegalStateException("quota"));
+        when(messages.postAgentTurn(any(), anyLong(), any(), any(), any(), any())).thenReturn(Optional.empty());
+        handler.handle(new AdvisorTurnCommand(CONVERSATION_ID, customerMessage.id()));
+        verify(escalation, never()).handle(any());
+    }
+
+    @Test
+    void anUnexecutedCardBlockClaimIsNotExposedAsASuccess() {
+        agentAnswers("NONE", Map.of());
+        when(agent.respond(any())).thenReturn(new AdvisorResponse(
+                "J'ai bloqué votre carte.", "CARD", .99, List.of(), List.of(), "NONE", Map.of(), 12));
+        handler.handle(new AdvisorTurnCommand(CONVERSATION_ID, customerMessage.id()));
+        ArgumentCaptor<String> reply = ArgumentCaptor.forClass(String.class);
+        verify(messages).postAgentTurn(any(), anyLong(), reply.capture(), any(), any(), any());
+        assertThat(reply.getValue()).contains("ne peux pas confirmer");
+        verify(escalation).handle(new EscalateConversationCommand(CONVERSATION_ID,
+                "Blocage de carte non exécuté par l'assistant", EscalationRaisedBy.AI, null));
+    }
+
     private PostedMessage agentAnswers(String actionType, Map<String, Object> payload) {
         when(agent.respond(any())).thenReturn(new AdvisorResponse(
-                "Je transmets votre demande à un superviseur.", "FRAUD", 0.4, List.of(), List.of(),
+                "Je transmets votre demande à un superviseur.", "CARD", 0.4, List.of(), List.of(),
                 actionType, payload, 12));
         MessageRecord answer = new MessageRecord(
                 4L, CONVERSATION_ID, MessageSender.ADVISOR, "Je transmets votre demande à un superviseur.", NOW);

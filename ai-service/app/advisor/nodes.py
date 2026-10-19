@@ -10,6 +10,7 @@ Noeuds du graphe LangGraph du Customer Advisor.
 from __future__ import annotations
 
 import logging
+import json
 from typing import Literal
 from uuid import NAMESPACE_URL, uuid5
 
@@ -23,7 +24,10 @@ from app.advisor.state import AdvisorGraphState
 from app.advisor.tools import TOOL_IMPLEMENTATIONS, TOOL_SPECS
 from app.config import settings
 from app.contracts.advisor import Intent, Mode
-from app.provider_retry import invoke_with_retry
+from app.provider_retry import invoke_with_retry, ProviderRateLimited
+from app.advisor.safety import (reports_fraud, fraud_decision, customer_reply, requests_human, human_handover,
+                                grounded_procedure, procedure_query, credit_application_query,
+                                claims_card_block, local_welcome_reply)
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +122,60 @@ def _to_openai_tool(spec: dict) -> dict:
 _decide_llm = None
 _final_llm = None
 _simulation_llms = {}
+_json_final_llms = {}
+
+
+async def _invoke_advisor_model(llm, messages: list, *, model: str, allow_fallback: bool = True):
+    """Retry only the generation on the configured backup, preserving completed tool results."""
+    try:
+        return await invoke_with_retry(llm, messages, model=model)
+    except ProviderRateLimited:
+        backup = settings.llm_live_advisor_fallback_model.strip()
+        if not allow_fallback or not backup or backup == model:
+            raise
+        bindings = dict(getattr(llm, 'kwargs', {}))
+        fallback_messages = list(messages)
+        fallback_messages.append(SystemMessage(content=(
+            "Reprends ce tour avec les resultats d'outils deja fournis : ils ont deja ete executes. "
+            "Ne redemande jamais un outil identique qui a reussi. Si ces informations suffisent, "
+            "conclus avec finalize_response. Reponse concise, 80 mots maximum, avec des phrases "
+            "terminees. N'invente aucun fait client ni aucune operation executee."
+        )))
+        response_format = bindings.get('response_format', {})
+        if response_format.get('type') == 'json_schema' and not backup.startswith('openai/gpt-oss'):
+            # JSON-object models still undergo the same Pydantic validation below.
+            schema = response_format['json_schema']['schema']
+            bindings['response_format'] = {'type': 'json_object'}
+            fallback_messages.append(SystemMessage(content='Réponds uniquement en JSON conforme à ce schéma : ' + json.dumps(schema, ensure_ascii=False)))
+        logger.info('Live advisor generation using configured backup model after provider rate limit')
+        fallback = _new_groq(model=backup).bind(**bindings)
+        return await invoke_with_retry(fallback, fallback_messages, model=backup)
+
+
+async def _json_conclusion(messages: list, model: str, *, allow_fallback: bool = True) -> dict | None:
+    """Recover a provider tool-format failure using a validated, tool-free conclusion."""
+    if model not in _json_final_llms:
+        schema = _FinalDecision.model_json_schema()
+        schema['additionalProperties'] = False
+        schema['required'] = list(schema['properties'])
+        for field in schema['properties'].values():
+            field.pop('default', None)
+        _json_final_llms[model] = _new_groq(model=model).bind(response_format={
+            'type': 'json_schema', 'json_schema': {'name': 'advisor_conclusion', 'strict': True, 'schema': schema}
+        })
+    note = SystemMessage(content=(
+        "Conclus maintenant par un objet JSON conforme au schema, sans appel d'outil. "
+        "Utilise uniquement les informations deja fournies ou verifiees. "
+        "Une salutation, une presentation de ton role ou les reperes d'interface fournis "
+        "ne necessitent pas de source externe. N'invente aucune operation executee. "
+        "S'il manque un fait bancaire indispensable, demande une precision ou escalade."
+    ))
+    response = await _invoke_advisor_model(_json_final_llms[model], messages + [note], model=model, allow_fallback=allow_fallback)
+    try:
+        return _FinalDecision.model_validate_json(response.content).model_dump(exclude_none=True)
+    except (ValidationError, TypeError):
+        logger.warning("Advisor JSON conclusion failed schema validation")
+        return None
 
 
 def _get_decide_llm(final: bool = False):
@@ -125,14 +183,14 @@ def _get_decide_llm(final: bool = False):
     global _decide_llm, _final_llm
     if final:
         if _final_llm is None:
-            _final_llm = _new_groq().bind_tools(
+            _final_llm = _new_groq(model=settings.llm_live_advisor_model.strip() or settings.llm_model_advanced).bind_tools(
                 [_to_openai_tool(_FINALIZE_TOOL_SPEC)], tool_choice=_FINALIZE_TOOL_SPEC["name"]
             )
         return _final_llm
     if _decide_llm is None:
         all_specs = TOOL_SPECS + [_FINALIZE_TOOL_SPEC]
         tools = [_to_openai_tool(s) for s in all_specs]
-        _decide_llm = _new_groq().bind_tools(tools, tool_choice="required")
+        _decide_llm = _new_groq(model=settings.llm_live_advisor_model.strip() or settings.llm_model_advanced).bind_tools(tools, tool_choice="required")
     return _decide_llm
 
 
@@ -149,19 +207,22 @@ def _get_simulation_llm(final: bool = False):
 
 
 def _new_groq(model: str | None = None) -> ChatGroq:
+    selected = model or settings.llm_model_advanced
+    reasoning = {'reasoning_effort': 'low'} if selected.startswith('openai/gpt-oss') else (
+        {'reasoning_effort': 'none'} if selected.startswith('qwen/qwen3.8') else {})
     return ChatGroq(
-        model=model or settings.llm_model_advanced,
+        model=selected,
         api_key=settings.llm_api_key,
         temperature=0.2,
-        reasoning_effort="low",
+        **reasoning,
         max_retries=0,
         timeout=20,
-        max_tokens=settings.llm_advisor_max_output_tokens,
+        max_tokens=min(settings.llm_advisor_max_output_tokens, 1024) if selected == settings.llm_live_advisor_fallback_model.strip() else settings.llm_advisor_max_output_tokens,
     )
 
 
 def _bounded(value) -> str:
-    text = str(value)
+    text = customer_reply(str(value))
     if len(text) <= MAX_TOOL_RESULT_CHARS:
         return text
     return text[:MAX_TOOL_RESULT_CHARS] + " […tronqué]"
@@ -170,6 +231,8 @@ def _bounded(value) -> str:
 def _build_messages(state: AdvisorGraphState) -> list:
     request = state["request"]
     messages = [SystemMessage(content=ADVISOR_SYSTEM_PROMPT)]
+    if request.mode == Mode.preview:
+        messages.append(SystemMessage(content="Tu prépares uniquement une suggestion pour un conseiller. Lecture seule : consulte les informations nécessaires, mais ne crée aucun ticket et n’exécute aucune opération. Propose toute intervention au conseiller sans prétendre l’avoir effectuée."))
 
     # No identifier here: tools receive customer_id and conversation_id from the request
     # (TRUSTED_IDENTIFIERS), so the model never needs, sees or repeats them.
@@ -216,23 +279,56 @@ def _build_messages(state: AdvisorGraphState) -> list:
 async def decide(state: AdvisorGraphState) -> dict:
     from groq import BadRequestError
 
+    if reports_fraud(state["request"].message):
+        return {"decision": fraud_decision(), "iterations": state.get("iterations", 0) + 1}
+
+    if requests_human(state["request"].message):
+        return {"decision": human_handover(), "iterations": state.get("iterations", 0) + 1}
+
+    blocked = [call for call in state.get("tool_calls", []) if call.get("blocked")]
+    if blocked:
+        return {"decision": {"action": "escalate", "intent": "OTHER", "confidence": 0,
+                             "reply": "Cette demande nécessite une vérification ou une intervention par un conseiller.",
+                             "reason": blocked[-1]["error"]}, "iterations": state.get("iterations", 0) + 1}
+
+    welcome = local_welcome_reply(state["request"].message)
+    if welcome:
+        return {"decision": {'action': 'respond', 'reply': welcome, 'intent': 'OTHER', 'confidence': 1.0},
+                "iterations": state.get("iterations", 0) + 1}
+
+    if not state.get("tool_calls") and procedure_query(state["request"].message):
+        return {"decision": {"action": "call_tool", "tool_name": "search_knowledge_base",
+                             "arguments": {"query": state["request"].message}}, "iterations": 1}
+    if procedure_query(state["request"].message) and state.get("tool_calls"):
+        reply = grounded_procedure(state.get("retrieved_documents", []))
+        credit_application = credit_application_query(state["request"].message)
+        if reply and credit_application:
+            reply += "\nQuel type de crédit souhaitez-vous demander ? Ces informations ne constituent pas un accord de crédit."
+        return {"decision": {"action": "respond" if reply else "escalate", "intent": "CREDIT" if credit_application else "OTHER",
+                             "confidence": .9 if reply else 0,
+                             "reply": reply or "La documentation disponible ne permet pas de répondre. Une reprise humaine est nécessaire.",
+                             "reason": "Documentation insuffisante"},
+                "iterations": state.get("iterations", 0) + 1}
+
     final = state.get("iterations", 0) >= MAX_ITERATIONS - 1
     simulation = state["request"].mode == Mode.simulation
     llm = _get_simulation_llm(final=final) if simulation else _get_decide_llm(final=final)
-    model = (settings.llm_simulation_advisor_model.strip() if simulation else "") or settings.llm_model_advanced
+    model = (settings.llm_simulation_advisor_model.strip() if simulation else settings.llm_live_advisor_model.strip()) or settings.llm_model_advanced
     messages = _build_messages(state)
     if final:
         messages.append(SystemMessage(content=_BUDGET_NOTE))
 
     response = None
+    parse_failure = False
     for _attempt in range(2):
         try:
-            response = await invoke_with_retry(llm, messages, model=model)
+            response = await _invoke_advisor_model(llm, messages, model=model, allow_fallback=not simulation)
             break
         except BadRequestError as exc:
             # Groq rejette l'appel si le modele repond en texte au lieu d'appeler un outil
-            if "tool_use_failed" not in str(exc):
+            if not any(code in str(exc) for code in ("tool_use_failed", "output_parse_failed")):
                 raise
+            parse_failure = parse_failure or "output_parse_failed" in str(exc)
             # Repeating the same rejected arguments produced the same schema error in
             # real Groq calls (notably intent=ACCOUNTS). Give bounded corrective feedback
             # without echoing untrusted provider text or replaying a completed tool.
@@ -245,14 +341,25 @@ async def decide(state: AdvisorGraphState) -> dict:
                 "Conserve les resultats des outils deja executes et conclus si tu peux repondre."
             )))
 
+    if response is not None and not response.tool_calls and not final:
+        # Repair a missing structured conclusion once, without repeating completed tools.
+        final_llm = _get_simulation_llm(final=True) if simulation else _get_decide_llm(final=True)
+        response = await _invoke_advisor_model(final_llm, messages + [SystemMessage(content=_BUDGET_NOTE)], model=model, allow_fallback=not simulation)
     if response is None or not response.tool_calls:
+        if response is not None or parse_failure:
+            conclusion = await _json_conclusion(messages, model, allow_fallback=not simulation)
+            if conclusion is not None:
+                return {"decision": conclusion, "iterations": state.get("iterations", 0) + 1}
         # filet de securite si le modele ne respecte pas tool_choice="required"
+        logger.warning("Advisor decision has no usable structured tool call")
         return _invalid_decision(state)
 
     call = response.tool_calls[0]
     if not isinstance(call, dict):
         return _invalid_decision(state)
     tool_name = call.get("name")
+    if isinstance(tool_name, str):
+        tool_name = tool_name.strip().removeprefix("functions.")
     args = call.get("args", {})
     if not isinstance(args, dict):
         return _invalid_decision(state)
@@ -261,11 +368,16 @@ async def decide(state: AdvisorGraphState) -> dict:
         try:
             decision = _FinalDecision.model_validate(args).model_dump(exclude_none=True)
         except ValidationError:
+            logger.warning("Advisor function conclusion failed schema validation")
             return _invalid_decision(state)
         if decision["action"] == "escalate":
             decision["reason"] = decision.get("reason") or "incertitude de l'agent"
     else:
         if tool_name not in {spec["name"] for spec in TOOL_SPECS}:
+            logger.warning("Advisor requested an unsupported tool")
+            conclusion = await _json_conclusion(messages, model, allow_fallback=not simulation)
+            if conclusion is not None:
+                return {"decision": conclusion, "iterations": state.get("iterations", 0) + 1}
             return _invalid_decision(state)
         decision = {
             "action": "call_tool",
@@ -309,7 +421,16 @@ async def execute_tool(state: AdvisorGraphState) -> dict:
             "arguments": arguments,
             "result": None,
             "error": "Backend tools are disabled in simulation mode.",
+            "blocked": True,
         }
+        return {"tool_calls": list(state.get("tool_calls", [])) + [call]}
+
+    if state["request"].mode == Mode.preview and tool_name not in {
+        "get_customer", "get_transactions", "check_system_status", "search_knowledge_base"
+    }:
+        call = {"name": tool_name, "arguments": arguments, "result": None,
+                "error": "Suggestion en lecture seule : l’intervention doit être validée et effectuée par un conseiller.",
+                "blocked": True}
         return {"tool_calls": list(state.get("tool_calls", [])) + [call]}
 
     call = {"name": tool_name, "arguments": arguments, "result": None, "error": None}
@@ -375,7 +496,9 @@ def _dedupe_sources_keep_best_score(sources: list[dict]) -> list[dict]:
 
 
 async def finalize(state: AdvisorGraphState) -> dict:
-    decision = state["decision"]
+    decision = dict(state["decision"])
+    if isinstance(decision.get("reply"), str):
+        decision["reply"] = customer_reply(decision["reply"])
     retrieved_documents = state.get("retrieved_documents", [])
     tool_calls = state.get("tool_calls", [])
 
@@ -384,6 +507,14 @@ async def finalize(state: AdvisorGraphState) -> dict:
     )
     contract_tool_calls = [_tool_call_to_contract_shape(c) for c in tool_calls]
     intent = decision.get("intent", "OTHER")
+
+    # There is no card-blocking tool in this agent. A generated past-tense
+    # execution claim must never be displayed as a completed banking operation.
+    if claims_card_block(decision.get("reply", "")):
+        return {"reply": "Je ne peux pas confirmer le blocage de votre carte. Une reprise par un superviseur est nécessaire.",
+                "intent": intent, "confidence": 0, "action_type": "ESCALATE",
+                "action_payload": {"reason": "Blocage de carte non exécuté par l'assistant"},
+                "tool_calls": contract_tool_calls, "retrieved_documents": sources}
 
     # call_tool ici : budget epuise sans conclusion (le tour final impose n'a pas abouti).
     if decision["action"] in ("escalate", "call_tool"):
@@ -410,8 +541,14 @@ async def finalize(state: AdvisorGraphState) -> dict:
             "retrieved_documents": sources,
         }
 
+    if intent == "FRAUD":
+        safe = fraud_decision()
+        return {"reply": safe["reply"], "intent": "FRAUD", "confidence": confidence,
+                "action_type": "ESCALATE", "action_payload": {"reason": safe["reason"]},
+                "tool_calls": contract_tool_calls, "retrieved_documents": sources}
+
     return {
-        "reply": decision["reply"],
+        "reply": customer_reply(decision["reply"]),
         "intent": intent,
         "confidence": confidence,
         "action_type": "NONE",

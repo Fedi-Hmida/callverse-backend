@@ -69,7 +69,7 @@ class WorkforceRecommendationIntegrationTest extends AbstractPersistenceTest {
                 .andExpect(status().isOk())
                 .andReturn()
                 .getResponse()
-                .getContentAsString();
+                .getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
         JsonNode response = objectMapper.readTree(body);
 
         long decisionId = response.path("decisionId").asLong();
@@ -84,7 +84,7 @@ class WorkforceRecommendationIntegrationTest extends AbstractPersistenceTest {
         assertThat(decision.getObservation().path("queues").has("FRAUD")).isTrue();
         assertThat(decision.getAction().path("requiresApproval").asBoolean()).isTrue();
         assertThat(response.path("requiresApproval").asBoolean()).isTrue();
-        assertThat(response.path("caveats").toString()).contains("No advisor reassignment is performed");
+        assertThat(response.path("caveats").toString()).contains("Aucune réaffectation automatique");
         decisions.deleteById(decisionId);
     }
 

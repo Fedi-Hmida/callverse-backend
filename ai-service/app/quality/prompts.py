@@ -33,6 +33,16 @@ UNVERIFIABLE si le contexte nécessaire manque.
 source_keys référence les documents au format doc_id/chunk_id ; un appui sur
 un outil doit être nommé dans justification. Une référence seule ou un score
 de retrieval ne prouve pas l'exactitude. Ne confonds pas non-sourçage et mensonge.
+Compare chaque détail opérationnel au TEXTE des documents, pas à leur titre.
+N'utilise aucune connaissance bancaire extérieure pour combler leurs omissions.
+Exemple : une source dit seulement « bloquer la carte puis ouvrir un ticket ».
+Les affirmations « gratuit », « application mobile », « notification email » ou
+« remplacement automatique » sont UNSUPPORTED si elles ne figurent ni dans
+ce texte ni dans un résultat d'outil réussi. Décompose les étapes en claims
+distincts : une étape confirmée ne valide pas les autres étapes du même message.
+Une réponse claire peut avoir une bonne communication et une mauvaise accuracy.
+Les notes sont des entiers de 0 à 10, jamais des pourcentages de 0 à 100.
+Un résultat opérationnel non exécuté n'est pas une résolution confirmée.
 Signale les procédures non respectées seulement au regard des règles fournies.
 La résolution peut être une escalade pertinente, sans résolution immédiate.
 Pour evidence et excerpt, copie un passage des citation_candidates :

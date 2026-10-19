@@ -84,6 +84,7 @@ class OpenApiContractTest extends AbstractPersistenceTest {
             "listMyConversations",
             "getConversation",
             "listMessages",
+            "getAiMessageExplanation",
             "postMessage",
             "resolveConversation",
             "abandonConversation",

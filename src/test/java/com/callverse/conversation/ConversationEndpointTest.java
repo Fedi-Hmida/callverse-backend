@@ -301,6 +301,18 @@ class ConversationEndpointTest extends AbstractPersistenceTest {
     class Messages {
 
         @Test
+        @DisplayName("a supervisor replies to an unassigned escalation as a human; admin remains read-only")
+        void supervisorTakesOverEscalation() throws Exception {
+            UUID id = fx.conversation(amina, skill, ConversationStatus.ESCALATED, "0", Instant.now());
+            call(message(id, "x", as(UserRole.ADMIN)), 403);
+            call(message(id, "x", lina()), 404);
+            JsonNode reply = call(message(id, "Je prends le relais.", as(UserRole.SUPERVISOR)), 201);
+            assertThat(reply.path("sender").asText()).isEqualTo("ADVISOR");
+            assertThat(reply.path("aiGenerated").asBoolean()).isFalse();
+            assertThat(fx.reload(id).getStatus()).isEqualTo(ConversationStatus.ESCALATED);
+        }
+
+        @Test
         @DisplayName("a supervisor reads a chat but cannot write in it; another advisor cannot even see it")
         void writers() throws Exception {
             UUID id = fx.conversation(amina, skill, ConversationStatus.ACTIVE, "0", Instant.now(),

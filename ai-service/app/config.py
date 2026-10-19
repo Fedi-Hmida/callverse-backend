@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     llm_provider: str = "groq"
     llm_model_light: str = "openai/gpt-oss-20b"
     llm_model_advanced: str = "openai/gpt-oss-120b"
+    # A separate live model keeps automatic replies independent of the advanced model's quota.
+    llm_live_advisor_model: str = ""
+    # Optional alternative for a rate-limited live model; never replays banking tools.
+    llm_live_advisor_fallback_model: str = ""
     # Empty retains the configured advanced model. A separate simulation model can be
     # selected explicitly without silently changing the model that handles live banking.
     llm_simulation_advisor_model: str = ""
@@ -43,6 +47,7 @@ class Settings(BaseSettings):
     llm_advisor_history_chars: int = Field(default=6000, ge=1000, le=24000)
 
     pgvector_dsn: str = "postgresql://user:pass@localhost:5432/callverse"
+    kb_index_refresh_seconds: float = Field(default=60, ge=0)
 
 
 settings = Settings()

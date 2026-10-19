@@ -152,6 +152,7 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.GET, "/api/v1/conversations/mine").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/v1/conversations/*").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/v1/conversations/*/messages").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/conversations/*/messages/*/explanation").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/conversations/*/messages").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/conversations/*/resolve").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/conversations/*/abandon").authenticated()

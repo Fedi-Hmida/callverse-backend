@@ -11,6 +11,7 @@ import com.callverse.core.application.interfaces.SupervisionAlert;
 import com.callverse.core.domain.enums.ConversationStatus;
 import com.callverse.core.domain.enums.EscalationRaisedBy;
 import com.callverse.core.domain.exceptions.InvalidStateTransitionException;
+import com.callverse.core.domain.services.ConversationRules;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -72,7 +73,7 @@ public class EscalateConversationCommandHandler {
 
         Optional<Escalations.EscalationRecord> pending = escalations.findPending(conversation.id());
         if (pending.isPresent()) {
-            if (conversation.status() == ConversationStatus.ACTIVE) {
+            if (ConversationRules.acceptsEscalation(conversation.status(), command.raisedBy())) {
                 // Raised before escalating moved the conversation: the retry completes the move.
                 EscalationOutcome healed = escalations.raiseUnlessPending(
                         conversation.id(), command.reason().trim(), command.raisedBy());
@@ -81,7 +82,7 @@ public class EscalateConversationCommandHandler {
             }
             return new EscalationOutcome(pending.get(), false);
         }
-        if (!conversation.status().canTransitionTo(ConversationStatus.ESCALATED)) {
+        if (!ConversationRules.acceptsEscalation(conversation.status(), command.raisedBy())) {
             throw new InvalidStateTransitionException(conversation.status(), ConversationStatus.ESCALATED);
         }
         EscalationOutcome outcome = escalations.raiseUnlessPending(

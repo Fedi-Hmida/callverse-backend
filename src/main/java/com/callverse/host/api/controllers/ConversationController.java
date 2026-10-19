@@ -125,12 +125,13 @@ public class ConversationController {
     }
 
     @PostMapping(path = "/{id}/messages", consumes = MediaType.APPLICATION_JSON_VALUE)
-    @PreAuthorize(Roles.PARTIES)
+    @PreAuthorize("hasAnyRole('ADVISOR','CUSTOMER','SUPERVISOR')")
     @Operation(
             operationId = "postMessage",
             summary = "Write in a conversation",
             description = "The assigned advisor writes as ADVISOR, the conversation's customer as CUSTOMER; the "
-                    + "server decides the sender. The advisor's first message moves ASSIGNED to ACTIVE. A closed "
+                    + "server decides the sender. A supervisor may reply as ADVISOR in an ESCALATED conversation. "
+                    + "The advisor's first message moves ASSIGNED to ACTIVE. A closed "
                     + "conversation is 409 INVALID_STATE_TRANSITION; a conversation the caller may not read is 404.")
     @ApiResponse(responseCode = "201", description = "Written, and pushed to the conversation's topic")
     public ResponseEntity<MessageResponse> post(@PathVariable UUID id, @Valid @RequestBody MessageRequest request) {

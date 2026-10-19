@@ -130,6 +130,23 @@ class AdvisorTurnDispatcherTest {
     }
 
     @Test
+    void aRejectedContactIsRetriedWhenAnotherWorkerFinishesWithoutANewCustomerMessage() {
+        java.util.concurrent.atomic.AtomicBoolean reject = new java.util.concurrent.atomic.AtomicBoolean(false);
+        AdvisorTurnDispatcher bounded = new AdvisorTurnDispatcher(handler, task -> {
+            if (reject.get()) throw new java.util.concurrent.RejectedExecutionException("saturated");
+            queued.add(task);
+        });
+        bounded.dispatch(customerMessage(10));
+        reject.set(true);
+        UUID other = UUID.randomUUID();
+        bounded.dispatch(ConversationEvent.messagePosted(
+                new MessageRecord(20, other, MessageSender.CUSTOMER, "B", Instant.now()), ConversationStatus.QUEUED));
+        reject.set(false);
+        runAll();
+        assertThat(handled).containsExactly(10L, 20L);
+    }
+
+    @Test
     void aFinishedConversationAcceptsANewTurn() {
         dispatcher.dispatch(customerMessage(10));
         runAll();

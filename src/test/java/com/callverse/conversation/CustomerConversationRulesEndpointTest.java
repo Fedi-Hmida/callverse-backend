@@ -208,7 +208,9 @@ class CustomerConversationRulesEndpointTest extends AbstractPersistenceTest {
 
             JsonNode mine = call(get("/api/v1/conversations/accessible").with(aminaLogin()), 200).get("content");
             assertThat(mine).isEmpty();
-            JsonNode supervised = call(get("/api/v1/conversations/accessible")
+            // Other suites retain staff-visible contacts in the shared test database. Filter by
+            // this fixture's unique skill so the record cannot fall beyond the first page.
+            JsonNode supervised = call(get("/api/v1/conversations/accessible").param("q", skill)
                     .with(as(UUID.randomUUID(), UserRole.SUPERVISOR)), 200).get("content");
             JsonNode row = find(supervised, conversation);
             assertThat(row.get("removedByCustomer").asBoolean()).isTrue();

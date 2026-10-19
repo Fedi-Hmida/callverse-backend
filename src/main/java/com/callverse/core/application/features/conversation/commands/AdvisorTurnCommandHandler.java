@@ -20,6 +20,7 @@ import com.callverse.core.domain.enums.ConversationStatus;
 import com.callverse.core.domain.enums.EscalationRaisedBy;
 import com.callverse.core.domain.enums.MessageSender;
 import com.callverse.core.domain.services.PersonalDataRedactor;
+import com.callverse.core.domain.services.AdvisorSafetyPolicy;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
 import java.time.Clock;
@@ -35,9 +36,9 @@ import java.util.UUID;
  * <p>No database lock is held while the outbound AI call runs. The final write rechecks the state
  * and triggering message under the conversation row lock, discarding a stale response.
  *
- * <p>Runs only in {@link AiAdvisorMode#AUTONOMOUS}, and only until a human advisor has written in the
- * conversation. A human reply that lands while the AI is thinking becomes the latest message, so the
- * locked recheck discards the AI response as well.
+ * <p>In {@link AiAdvisorMode#AUTONOMOUS}, every open conversation receives AI replies, including
+ * waiting and escalated contacts, until a human advisor replies. Human takeover, a newer
+ * message or closure invalidates a response under the conversation lock.
  */
 public class AdvisorTurnCommandHandler {
 
@@ -92,19 +93,14 @@ public class AdvisorTurnCommandHandler {
             LOG.log(Level.WARNING, "AI Advisor skipped: conversation no longer exists");
             return;
         }
-        if (conversation.status() != ConversationStatus.ASSIGNED
-                && conversation.status() != ConversationStatus.ACTIVE) {
+        if (conversation.status().isTerminal()) {
             LOG.log(Level.INFO, "AI Advisor skipped for conversation {0} in state {1}",
                     conversation.id(), conversation.status());
             return;
         }
-        // Human takeover: once the assigned advisor has written, the AI never speaks over them.
         if (messages.humanAdvisorHasReplied(conversation.id())) {
-            LOG.log(Level.INFO, "AI Advisor skipped for conversation {0}: a human advisor has taken over",
-                    conversation.id());
             return;
         }
-
         List<MessageRecord> transcript = messages.recent(conversation.id(), TRANSCRIPT_LIMIT);
         if (transcript.isEmpty()
                 || transcript.getLast().id() != command.triggeringCustomerMessageId()
@@ -132,25 +128,42 @@ public class AdvisorTurnCommandHandler {
         // Text crosses to an external model: identifiers are masked here, the database keeps them.
         AdvisorResponse response;
         try {
-            response = agent.respond(new AdvisorRequest(
+            response = AdvisorSafetyPolicy.reportsFraud(customerMessage.content())
+                    ? fraudHandover() : AdvisorSafetyPolicy.requestsHuman(customerMessage.content())
+                    ? humanHandover() : agent.respond(new AdvisorRequest(
                     conversation.id(),
                     conversation.customerId(),
                     PersonalDataRedactor.redact(customerMessage.content()),
                     history,
                     new CustomerContext(customer.tenureMonths(), customer.segment())));
             validate(response);
+            if ("FRAUD".equals(response.intent())) {
+                AdvisorResponse safe = fraudHandover();
+                response = new AdvisorResponse(safe.reply(), safe.intent(), safe.confidence(),
+                        response.toolCalls(), response.sources(), safe.actionType(),
+                        safe.actionPayload(), response.latencyMs());
+            } else if (AdvisorSafetyPolicy.claimsCardBlock(response.reply())) {
+                response = new AdvisorResponse(
+                        "Je ne peux pas confirmer le blocage de votre carte. Une reprise par un superviseur est nécessaire.",
+                        response.intent(), 0, response.toolCalls(), response.sources(), ESCALATE,
+                        Map.of("reason", "Blocage de carte non exécuté par l'assistant"), response.latencyMs());
+            }
         } catch (RuntimeException exception) {
             LOG.log(Level.WARNING, "AI Advisor failed for conversation {0}; leaving it for a human",
                     conversation.id());
-            return;
+            response = new AdvisorResponse(
+                    "L'assistant est temporairement indisponible. Votre demande nécessite une reprise par un superviseur.",
+                    "OTHER", 0, List.of(), List.of(), ESCALATE,
+                    Map.of("reason", "Assistant IA indisponible : reprise humaine nécessaire"), 0);
         }
 
-        Optional<PostedMessage> posted = messages.postAgentTurn(
+        response = new AdvisorResponse(AdvisorSafetyPolicy.customerReply(response.reply()), response.intent(),
+                response.confidence(), response.toolCalls(), response.sources(), response.actionType(),
+                response.actionPayload(), response.latencyMs());
+        Optional<PostedMessage> posted = messages.postExplainedAgentTurn(
                 conversation.id(),
                 customerMessage.id(),
-                response.reply(),
-                response.sources(),
-                response.toolCalls(),
+                response,
                 clock.instant());
         if (posted.isEmpty()) {
             LOG.log(Level.INFO, "AI Advisor response discarded for conversation {0}: it moved on",
@@ -159,16 +172,31 @@ public class AdvisorTurnCommandHandler {
         }
         events.messagePosted(posted.get());
         if (ESCALATE.equals(response.actionType())) {
-            escalate(conversation.id(), response.actionPayload());
+            escalate(conversation.id(), response.actionPayload(), posted.get().conversation().status() == ConversationStatus.QUEUED);
         }
+    }
+
+    private static AdvisorResponse fraudHandover() {
+        return new AdvisorResponse(
+                "Votre signalement nécessite une prise en charge par un superviseur. "
+                        + "Aucun blocage de carte ni remboursement n'a été effectué par l'assistant.",
+                "FRAUD", 1, List.of(), List.of(), ESCALATE,
+                Map.of("reason", "Suspicion de fraude : prise en charge humaine obligatoire"), 0);
+    }
+
+    private static AdvisorResponse humanHandover() {
+        return new AdvisorResponse(
+                "Votre demande de conseiller humain est transmise. Je reste disponible pendant votre attente, jusqu’à la réponse d’un membre de l’équipe.",
+                "OTHER", 1, List.of(), List.of(), ESCALATE,
+                Map.of("reason", "Reprise humaine demandée par le client"), 0);
     }
 
     /**
      * The reply told the customer a supervisor takes over, so a real escalation must follow. It
-     * runs after the reply is posted: that write moves ASSIGNED to ACTIVE, the only state the
-     * escalation rules accept. A refusal (already resolved, already escalated) leaves the reply.
+     * runs after the reply is posted. Queued contacts may go directly to supervision; assigned
+     * contacts first become ACTIVE. An existing escalation is returned without duplication.
      */
-    private void escalate(UUID conversationId, Map<String, Object> payload) {
+    private void escalate(UUID conversationId, Map<String, Object> payload, boolean wasQueued) {
         Object given = payload == null ? null : payload.get("reason");
         String reason = given instanceof String text && !text.isBlank() ? text.strip() : DEFAULT_ESCALATION_REASON;
         if (reason.length() > MAX_ESCALATION_REASON) {
@@ -176,6 +204,11 @@ public class AdvisorTurnCommandHandler {
         }
         try {
             escalation.handle(new EscalateConversationCommand(conversationId, reason, EscalationRaisedBy.AI, null));
+            if (wasQueued) {
+                conversations.find(conversationId)
+                        .filter(record -> record.status() == ConversationStatus.ESCALATED)
+                        .ifPresent(events::leftQueue);
+            }
         } catch (RuntimeException exception) {
             LOG.log(Level.WARNING, "AI Advisor escalation refused for conversation {0}: {1}",
                     conversationId, exception.getClass().getSimpleName());

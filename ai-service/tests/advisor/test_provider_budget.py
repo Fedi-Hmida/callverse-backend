@@ -1,4 +1,5 @@
 import httpx
+import asyncio
 import pytest
 from unittest.mock import AsyncMock
 
@@ -115,3 +116,27 @@ def test_history_is_bounded_but_current_request_and_context_remain(monkeypatch):
     assert "RECENT1" in contents and "RECENT2" in contents
     assert contents[-1] == "CURRENT"
     assert any("24" in c for c in contents)
+
+
+@pytest.mark.asyncio
+async def test_same_model_generations_are_serialized_and_cancellation_releases_capacity():
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    order = []
+    async def first(_messages):
+        order.append('first')
+        entered.set()
+        await release.wait()
+    one = AsyncMock()
+    one.ainvoke.side_effect = first
+    two = AsyncMock()
+    two.ainvoke.return_value = 'second answer'
+    task = asyncio.create_task(provider_retry.invoke_with_retry(one, [], model='shared'))
+    await entered.wait()
+    waiting = asyncio.create_task(provider_retry.invoke_with_retry(two, [], model='shared'))
+    await asyncio.sleep(0)
+    two.ainvoke.assert_not_awaited()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert await asyncio.wait_for(waiting, 1) == 'second answer'

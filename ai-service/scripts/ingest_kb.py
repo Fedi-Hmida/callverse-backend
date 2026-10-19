@@ -19,8 +19,7 @@ from app.db import pgvector
 
 ARTICLES_DIR = Path(__file__).parent.parent / "app" / "advisor" / "kb" / "articles"
 
-CHUNK_MAX_CHARS = 500
-CHUNK_OVERLAP_CHARS = 80
+from app.advisor.kb.chunking import chunk_text, CHUNK_MAX_CHARS, CHUNK_OVERLAP_CHARS
 
 
 def parse_frontmatter(text: str) -> tuple[dict, str]:
@@ -42,33 +41,6 @@ def parse_frontmatter(text: str) -> tuple[dict, str]:
             meta[key] = value
 
     return meta, body.strip()
-
-
-def chunk_text(text: str, max_chars: int = CHUNK_MAX_CHARS, overlap: int = CHUNK_OVERLAP_CHARS) -> list[str]:
-    """Decoupe par paragraphes, en regroupant jusqu'a max_chars avec un leger recouvrement."""
-    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
-    chunks: list[str] = []
-    current = ""
-
-    for para in paragraphs:
-        if len(current) + len(para) + 2 <= max_chars:
-            current = f"{current}\n\n{para}" if current else para
-        else:
-            if current:
-                chunks.append(current)
-            current = para
-
-    if current:
-        chunks.append(current)
-
-    if overlap and len(chunks) > 1:
-        overlapped = [chunks[0]]
-        for i in range(1, len(chunks)):
-            tail = chunks[i - 1][-overlap:]
-            overlapped.append(f"{tail}\n\n{chunks[i]}")
-        return overlapped
-
-    return chunks
 
 
 async def ingest_file(path: Path) -> None:

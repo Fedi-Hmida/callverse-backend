@@ -12,6 +12,36 @@ from .test_decide import _make_request
 
 
 @pytest.mark.asyncio
+async def test_missing_tool_call_gets_one_structured_repair_without_reexecuting_tools(monkeypatch):
+    first = SimpleNamespace(ainvoke=AsyncMock(return_value=SimpleNamespace(tool_calls=[])))
+    repair = SimpleNamespace(ainvoke=AsyncMock(return_value=SimpleNamespace(tool_calls=[{
+        'name': 'finalize_response', 'args': {'action': 'respond', 'reply': 'Bonjour, je suis votre assistant IA.', 'intent': 'OTHER', 'confidence': .95}
+    }])))
+    monkeypatch.setattr(nodes, '_get_decide_llm', lambda final=False: repair if final else first)
+    response = await run_advisor(_make_request())
+    assert response.action.type == 'NONE'
+    assert response.reply == 'Bonjour, je suis votre assistant IA.'
+    first.ainvoke.assert_awaited_once()
+    repair.ainvoke.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_provider_output_parse_failure_recovers_with_a_validated_json_conclusion(monkeypatch):
+    invalid = BadRequestError('output_parse_failed', response=httpx.Response(
+        400, request=httpx.Request('POST', 'https://provider.test')), body={})
+    llm = SimpleNamespace(ainvoke=AsyncMock(side_effect=invalid))
+    conclusion = AsyncMock(return_value={'action': 'respond', 'reply': 'Bonjour, je suis votre assistant IA.', 'intent': 'OTHER', 'confidence': .95})
+    monkeypatch.setattr(nodes, '_get_decide_llm', lambda **_: llm)
+    monkeypatch.setattr(nodes, '_json_conclusion', conclusion)
+    response = await run_advisor(_make_request())
+    assert response.action.type == 'NONE'
+    assert response.tool_calls == []
+    assert response.reply == 'Bonjour, je suis votre assistant IA.'
+    assert llm.ainvoke.await_count == 2
+    conclusion.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("changes", [
     {"reply": ""}, {"reply": "   "}, {"confidence": "not a number"},
     {"confidence": float("nan")}, {"confidence": 1.5},
@@ -45,6 +75,7 @@ async def test_unusable_function_call_escalates_without_executing_a_tool(monkeyp
     implementation = AsyncMock()
     monkeypatch.setattr(nodes, "_get_decide_llm", lambda **_: llm)
     monkeypatch.setattr(nodes, "TOOL_IMPLEMENTATIONS", {"get_customer": implementation})
+    monkeypatch.setattr(nodes, "_json_conclusion", AsyncMock(return_value=None))
 
     response = await run_advisor(_make_request())
 

@@ -254,7 +254,7 @@ class ConversationUseCasesTest {
         }
 
         @Test
-        @DisplayName("a supervisor reads the chat but does not write in it: 403")
+        @DisplayName("a supervisor cannot write in an ordinary active chat: 403")
         void supervisorReadsOnly() {
             ConversationRecord c = store.put(ConversationStatus.ACTIVE, "CARDS", aminaUser, karimUser);
             PostMessageCommandHandler handler = new PostMessageCommandHandler(store, store, events, CLOCK);
@@ -262,6 +262,17 @@ class ConversationUseCasesTest {
             assertThatThrownBy(() -> handler.handle(new PostMessageCommand(sarah(), c.id(), "x")))
                     .isInstanceOf(ActionNotPermittedException.class)
                     .extracting("code").isEqualTo("ACCESS_DENIED");
+        }
+
+        @Test
+        @DisplayName("a supervisor can take over an unassigned escalation without clearing it")
+        void supervisorRepliesToEscalation() {
+            ConversationRecord c = store.put(ConversationStatus.ESCALATED, "CARDS", aminaUser, null);
+            PostMessageCommandHandler handler = new PostMessageCommandHandler(store, store, events, CLOCK);
+            MessageRecord message = handler.handle(new PostMessageCommand(sarah(), c.id(), "Je prends le relais."));
+            assertThat(message.sender()).isEqualTo(MessageSender.ADVISOR);
+            assertThat(message.aiGenerated()).isFalse();
+            assertThat(store.find(c.id()).orElseThrow().status()).isEqualTo(ConversationStatus.ESCALATED);
         }
 
         @Test

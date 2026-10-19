@@ -188,6 +188,7 @@ CREATE TABLE conversation (
     queued_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     assigned_at     TIMESTAMPTZ,
     ended_at        TIMESTAMPTZ,
+    customer_deleted_at TIMESTAMPTZ, -- V10: removed from the customer's space; retained for staff
     wait_seconds    INT,
     handle_seconds  INT,
     sla_met         BOOLEAN

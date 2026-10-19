@@ -2685,9 +2685,10 @@ paths:
       - Conversations
     post:
       description: "The assigned advisor writes as ADVISOR, the conversation's customer\
-        \ as CUSTOMER; the server decides the sender. The advisor's first message\
-        \ moves ASSIGNED to ACTIVE. A closed conversation is 409 INVALID_STATE_TRANSITION;\
-        \ a conversation the caller may not read is 404."
+        \ as CUSTOMER; the server decides the sender. A supervisor may reply as ADVISOR\
+        \ in an ESCALATED conversation. The advisor's first message moves ASSIGNED\
+        \ to ACTIVE. A closed conversation is 409 INVALID_STATE_TRANSITION; a conversation\
+        \ the caller may not read is 404."
       operationId: postMessage
       parameters:
       - in: path
@@ -2759,6 +2760,78 @@ paths:
       summary: Write in a conversation
       tags:
       - Conversations
+  /api/v1/conversations/{id}/messages/{messageId}/explanation:
+    get:
+      operationId: getAiMessageExplanation
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - in: path
+        name: messageId
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        "200":
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/Explanation"
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Rejected before any business rule ran: the body is not valid\
+            \ JSON (code MALFORMED_REQUEST), a parameter or field broke a rule (code\
+            \ VALIDATION_FAILED), or a use-case precondition was unmet."
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Not authenticated. code UNAUTHENTICATED: no bearer token,\
+            \ or one that is expired, malformed or wrongly signed - all indistinguishable,\
+            \ and the signal to refresh or log in again. code INVALID_CREDENTIALS:\
+            \ login refused; an unknown email and a wrong password are deliberately\
+            \ indistinguishable."
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "Authenticated, but not permitted: code ACCESS_DENIED. Re-authenticating\
+            \ will not help, so clients must not refresh on it."
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: "No such route, or a referenced resource does not exist."
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: A business rule refused the operation. The request was well-formed;
+            the current state of the business forbids it.
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Unexpected failure. message is deliberately generic and carries
+            no internal detail; see the server log for the stack trace.
+      summary: "Read sources, checks and recorded decision for an AI reply; staff\
+        \ only"
+      tags:
+      - conversation-ai-explanation-controller
   /api/v1/conversations/{id}/resolve:
     post:
       description: "The assigned advisor resolves an ACTIVE conversation; a supervisor\
@@ -6909,6 +6982,34 @@ components:
       - raisedBy
       - reason
       - status
+    Explanation:
+      type: object
+      properties:
+        action:
+          type: string
+        checks:
+          type: array
+          items:
+            $ref: "#/components/schemas/ToolCheck"
+        confidence:
+          type: number
+          format: double
+        decisionRecorded:
+          type: boolean
+        intent:
+          type: string
+        latencyMs:
+          type: integer
+          format: int64
+        messageId:
+          type: integer
+          format: int64
+        reason:
+          type: string
+        sources:
+          type: array
+          items:
+            $ref: "#/components/schemas/SourceReference"
     GrantCredit:
       type: object
       properties:
@@ -7798,6 +7899,17 @@ components:
         targetSeconds:
           type: integer
           format: int32
+    SourceReference:
+      type: object
+      properties:
+        articleId:
+          type: string
+          format: uuid
+        score:
+          type: number
+          format: double
+        title:
+          type: string
     StartConversationSimulationRequest:
       type: object
       properties:
@@ -8101,6 +8213,13 @@ components:
           - RESOLVED
           - CLOSED
         title:
+          type: string
+    ToolCheck:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        tool:
           type: string
     Transaction:
       type: object

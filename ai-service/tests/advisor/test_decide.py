@@ -105,7 +105,7 @@ async def test_decide_finalize_escalate():
 async def test_decide_filet_de_securite_si_aucun_tool_call():
     fake_response = _fake_llm_response([])
 
-    with patch("app.advisor.nodes._get_decide_llm") as mock_get_llm:
+    with patch("app.advisor.nodes._get_decide_llm") as mock_get_llm, patch("app.advisor.nodes._json_conclusion", new=AsyncMock(return_value=None)):
         mock_get_llm.return_value.ainvoke = AsyncMock(return_value=fake_response)
 
         state = {"request": _make_request(), "iterations": 1}

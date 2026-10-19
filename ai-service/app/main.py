@@ -2,6 +2,8 @@
 Point d'entrée FastAPI — monte les 4 routers des agents.
 """
 from contextlib import asynccontextmanager
+import asyncio
+from contextlib import suppress
 from fastapi import FastAPI
 
 from app.advisor.router import router as advisor_router
@@ -12,15 +14,24 @@ from app.clients.backend_client import backend_client
 from app.config import settings
 from app.db.pgvector import close_pool
 from app.security import AIServiceKeyMiddleware, require_ai_service_key
+from app.advisor.kb.index_refresh import maintain_published_index
 
 require_ai_service_key(settings.ai_service_key, settings.ai_service_auth_disabled)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    yield
-    await backend_client.aclose()
-    await close_pool()
+    task = (asyncio.create_task(maintain_published_index(settings.kb_index_refresh_seconds))
+            if settings.kb_index_refresh_seconds > 0 else None)
+    try:
+        yield
+    finally:
+        if task:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+        await backend_client.aclose()
+        await close_pool()
 
 
 app = FastAPI(title="CallVerse AI Service", lifespan=lifespan)

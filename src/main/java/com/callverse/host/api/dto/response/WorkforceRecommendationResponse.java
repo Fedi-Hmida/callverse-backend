@@ -32,11 +32,11 @@ public record WorkforceRecommendationResponse(
     public static WorkforceRecommendationResponse from(Recommendation recommendation) {
         WorkforceState state = recommendation.observation();
         List<String> caveats = new ArrayList<>(List.of(
-                "No advisor reassignment is performed; a supervisor must review and apply any change.",
-                "An advisor with multiple skills is counted in each eligible pool, so availability counts may overlap.",
-                "Trend is currently a neutral model input (1.0), not a measured trend."));
+                "Aucune réaffectation automatique : tout transfert doit être vérifié et validé par un superviseur.",
+                "Un conseiller polyvalent peut figurer dans plusieurs files. Les disponibilités ne doivent pas être additionnées.",
+                "La tendance n’est pas mesurée : une valeur neutre est utilisée pour cette analyse."));
         if (!state.slaMeasured()) {
-            caveats.add("No SLA sample was measured today; the model received its training-compatible neutral value (1.0).");
+            caveats.add("Aucun SLA n’a encore été mesuré aujourd’hui : une valeur neutre est utilisée.");
         }
         var proposal = recommendation.proposal();
         return new WorkforceRecommendationResponse(

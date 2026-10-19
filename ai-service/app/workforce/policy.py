@@ -12,6 +12,7 @@ class PolicyUnavailable(RuntimeError):
     pass
 
 _prediction_lock = Lock()
+_SKILL_NAMES = {"ACCOUNTS": "Comptes", "CARDS": "Cartes bancaires", "CREDIT": "Crédit", "FRAUD": "Fraude"}
 
 def state_to_observation(state: WorkforceState) -> np.ndarray:
     """Même ordre et mêmes unités que CallCenterEnv._get_observation."""
@@ -67,13 +68,18 @@ def decide(state: WorkforceState, strategy: Strategy = "PPO",
     if action_id == 0:
         return WorkforceAction(type="NONE", reason="La policy PPO propose de maintenir l'affectation.")
     target = SKILLS[action_id - 1]
+    if state.queues[target] == 0:
+        return WorkforceAction(type="NONE", reason=(
+            f"La file {_SKILL_NAMES[target]} est vide : le renfort proposé est écarté. "
+            "Les files encore en attente doivent être examinées par un superviseur."
+            if any(state.queues.values()) else "Aucun contact en attente : aucun renfort n’est nécessaire."))
     donor = select_donor(state.queues, state.available, target)
     if donor is None:
         return WorkforceAction(type="NONE",
-                               reason=f"PPO proposes {target}, but no feasible reassignment exists.")
+                               reason=f"La file {_SKILL_NAMES[target]} attend une prise en charge, mais aucun conseiller "
+                                      "n’est disponible dans une autre file pour proposer un transfert.")
     return WorkforceAction(type="REASSIGN", from_pool=donor, to_pool=target,
                            count=1, action_id=action_id,
-                           reason=f"PPO propose de renforcer {target} ({state.queues[target]} clients, "
-                                  f"{state.avg_wait[target]:.0f} s d'attente) depuis {donor}. "
-                                  "Le pool donneur est choisi parmi les pools disponibles "
-                                  "dans le meme ordre fixe que le simulateur.")
+                           reason=f"Renfort proposé pour la file {_SKILL_NAMES[target]} ({state.queues[target]} contacts "
+                                  f"en attente) depuis la file {_SKILL_NAMES[donor]}. "
+                                  "La disponibilité et les compétences du conseiller doivent être confirmées avant validation.")

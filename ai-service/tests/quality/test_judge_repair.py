@@ -72,3 +72,11 @@ def test_une_affirmation_mal_situee_est_ecartee_sans_planter(bad_index):
 
 def test_tous_les_criteres_restent_requis():
     assert set(CODES) == {"relevance", "accuracy", "compliance", "communication", "empathy", "resolution"}
+
+
+@pytest.mark.parametrize('value', [100, 11, -1, True, float('inf')])
+def test_out_of_range_scores_are_never_clamped_to_a_perfect_grade(value):
+    def wrong_scale(data):
+        data['scores']['accuracy'] = value
+    with pytest.raises(ValueError, match='accuracy'):
+        _repair_and_validate_judge_result(_raw(wrong_scale), request())

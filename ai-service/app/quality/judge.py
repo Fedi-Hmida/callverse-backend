@@ -1,7 +1,9 @@
 """Juge qualité (Groq par défaut, Ollama en option) et assemblage déterministe du résultat."""
 import json
 import logging
+import math
 import re
+import time
 from copy import deepcopy
 import httpx
 from pydantic import ValidationError
@@ -44,8 +46,8 @@ def _repair_and_validate_judge_result(raw_content: str, request: QualityRequest)
     if not isinstance(data, dict):
         raise ValueError("Le contenu parsé n'est pas un dictionnaire JSON.")
 
-    # 3. Scores : la forme est réparée (arrondi, bornes 0-10), jamais le fond. Un score absent
-    #    ou illisible rejette l'évaluation : une note inventée (5) passerait pour une vraie note.
+    # Round numeric scores on the configured scale; reject other scales instead
+    # of silently turning e.g. 80/100 into a perfect 10/10.
     from app.contracts.quality import CODES
     raw_scores = data.get("scores")
     if not isinstance(raw_scores, dict):
@@ -54,7 +56,10 @@ def _repair_and_validate_judge_result(raw_content: str, request: QualityRequest)
     for code in CODES:
         val = raw_scores.get(code)
         try:
-            scores[code] = max(0, min(10, int(round(float(val)))))
+            numeric = float(val)
+            if isinstance(val, bool) or not math.isfinite(numeric) or not 0 <= numeric <= 10:
+                raise ValueError("Score outside the configured scale")
+            scores[code] = int(round(numeric))
         except (ValueError, TypeError, OverflowError):
             raise ValueError(f"Score absent ou illisible pour le critère {code}.") from None
     data["scores"] = scores
@@ -149,20 +154,61 @@ def call_judge(request: QualityRequest) -> JudgeResult:
         ask = _ask_ollama
     else:
         raise JudgeUnavailable(f"QUALITY_PROVIDER inconnu : {settings.quality_provider!r} (groq ou ollama).")
-    raw_output = ask(_judge_context(request))
-    if not isinstance(raw_output, str) or not raw_output.strip():
-        raise InvalidJudgeOutput("Le modèle n'a fourni aucun texte d'évaluation.")
-    try:
-        if provider == "groq":
-            data = json.loads(raw_output)
-            if isinstance(data, dict) and isinstance(data.get("evidence"), dict):
-                data["evidence"] = [dict(proof, criterion=code, score=data["scores"][code])
-                                    for code, proof in data["evidence"].items()]
-                raw_output = json.dumps(data, ensure_ascii=False)
-        return _repair_and_validate_judge_result(raw_output, request)
-    except (ValueError, KeyError, TypeError, ValidationError) as exc:
-        logger.warning("Sortie du juge invalide: %s | brut=%s", exc, raw_output)
-        raise InvalidJudgeOutput("Le modèle a produit une évaluation invalide.") from exc
+    context = _judge_context(request)
+    deadline = time.monotonic() + settings.quality_timeout_seconds
+    for attempt in range(2):
+        context["_remaining_timeout"] = max(1, deadline - time.monotonic())
+        try:
+            raw_output = ask(context)
+            if not isinstance(raw_output, str) or not raw_output.strip():
+                raise InvalidJudgeOutput("Le modèle n'a fourni aucun texte d'évaluation.")
+            if provider == "groq":
+                data = json.loads(raw_output)
+                if isinstance(data, dict):
+                    _expand_citations(data, context)
+                if isinstance(data, dict) and isinstance(data.get("evidence"), dict):
+                    data["evidence"] = [dict(proof, criterion=code, score=data["scores"][code])
+                                        for code, proof in data["evidence"].items()]
+                if isinstance(data, dict):
+                    raw_output = json.dumps(data, ensure_ascii=False)
+            result = _repair_and_validate_judge_result(raw_output, request)
+            align_reference_indices(request, result)
+            validate_references(request, result)
+            return result
+        except (ValueError, KeyError, TypeError, ValidationError, InvalidJudgeOutput) as exc:
+            # Regenerate from the original transcript. Never manufacture missing
+            # scores/quotes, or send a rejected generation back as trusted evidence.
+            logger.warning("Invalid quality generation: attempt=%s error_type=%s", attempt + 1, type(exc).__name__)
+            if attempt or deadline - time.monotonic() <= 1:
+                if isinstance(exc, InvalidJudgeOutput):
+                    raise
+                raise InvalidJudgeOutput("Le modèle a produit une évaluation invalide.") from exc
+            context["validation_feedback"] = (
+                "La précédente évaluation était invalide. Recommence depuis les messages originaux. "
+                "Fournis les SIX scores et les SIX preuves : compliance, empathy, communication, "
+                "relevance, resolution, accuracy. Chaque preuve doit citer un extrait exact et "
+                "son message_index. Cite uniquement les documents fournis et les outils réussis. "
+                "N'invente aucune note ni preuve manquante."
+            )
+
+
+def _expand_citations(data: dict, context: dict) -> None:
+    # The model selects a provided quote; local expansion copies that exact text.
+    # Unknown IDs are rejected, never substituted with a convenient fallback.
+    lookup = {item['citation_id']: item for item in context.get('citations', [])}
+    proofs = data.get('evidence', {})
+    items = list(proofs.values()) if isinstance(proofs, dict) else (proofs if isinstance(proofs, list) else [])
+    claims = data.get('claims', [])
+    if not isinstance(claims, list):
+        claims = []
+    for item, claim in [(p, False) for p in items] + [(c, True) for c in claims]:
+        if not isinstance(item, dict) or 'citation_id' not in item:
+            continue
+        citation = lookup.get(item.pop('citation_id'))
+        if not citation or (claim and citation['sender'] != 'ADVISOR'):
+            raise ValueError('Unknown or unauthorized quality citation')
+        item['message_index'] = citation['message_index']
+        item['excerpt' if claim else 'evidence'] = citation['excerpt']
 
 
 def _judge_context(request: QualityRequest) -> dict:
@@ -177,12 +223,15 @@ def _judge_context(request: QualityRequest) -> dict:
         f"{d.doc_id}/{d.chunk_id}" for d in request.source_documents]
     context["citation_candidates"] = [
         {"message_index": i, "sender": message.sender,
-         "excerpts": [message.content] + [
-             part for part in re.split(r"(?<=[.!?])\s+", message.content)
-             if part != message.content]}
+         "excerpts": list(dict.fromkeys(part[:350] for part in
+                        re.split(r"(?<=[.!?])\s+", message.content) if part.strip()))}
         for i, message in enumerate(request.messages)]
     context["advisor_claim_candidates"] = [candidate for candidate in context["citation_candidates"]
                                            if candidate["sender"] == "ADVISOR"]
+    context['citations'] = [
+        {'citation_id': f'm{candidate["message_index"]}q{j}',
+         'message_index': candidate['message_index'], 'sender': candidate['sender'], 'excerpt': excerpt}
+        for candidate in context['citation_candidates'] for j, excerpt in enumerate(candidate['excerpts'])]
     return context
 
 
@@ -192,25 +241,25 @@ def _groq_format(context: dict) -> dict:
     from app.contracts.quality import CODES
     schema = deepcopy(JudgeResult.model_json_schema())
     schema["properties"]["scores"] = {
-        "type": "object", "properties": {code: {"type": "integer"} for code in sorted(CODES)},
+        "type": "object", "properties": {code: {"type": "integer", "minimum": 0, "maximum": 10} for code in sorted(CODES)},
         "required": sorted(CODES), "additionalProperties": False}
-    quotes = list(dict.fromkeys(excerpt[:350]
-        for candidate in context.get("citation_candidates", [])
-        for excerpt in candidate["excerpts"] if excerpt.strip()))
-    # Fixed keys guarantee one genuine model-produced quote for every criterion.
+    citation_ids = [item['citation_id'] for item in context.get('citations', [])]
+    # Fixed keys require a model-selected transcript citation for every criterion.
     proof = {"type": "object", "properties": {
-        "message_index": {"type": "integer"}, "evidence": {"type": "string", **({"enum": quotes} if quotes else {})},
+        "citation_id": {"type": "string", **({"enum": citation_ids} if citation_ids else {})},
         "justification": {"type": "string"}},
-        "required": ["message_index", "evidence", "justification"], "additionalProperties": False}
+        "required": ["citation_id", "justification"], "additionalProperties": False}
+    schema["$defs"]["QualityProof"] = proof
     schema["properties"]["evidence"] = {
-        "type": "object", "properties": {code: deepcopy(proof) for code in sorted(CODES)},
+        "type": "object", "properties": {code: {"$ref": "#/$defs/QualityProof"} for code in sorted(CODES)},
         "required": sorted(CODES), "additionalProperties": False}
     schema["$defs"].pop("CriterionScore", None)
-    advisor_quotes = list(dict.fromkeys(excerpt[:350]
-        for candidate in context.get("advisor_claim_candidates", [])
-        for excerpt in candidate["excerpts"] if excerpt.strip()))
-    if advisor_quotes:
-        schema["$defs"]["ClaimAssessment"]["properties"]["excerpt"]["enum"] = advisor_quotes
+    claim = schema['$defs']['ClaimAssessment']
+    claim['properties'].pop('message_index', None)
+    claim['properties'].pop('excerpt', None)
+    advisor_ids = [item['citation_id'] for item in context.get('citations', []) if item['sender'] == 'ADVISOR']
+    claim['properties']['citation_id'] = {'type': 'string', **({'enum': advisor_ids} if advisor_ids else {})}
+    claim['required'] = ['citation_id', 'status', 'source_keys', 'justification']
     if not context.get("available_source_keys") and not (context.get("advisor_response") or {}).get("tool_calls"):
         schema["$defs"]["ClaimAssessment"]["properties"]["status"]["enum"] = ["UNVERIFIABLE"]
     return {"type": "json_schema", "json_schema": {
@@ -221,19 +270,27 @@ def _ask_groq(context: dict) -> str:
     """Use constrained output on the configured GPT-OSS models, then validate citations locally."""
     response_format = _groq_format(context)
     provider_context = dict(context)
+    remaining_timeout = provider_context.pop("_remaining_timeout", settings.quality_timeout_seconds)
     if response_format["type"] == "json_schema":
         provider_context.pop("output_schema", None)
+        provider_context.pop('citation_candidates', None)
+        provider_context.pop('advisor_claim_candidates', None)
     prompt = SYSTEM_PROMPT
     if response_format["type"] == "json_schema":
         prompt += "\nFormat Groq : evidence est un objet dont les six clés sont les critères. " \
-                  "Chaque valeur contient message_index, evidence et justification. Les notes sont dans scores. " \
+                  "Chaque preuve contient citation_id et justification. Pour les claims, utilise aussi citation_id " \
+                  "au lieu de message_index et excerpt, avec status, source_keys et justification. " \
+                  "Choisis les citation_id dans citations ; les claims citent uniquement sender=ADVISOR. " \
+                  "Les notes sont dans scores. " \
                   "Sans documents ni résultats d'outils, les affirmations factuelles sont UNVERIFIABLE."
     try:
-        with httpx.Client(timeout=httpx.Timeout(settings.quality_timeout_seconds, connect=10.0)) as client:
+        with httpx.Client(timeout=httpx.Timeout(remaining_timeout, connect=min(10.0, remaining_timeout))) as client:
             response = client.post(
                 GROQ_CHAT_URL,
                 headers={"Authorization": f"Bearer {settings.llm_api_key}"},
                 json={"model": settings.quality_groq_model, "temperature": 0,
+                      **({"reasoning_effort": "medium", "max_completion_tokens": 6000}
+                         if settings.quality_groq_model.startswith("openai/gpt-oss-") else {}),
                       "response_format": response_format,
                       "messages": [{"role": "system", "content": prompt},
                                    {"role": "user", "content": json.dumps(provider_context, ensure_ascii=False)}]},
@@ -278,15 +335,17 @@ def _ask_groq(context: dict) -> str:
 
 
 def _ask_ollama(context: dict) -> str:
+    provider_context = dict(context)
+    remaining_timeout = provider_context.pop('_remaining_timeout', settings.quality_timeout_seconds)
     try:
-        with httpx.Client(timeout=httpx.Timeout(settings.quality_timeout_seconds, connect=10.0)) as client:
+        with httpx.Client(timeout=httpx.Timeout(remaining_timeout, connect=min(10.0, remaining_timeout))) as client:
             response = client.post(
                 settings.quality_ollama_url.rstrip("/") + "/api/chat",
                 json={"model": settings.quality_model, "stream": False,
                       "format": JudgeResult.model_json_schema(),
                       "options": {"temperature": 0},
                       "messages": [{"role": "system", "content": SYSTEM_PROMPT},
-                                   {"role": "user", "content": json.dumps(context, ensure_ascii=False)}]},
+                                   {"role": "user", "content": json.dumps(provider_context, ensure_ascii=False)}]},
             )
             response.raise_for_status()
     except httpx.ConnectTimeout as exc:

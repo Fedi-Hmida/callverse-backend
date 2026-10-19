@@ -1,6 +1,7 @@
 package com.callverse.core.domain.services;
 
 import com.callverse.core.domain.enums.ConversationStatus;
+import com.callverse.core.domain.enums.EscalationRaisedBy;
 import com.callverse.core.domain.exceptions.AdvisorUnavailableException;
 import com.callverse.core.domain.exceptions.InvalidStateTransitionException;
 import java.time.Duration;
@@ -62,6 +63,12 @@ public final class ConversationRules {
     /** A customer may write while waiting or being served (ownership rule A10), never once closed. */
     public static boolean acceptsCustomerMessage(ConversationStatus status) {
         return !status.isTerminal();
+    }
+
+    /** The automatic assistant can hand an unassigned contact directly to supervision. */
+    public static boolean acceptsEscalation(ConversationStatus status, EscalationRaisedBy raisedBy) {
+        return status.canTransitionTo(ConversationStatus.ESCALATED)
+                || (status == ConversationStatus.QUEUED && raisedBy == EscalationRaisedBy.AI);
     }
 
     /**

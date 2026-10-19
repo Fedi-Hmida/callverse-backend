@@ -62,7 +62,7 @@ class AdvisorTurnDispatcher {
         try {
             executor.execute(() -> runOneTurn(conversationId));
         } catch (RejectedExecutionException exception) {
-            // Saturated. The message stays pending: the conversation's next event schedules it.
+            // Saturated. The message stays pending; another worker's completion retries it.
             inFlight.remove(conversationId);
             LOG.log(Level.WARNING, "AI Advisor worker rejected for conversation {0}", conversationId);
         }
@@ -85,6 +85,8 @@ class AdvisorTurnDispatcher {
             if (pending.containsKey(conversationId)) {
                 schedule(conversationId);
             }
+            // A rejected contact must not need a second customer message to wake up again.
+            pending.keySet().stream().filter(id -> !id.equals(conversationId)).forEach(this::schedule);
         }
     }
 }

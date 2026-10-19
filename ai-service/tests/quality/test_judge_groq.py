@@ -87,9 +87,34 @@ def test_no_sources_cannot_produce_supported_claims():
 def test_structured_quotes_are_limited_to_actual_conversation_text():
     context = judge._judge_context(request())
     schema = judge._groq_format(context)["json_schema"]["schema"]
-    quotes = schema["properties"]["evidence"]["properties"]["empathy"]["properties"]["evidence"]["enum"]
-    assert quotes
-    assert all(any(quote in message.content for message in request().messages) for quote in quotes)
+    reference = schema["properties"]["evidence"]["properties"]["empathy"]["$ref"]
+    identifiers = schema["$defs"][reference.split('/')[-1]]["properties"]["citation_id"]["enum"]
+    lookup = {c['citation_id']: c for c in context['citations']}
+    assert identifiers
+    assert all(lookup[key]['excerpt'] in request().messages[lookup[key]['message_index']].content for key in identifiers)
+
+
+def test_model_selected_citation_ids_expand_only_to_original_quotes(monkeypatch):
+    data = result().model_dump()
+    context = judge._judge_context(request())
+    advisor = next(c for c in context['citations'] if c['sender'] == 'ADVISOR')
+    data['evidence'] = {e['criterion']: {'citation_id': advisor['citation_id'], 'justification': e['justification']}
+                        for e in data['evidence']}
+    data['claims'] = [{'citation_id': advisor['citation_id'], 'status': 'UNVERIFIABLE',
+                       'source_keys': [], 'justification': 'Contexte absent'}]
+    _use_groq(monkeypatch, lambda _: _groq_answer(json.dumps(data)))
+    output = judge.evaluate(request())
+    assert all(e.evidence == advisor['excerpt'] for e in output.evidence)
+    assert output.claims[0].excerpt == advisor['excerpt']
+
+
+def test_unknown_model_selected_citation_is_never_replaced_by_a_fallback(monkeypatch):
+    data = result().model_dump()
+    data['evidence'] = {e['criterion']: {'citation_id': 'invented', 'justification': e['justification']}
+                        for e in data['evidence']}
+    _use_groq(monkeypatch, lambda _: _groq_answer(json.dumps(data)))
+    with pytest.raises(judge.InvalidJudgeOutput):
+        judge.evaluate(request())
 
 
 def test_groq_sans_cle_refuse_sans_appel(monkeypatch):
@@ -136,3 +161,36 @@ def test_fournisseur_inconnu_refuse(monkeypatch):
     monkeypatch.setattr(judge.settings, "quality_provider", "autre")
     with pytest.raises(judge.JudgeUnavailable, match="QUALITY_PROVIDER"):
         judge.call_judge(request())
+
+
+def test_missing_evidence_is_regenerated_by_the_model_with_original_context(monkeypatch):
+    seen = []
+    incomplete = result().model_dump()
+    incomplete['evidence'] = incomplete['evidence'][:-1]
+
+    def handler(req):
+        body = json.loads(req.content)
+        seen.append(json.loads(body['messages'][1]['content']))
+        return _groq_answer(json.dumps(incomplete) if len(seen) == 1 else result().model_dump_json())
+
+    _use_groq(monkeypatch, handler)
+    output = judge.evaluate(request())
+    assert len(seen) == 2
+    assert len(output.evidence) == 6
+    assert 'validation_feedback' in seen[1]
+    assert seen[0]['messages'] == seen[1]['messages']
+    assert output.scores == result().scores
+
+
+def test_persistently_missing_evidence_is_rejected_without_logging_transcript(monkeypatch, caplog):
+    calls = []
+    incomplete = result().model_dump()
+    incomplete['evidence'] = []
+    def handler(req):
+        calls.append(req)
+        return _groq_answer(json.dumps(incomplete))
+    _use_groq(monkeypatch, handler)
+    with pytest.raises(judge.InvalidJudgeOutput):
+        judge.evaluate(request())
+    assert len(calls) == 2
+    assert request().messages[0].content not in caplog.text

@@ -39,9 +39,12 @@ public final class ConversationAccessPolicy {
 
     /**
      * The sender a caller writes as, decided here and never read from a request (rule A10). Only the
-     * two parties to the conversation write; a supervisor reads.
+     * two parties write; a supervisor can also take over an escalated conversation.
      */
     public static Optional<MessageSender> senderFor(AuthenticatedPrincipal caller, ConversationRecord conversation) {
+        if (caller.role() == UserRole.SUPERVISOR && conversation.status() == ConversationStatus.ESCALATED) {
+            return Optional.of(MessageSender.ADVISOR);
+        }
         if (caller.role() == UserRole.ADVISOR && isAssignedAdvisor(caller, conversation)) {
             return Optional.of(MessageSender.ADVISOR);
         }

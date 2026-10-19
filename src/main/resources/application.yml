@@ -94,8 +94,8 @@ ai:
     agent-read-timeout-seconds: ${AI_AGENT_READ_TIMEOUT_SECONDS:30}
   advisor:
     # OFF (default): live conversations belong to their human advisor.
-    # AUTONOMOUS: the AI answers customer messages until a human advisor writes in that
-    # conversation (human takeover); it never speaks over a person.
+    # AUTONOMOUS: answer every customer turn while the conversation is open,
+    # before assignment and during escalation, until a human replies. OFF disables replies.
     mode: ${AI_ADVISOR_MODE:OFF}
   quality:
     retry:

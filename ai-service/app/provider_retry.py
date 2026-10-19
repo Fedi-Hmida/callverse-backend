@@ -6,6 +6,7 @@ import math
 import re
 import threading
 import time
+import weakref
 from email.utils import parsedate_to_datetime
 from datetime import datetime, timezone
 
@@ -20,6 +21,7 @@ class ProviderRateLimited(RuntimeError):
 
 _cooldowns: dict[str, float] = {}
 _guard = threading.Lock()
+_loop_locks = weakref.WeakKeyDictionary()
 
 
 def retry_after_seconds(error: RateLimitError, fallback: float = 5.0) -> float:
@@ -43,6 +45,18 @@ def retry_after_seconds(error: RateLimitError, fallback: float = 5.0) -> float:
 
 
 async def invoke_with_retry(llm, messages, *, model: str, max_retries: int = 2, max_wait: float = 20):
+    # One in-flight generation per model in this worker. The router's deadline
+    # also bounds queueing; cancellation releases the lock. Keep locks per event
+    # loop so separate test clients/workers never share an asyncio primitive.
+    loop = asyncio.get_running_loop()
+    with _guard:
+        locks = _loop_locks.setdefault(loop, {})
+        lock = locks.setdefault(model, asyncio.Lock())
+    async with lock:
+        return await _invoke_with_retry(llm, messages, model=model, max_retries=max_retries, max_wait=max_wait)
+
+
+async def _invoke_with_retry(llm, messages, *, model: str, max_retries: int, max_wait: float):
     """The router's outer deadline also bounds cooldown waits and all attempts together."""
     for attempt in range(max_retries + 1):
         while True:

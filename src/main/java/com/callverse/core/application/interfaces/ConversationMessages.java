@@ -30,7 +30,9 @@ public interface ConversationMessages {
 
     /**
      * Appends an AI advisor turn if the triggering customer message is still the latest message and
-     * the conversation remains ASSIGNED or ACTIVE. The write takes the conversation row lock, so
+     * the conversation remains open without a human advisor reply. A queued contact stays queued
+     * and an escalation stays open.
+     * The write takes the conversation row lock, so
      * the AI response cannot race a newer turn or an escalation.
      *
      * @return the posted turn, or empty when the conversation has moved on
@@ -52,6 +54,14 @@ public interface ConversationMessages {
      */
     default boolean humanAdvisorHasReplied(UUID conversationId) {
         throw new UnsupportedOperationException("Human takeover is not supported by this adapter");
+    }
+
+    /** Stores the reply and its verifiable decision facts atomically in production. */
+    default Optional<PostedMessage> postExplainedAgentTurn(
+            UUID conversationId, long triggeringCustomerMessageId,
+            AdvisorAgent.AdvisorResponse response, Instant now) {
+        return postAgentTurn(conversationId, triggeringCustomerMessageId, response.reply(),
+                response.sources(), response.toolCalls(), now);
     }
 
     /** The {@code limit} most recent messages, oldest first. */

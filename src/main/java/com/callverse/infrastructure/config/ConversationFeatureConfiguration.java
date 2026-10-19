@@ -34,6 +34,12 @@ import org.springframework.context.annotation.Configuration;
 public class ConversationFeatureConfiguration {
 
     @Bean
+    com.callverse.core.application.features.conversation.queries.GetAiExplanationQueryHandler getAiExplanationQueryHandler(
+            ConversationLifecycle conversations, com.callverse.core.application.interfaces.ConversationAiExplanations explanations) {
+        return new com.callverse.core.application.features.conversation.queries.GetAiExplanationQueryHandler(conversations, explanations);
+    }
+
+    @Bean
     ConversationEvents conversationEvents(
             RealtimeEventPublisher publisher,
             LiveOperations operations,

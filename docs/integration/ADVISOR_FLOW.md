@@ -20,19 +20,26 @@ Client
                                      └─ événement temps réel du message
 ```
 
-Seuls les messages dont l'émetteur est `CUSTOMER` déclenchent ce flux. Les
-conversations doivent être `ASSIGNED` ou `ACTIVE`. Les conversations `QUEUED`
-et `ESCALATED` sont ignorées ; la machine d'états n'est pas modifiée.
+Seuls les messages `CUSTOMER` déclenchent ce flux. En `AUTONOMOUS`, toutes les
+conversations ouvertes sont prises en charge : `QUEUED`, `ASSIGNED`, `ACTIVE` et
+`ESCALATED`. Une réponse IA laisse un contact en attente dans sa file et ne
+supprime pas une escalade. Les conversations terminées restent en lecture seule.
 
-## Mode de l'Advisor et reprise par l'humain
+## Mode de l’Advisor et participation humaine
 
-`ai.advisor.mode` (variable `AI_ADVISOR_MODE`) vaut `OFF` par défaut : une
-conversation en direct appartient à son conseiller humain et rien n'est planifié.
-En `AUTONOMOUS`, l'IA répond aux messages du client **jusqu'à ce qu'un conseiller
-humain écrive** dans la conversation (message `ADVISOR` avec `ai_generated=false`).
-Dès lors l'humain a repris la main et l'IA se tait : le client ne reçoit jamais
-deux réponses. Si l'humain écrit pendant que l'IA réfléchit, son message devient
-le plus récent et la vérification sous verrou abandonne la réponse de l'IA.
+`AI_ADVISOR_MODE=AUTONOMOUS` est activé dans la configuration locale et proposé
+dans `.env.example`. Sans configuration explicite, le backend conserve `OFF`.
+L’IA répond en attente, après affectation et pendant une escalade, jusqu’à la
+première réponse d’un conseiller humain. Lire, affecter ou escalader la demande
+ne l’arrête pas. Après cette réponse humaine, les prochains messages clients sont
+laissés au conseiller. Le verrou vérifie également cette reprise avant d’enregistrer
+une réponse IA : un calcul déjà lancé ne peut pas parler après l’intervention humaine.
+
+Un superviseur peut répondre dans une conversation `ESCALATED`, même sans
+conseiller affecté. Cette réponse est enregistrée comme un message humain
+`ADVISOR`, visible au client, et arrête l’IA comme celle du conseiller affecté.
+Elle ne résout pas l’escalade : la résolution reste une action explicite du superviseur.
+Hors escalade, ses conversations restent en lecture seule.
 
 Si le client envoie un second message pendant qu'un tour est en cours, il n'est
 plus perdu : le message est mis en attente et traité dès la fin du tour en cours,
@@ -89,25 +96,23 @@ exposition reste bloquée en attendant la confirmation de la règle A9.
 Avant d'enregistrer la réponse, le backend reprend le verrou de la conversation
 et vérifie que le client n'a pas envoyé un message plus récent et que l'état
 permet toujours un tour Advisor. Une réponse devenue obsolète est abandonnée.
-Un échec réseau, un délai dépassé, une réponse invalide ou une saturation de
-l'exécuteur est journalisé sans secret ; la conversation reste disponible pour
-un conseiller humain. Aucun échec n'entraîne d'escalade automatique.
+Un échec réseau, un quota fournisseur, un délai dépassé ou une réponse invalide
+produit un message honnête d’indisponibilité et une escalade pour reprise humaine.
+Une saturation de l’exécuteur conserve le message en attente ; la fin d’un autre
+traitement le reprogramme sans exiger un nouvel envoi du client.
+
+Le client affiche une réponse en préparation et relit temporairement le transcript
+en attendant. Cela permet de recevoir la réponse même si le flux WebSocket est
+interrompu, sans recharger la page. Après une attente prolongée, une commande
+permet d’actualiser l’échange.
 
 ## Escalade demandée par l'IA
 
-Quand l'Advisor renvoie `action.type = ESCALATE` (confiance basse ou demande
-explicite), le backend publie d'abord la réponse (« je transmets à un
-superviseur »), ce qui fait passer la conversation de `ASSIGNED` à `ACTIVE`,
-puis lève une **vraie escalade** par le cas d'usage existant, avec
-`raised_by = AI` et la raison fournie (« Escalade demandée par l'assistant IA »
-si absente, 255 caractères au plus). Le superviseur reçoit l'alerte et voit la
-conversation `ESCALATED` dans sa liste. Un refus (conversation déjà résolue ou
-déjà escaladée) est journalisé et laisse la réponse publiée.
-
-C'est le **seul chemin d'escalade** : l'outil `escalate` a été retiré de l'Advisor.
-Escalader par l'outil `/internal` en cours de tour faisait passer la conversation
-en `ESCALATED` avant la réponse, qui était alors abandonnée (le client ne
-recevait rien), ou échouait en 409 au premier tour (`ASSIGNED`).
+Quand l’Advisor renvoie `action.type = ESCALATE`, le backend publie d’abord la
+réponse puis crée une escalade réelle. Un contact `QUEUED` peut être transmis
+directement à la supervision par l’IA, sans inventer une attribution à un
+conseiller. La liste d’attente et les indicateurs sont actualisés. Une escalade
+déjà en attente est réutilisée ; elle n’est pas dupliquée.
 
 ## Données personnelles et délais
 
@@ -139,16 +144,47 @@ superviseur. Chaque résultat d'outil renvoyé au modèle est aussi borné à
 le sont pas. Mesuré sur ce cas : environ 6 960 jetons par message au lieu de
 8 560.
 
-Le compte Groq gratuit plafonne `gpt-oss-120b` à 8 000 jetons par minute, soit
-environ un message client par minute. Au-delà, l'appel attend le quota, dépasse
-l'échéance de 25 s et l'ai-service répond 504 : le message du client est gardé
-et un conseiller humain répond. Pour une démonstration à plusieurs
-conversations, il faut une clé d'offre payante (Dev tier).
+## Modèles et disponibilité
 
-Limites connues : les conversations `QUEUED` ne sont pas traitées, les traces
-ne sont pas exposées (règle A9 non confirmée), le contexte client est réduit
-aux données que le backend connaît déjà, le **nom du client** atteint encore
-le modèle par l'outil `get_customer`, et les libellés de transactions renvoyés
-par `/internal` n'ont que leurs IBAN masqués (cartes, e-mails et téléphones
-non) : les masquer sur cette route les masquerait aussi pour le personnel, une
-décision à prendre en équipe.
+`LLM_LIVE_ADVISOR_MODEL` choisit le modèle des réponses clients automatiques.
+`LLM_SIMULATION_ADVISOR_MODEL` choisit celui des dialogues simulés. Une valeur
+vide conserve `LLM_MODEL_ADVANCED`. La configuration locale sélectionne
+`openai/gpt-oss-20b` pour ces deux parcours, après constat d’un quota bloquant
+sur `openai/gpt-oss-120b`. Le modèle avancé reste configuré et disponible pour
+un choix explicite ultérieur.
+
+Une absence d’appel structuré reçoit une tentative de conclusion avec
+`finalize_response` imposé, sans répéter les outils déjà exécutés. La validation
+de la décision et les contrôles sur les opérations bancaires restent appliqués.
+Une salutation ou un repère de navigation fourni par l’application ne nécessite
+pas de consulter la fiche client.
+
+Les quotas et pannes du fournisseur restent des dépendances externes : aucun
+modèle n’offre une disponibilité absolue. Le service expose un état d’erreur
+contrôlé au lieu d’inventer une réponse réussie.
+
+## Demande humaine, suggestions et explications
+
+Une demande explicite telle que « Je veux un conseiller humain » déclenche une
+escalade déterministe, sans appel au modèle. L’IA continue avant la première
+réponse humaine ; l’escalade et l’affectation ne clôturent pas la discussion.
+
+Le mode AI `PREVIEW`, utilisé par la route Next authentifiée `/api/ai-preview`
+après vérification des droits sur la conversation, permet uniquement les outils
+`get_customer`, `get_transactions`, `check_system_status` et
+`search_knowledge_base`. Les opérations sont refusées avant leur exécution.
+`SIMULATION` garde l’interdiction des outils backend réels. Un outil interdit
+conclut le tour avec une limite explicite plutôt que d’être rappelé en boucle.
+
+Chaque réponse automatique effectivement publiée enregistre une décision
+`CUSTOMER_ADVISOR` dans la transaction du message : conversation, message,
+message déclencheur, intention, confiance déclarée, action demandée, motif et
+latence. Les sources et outils restent attachés au message. Un résultat périmé
+ou empêché par une intervention humaine ne crée pas d’explication de réponse envoyée.
+
+`GET /api/v1/conversations/{id}/messages/{messageId}/explanation` est réservé
+au conseiller affecté, au superviseur et à l’administrateur. Le client reçoit
+403 ; un conseiller étranger à la conversation reçoit 404. Les anciens messages
+sans décision n’affichent aucune confiance inventée. Le panneau expose les
+références et le succès des vérifications, sans arguments d’outils, résultats
+bancaires bruts ni raisonnement interne du modèle.

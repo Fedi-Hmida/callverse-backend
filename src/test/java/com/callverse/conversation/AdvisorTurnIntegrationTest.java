@@ -53,6 +53,7 @@ class AdvisorTurnIntegrationTest extends AbstractPersistenceTest {
     @Autowired EntityManager em;
     @Autowired TransactionTemplate tx;
     @Autowired MessageRepository messageRepository;
+    @Autowired com.callverse.core.application.interfaces.ConversationMessages conversationMessages;
 
     private ConversationFixtures fixtures;
 
@@ -103,7 +104,7 @@ class AdvisorTurnIntegrationTest extends AbstractPersistenceTest {
         assertThat(fixtures.reload(conversationId).getStatus()).isEqualTo(ConversationStatus.ACTIVE);
         assertThat(LAST_ADVISOR_REQUEST.get().path("conversation_id").asText()).isEqualTo(conversationId.toString());
         assertThat(LAST_ADVISOR_REQUEST.get().path("message").asText())
-                .isEqualTo("Je ne reconnais pas ce paiement.");
+                .isEqualTo("Pouvez-vous vérifier ce paiement ?");
         assertThat(LAST_ADVISOR_REQUEST.get().path("history").size()).isEqualTo(1);
         assertThat(LAST_ADVISOR_REQUEST.get().path("history").get(0).path("role").asText()).isEqualTo("advisor");
         assertThat(LAST_ADVISOR_REQUEST.get().path("context").path("tenure_months").asInt()).isZero();
@@ -130,25 +131,98 @@ class AdvisorTurnIntegrationTest extends AbstractPersistenceTest {
         assertThat(last.get("content").asText()).isEqualTo("Je vérifie ce paiement.");
         assertThat(last.get("aiGenerated").asBoolean()).isTrue();
         assertThat(transcript.get(transcript.size() - 2).get("aiGenerated").asBoolean()).isFalse();
+
+        var staff = bearer(tokenForExistingAccount(advisorUserId, "assigned@accounts.test", UserRole.ADVISOR));
+        JsonNode explanation = objectMapper.readTree(mockMvc.perform(
+                org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .get("/api/v1/conversations/{id}/messages/{messageId}/explanation", conversationId, aiTurn.getId()).with(staff))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8));
+        assertThat(explanation.path("intent").asText()).isEqualTo("CARD");
+        assertThat(explanation.path("confidence").asDouble()).isEqualTo(.9);
+        assertThat(explanation.path("sources").get(0).path("articleId").asText()).isEqualTo("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        assertThat(explanation.path("checks").get(0).path("tool").asText()).isEqualTo("get_transactions");
+        assertThat(explanation.path("checks").get(0).path("ok").asBoolean()).isTrue();
+        assertThat(explanation.toString()).doesNotContain("result_summary", "args");
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                .get("/api/v1/conversations/{id}/messages/{messageId}/explanation", conversationId, customerMessage.path("id").asLong()).with(staff))
+                .andExpect(status().isNotFound());
+        long oldId = transcript.get(0).path("id").asLong();
+        JsonNode legacy = objectMapper.readTree(mockMvc.perform(
+                org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .get("/api/v1/conversations/{id}/messages/{messageId}/explanation", conversationId, oldId).with(staff))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8));
+        assertThat(legacy.path("decisionRecorded").asBoolean()).isFalse();
+        assertThat(legacy.path("confidence").isNull()).isTrue();
     }
 
-    @Test
-    void aiStaysSilentOnceTheHumanAdvisorHasWritten() throws Exception {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = ConversationStatus.class, names = {"ACTIVE", "ESCALATED"})
+    void aiStopsAfterTheHumanAdvisorHasWritten(ConversationStatus state) throws Exception {
         String skill = fixtures.skill(60);
         UUID customerUserId = fixtures.user(UserRole.CUSTOMER);
         UUID customerId = fixtures.customer(customerUserId, ChurnRisk.LOW, CustomerSegment.MASS);
         UUID advisorId = fixtures.advisor(fixtures.user(UserRole.ADVISOR), 1, skill);
         Instant queuedAt = Instant.now().minusSeconds(60);
         UUID conversationId = fixtures.conversation(
-                customerId, skill, ConversationStatus.ACTIVE, "0", queuedAt, advisorId, null);
+                customerId, skill, state, "0", queuedAt, advisorId, null);
         fixtures.message(conversationId, MessageSender.ADVISOR, "Bonjour, Karim ici.", queuedAt.plusSeconds(11));
 
         mockMvc.perform(customerMessage(conversationId, customerUserId, "customer-takeover-test"))
                 .andExpect(status().isCreated());
 
-        // Long enough for an AI turn to land if one had been scheduled (the first test sees it in ms).
-        assertThat(awaitAiTurn(conversationId, queuedAt, java.time.Duration.ofMillis(1500))).isEmpty();
-        assertThat(LAST_ADVISOR_REQUEST.get()).as("the AI service was never called").isNull();
+        assertThat(awaitAiTurn(conversationId, queuedAt)).isEmpty();
+        assertThat(LAST_ADVISOR_REQUEST.get()).isNull();
+    }
+
+    @Test
+    void pendingAiWriteIsRefusedAfterHumanTakeoverEvenWhenTheCustomerWritesAgain() {
+        String skill = fixtures.skill(60);
+        UUID customerId = fixtures.customer();
+        UUID advisorId = fixtures.advisor(fixtures.user(UserRole.ADVISOR), 1, skill);
+        Instant now = Instant.now();
+        UUID conversationId = fixtures.conversation(
+                customerId, skill, ConversationStatus.ESCALATED, "0", now.minusSeconds(60), advisorId, null);
+        fixtures.message(conversationId, MessageSender.ADVISOR, "Je prends le relais.", now.minusSeconds(2));
+        fixtures.message(conversationId, MessageSender.CUSTOMER, "Merci, voici les détails.", now.minusSeconds(1));
+        long latestId = conversationMessages.recent(conversationId, 1).getFirst().id();
+
+        assertThat(conversationMessages.postAgentTurn(
+                conversationId, latestId, "Réponse IA tardive", List.of(), List.of(), now)).isEmpty();
+        assertThat(conversationMessages.recent(conversationId, 10)).hasSize(2);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = ConversationStatus.class, names = {"QUEUED", "ESCALATED"})
+    void aiAnswersOpenContactsWithoutChangingTheirRoutingState(ConversationStatus state) throws Exception {
+        String skill = fixtures.skill(60);
+        UUID customerUserId = fixtures.user(UserRole.CUSTOMER);
+        UUID customerId = fixtures.customer(customerUserId, ChurnRisk.LOW, CustomerSegment.MASS);
+        Instant queuedAt = Instant.now().minusSeconds(60);
+        UUID conversationId = fixtures.conversation(customerId, skill, state, "0", queuedAt, null, null);
+        mockMvc.perform(customerMessage(conversationId, customerUserId, "open-ai-contact"))
+                .andExpect(status().isCreated());
+        assertThat(awaitAiTurn(conversationId, queuedAt)).singleElement()
+                .satisfies(message -> assertThat(message.isAiGenerated()).isTrue());
+        assertThat(fixtures.reload(conversationId).getStatus()).isEqualTo(state);
+        assertThat(fixtures.reload(conversationId).getAdvisor()).isNull();
+    }
+
+    @Test
+    void queuedFraudContactIsEscalatedWithoutNeedingAnAdvisor() throws Exception {
+        String skill = fixtures.skill(60);
+        UUID customerUserId = fixtures.user(UserRole.CUSTOMER);
+        UUID customerId = fixtures.customer(customerUserId, ChurnRisk.LOW, CustomerSegment.MASS);
+        Instant queuedAt = Instant.now().minusSeconds(60);
+        UUID conversationId = fixtures.conversation(customerId, skill, ConversationStatus.QUEUED, "0", queuedAt, null, null);
+        mockMvc.perform(customerMessage(conversationId, customerUserId, "queued-fraud", "Je ne reconnais pas ce paiement."))
+                .andExpect(status().isCreated());
+        long deadline = System.nanoTime() + java.time.Duration.ofSeconds(10).toNanos();
+        while (System.nanoTime() < deadline && fixtures.reload(conversationId).getStatus() != ConversationStatus.ESCALATED) Thread.sleep(25);
+        assertThat(fixtures.reload(conversationId).getStatus()).isEqualTo(ConversationStatus.ESCALATED);
+        assertThat(awaitAiTurn(conversationId, queuedAt)).hasSize(1);
+        Object count = tx.execute(status -> em.createNativeQuery("select count(*) from escalation where conversation_id=:id and status='PENDING'")
+                .setParameter("id", conversationId).getSingleResult());
+        assertThat(((Number) count).intValue()).isEqualTo(1);
     }
 
     @Test
@@ -176,13 +250,90 @@ class AdvisorTurnIntegrationTest extends AbstractPersistenceTest {
                         "select raised_by, reason, status from escalation where conversation_id = :id")
                 .setParameter("id", conversationId)
                 .getSingleResult());
-        assertThat(escalation).containsExactly("AI", "Le client demande un superviseur", "PENDING");
+        assertThat(escalation).containsExactly("AI", "Reprise humaine demandée par le client", "PENDING");
+        assertThat(LAST_ADVISOR_REQUEST.get()).as("handover must not depend on a provider").isNull();
         assertThat(awaitAiTurn(conversationId, queuedAt)).as("the reply is posted before escalating").hasSize(1);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"Je ne reconnais pas ce paiement.", "quota-test"})
+    void fraudAndUnavailableProviderPersistAHumanHandover(String content) throws Exception {
+        String skill = fixtures.skill(60);
+        UUID customerUserId = fixtures.user(UserRole.CUSTOMER);
+        UUID customerId = fixtures.customer(customerUserId, ChurnRisk.LOW, CustomerSegment.MASS);
+        UUID advisorId = fixtures.advisor(fixtures.user(UserRole.ADVISOR), 1, skill);
+        Instant queuedAt = Instant.now().minusSeconds(60);
+        UUID conversationId = fixtures.conversation(
+                customerId, skill, ConversationStatus.ASSIGNED, "0", queuedAt, advisorId, null);
+        mockMvc.perform(customerMessage(conversationId, customerUserId, "safety-test", content))
+                .andExpect(status().isCreated());
+        long deadline = System.nanoTime() + java.time.Duration.ofSeconds(10).toNanos();
+        while (System.nanoTime() < deadline
+                && fixtures.reload(conversationId).getStatus() != ConversationStatus.ESCALATED) {
+            Thread.sleep(25);
+        }
+        assertThat(fixtures.reload(conversationId).getStatus()).isEqualTo(ConversationStatus.ESCALATED);
+        List<Message> turns = awaitAiTurn(conversationId, queuedAt);
+        assertThat(turns).hasSize(1);
+        if (content.equals("quota-test")) {
+            assertThat(turns.getFirst().getContent()).contains("temporairement indisponible");
+            assertThat(LAST_ADVISOR_REQUEST.get()).isNotNull();
+        } else {
+            assertThat(turns.getFirst().getContent()).contains("Aucun blocage");
+            assertThat(LAST_ADVISOR_REQUEST.get()).isNull();
+        }
+        Object[] record = tx.execute(status -> (Object[]) em.createNativeQuery(
+                        "select raised_by,status from escalation where conversation_id=:id")
+                .setParameter("id", conversationId).getSingleResult());
+        assertThat(record).containsExactly("AI", "PENDING");
+    }
+
+    @Test
+    void explicitHumanRequestFromQueuePersistsExplanationAndKeepsAiAvailableUntilHumanReply() throws Exception {
+        String skill = fixtures.skill(60);
+        UUID user = fixtures.user(UserRole.CUSTOMER);
+        UUID customer = fixtures.customer(user, ChurnRisk.LOW, CustomerSegment.MASS);
+        Instant before = Instant.now().minusSeconds(60);
+        UUID id = fixtures.conversation(customer, skill, ConversationStatus.QUEUED, "0", before, null, null);
+        mockMvc.perform(customerMessage(id, user, "request-human", "Je veux un conseiller humain svp"))
+                .andExpect(status().isCreated());
+        Message first = awaitAiTurn(id, before).getFirst();
+        long deadline = System.nanoTime() + java.time.Duration.ofSeconds(10).toNanos();
+        while (fixtures.reload(id).getStatus() != ConversationStatus.ESCALATED && System.nanoTime() < deadline) Thread.sleep(25);
+        assertThat(fixtures.reload(id).getStatus()).isEqualTo(ConversationStatus.ESCALATED);
+        assertThat(first.getContent()).contains("Je reste disponible");
+        assertThat(LAST_ADVISOR_REQUEST.get()).isNull();
+
+        String path = "/api/v1/conversations/" + id + "/messages/" + first.getId() + "/explanation";
+        var get = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(path);
+        mockMvc.perform(get.with(bearer(tokenForExistingAccount(user, "owner@accounts.test", UserRole.CUSTOMER))))
+                .andExpect(status().isForbidden());
+        UUID supervisor = fixtures.user(UserRole.SUPERVISOR);
+        var staff = bearer(tokenForExistingAccount(supervisor, "supervisor@accounts.test", UserRole.SUPERVISOR));
+        JsonNode explanation = objectMapper.readTree(mockMvc.perform(
+                org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(path).with(staff))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8));
+        assertThat(explanation.path("decisionRecorded").asBoolean()).isTrue();
+        assertThat(explanation.path("reason").asText()).isEqualTo("Reprise humaine demandée par le client");
+        assertThat(explanation.path("action").asText()).isEqualTo("ESCALATE");
+        assertThat(explanation.path("checks").size()).isZero();
+        UUID outsider = fixtures.user(UserRole.ADVISOR);
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(path)
+                .with(bearer(tokenForExistingAccount(outsider, "outsider@accounts.test", UserRole.ADVISOR))))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                .get("/api/v1/conversations/" + UUID.randomUUID() + "/messages/" + first.getId() + "/explanation").with(staff))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(customerMessage(id, user, "request-human", "Puis-je préciser ma demande ?"))
+                .andExpect(status().isCreated());
+        assertThat(awaitAiTurn(id, first.getSentAt())).hasSize(1);
+        assertThat(fixtures.reload(id).getStatus()).isEqualTo(ConversationStatus.ESCALATED);
     }
 
     private MockHttpServletRequestBuilder customerMessage(UUID conversationId, UUID customerUserId, String login)
             throws Exception {
-        return customerMessage(conversationId, customerUserId, login, "Je ne reconnais pas ce paiement.");
+        return customerMessage(conversationId, customerUserId, login, "Pouvez-vous vérifier ce paiement ?");
     }
 
     private MockHttpServletRequestBuilder customerMessage(
@@ -226,6 +377,11 @@ class AdvisorTurnIntegrationTest extends AbstractPersistenceTest {
                 ObjectMapper mapper = new ObjectMapper();
                 JsonNode request = mapper.readTree(requestBody);
                 LAST_ADVISOR_REQUEST.set(request);
+                if (request.path("message").asText().equals("quota-test")) {
+                    exchange.sendResponseHeaders(429, -1);
+                    exchange.close();
+                    return;
+                }
                 // A customer asking for a supervisor gets the Advisor's ESCALATE action.
                 String action = request.path("message").asText().contains("superviseur")
                         ? "{\"type\":\"ESCALATE\",\"payload\":{\"reason\":\"Le client demande un superviseur\"}}"
@@ -233,7 +389,7 @@ class AdvisorTurnIntegrationTest extends AbstractPersistenceTest {
                 byte[] response = """
                         {
                           "reply": "Je vérifie ce paiement.",
-                          "intent": "FRAUD",
+                          "intent": "CARD",
                           "confidence": 0.9,
                           "tool_calls": [
                             {"tool":"get_transactions","args":{"limit":5},"result_summary":"5 transactions","ok":true}

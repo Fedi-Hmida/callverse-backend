@@ -19,8 +19,8 @@ import java.util.Objects;
  *
  * <p>Serves {@code POST /api/v1/conversations/{id}/messages}. Only the two parties write: the
  * assigned advisor as ADVISOR, the owning customer as CUSTOMER (rule A10: the sender is never read
- * from the request). Anyone who may not read the conversation is answered 404; a supervisor, who
- * may read it, is answered 403. The advisor's first message engages the conversation
+ * from the request). A supervisor can write as ADVISOR in an ESCALATED conversation, including
+ * an unassigned AI escalation. Anyone who may not read it is answered 404. The advisor's first message engages the conversation
  * (ASSIGNED → ACTIVE). Closed conversations accept nothing (409 {@code INVALID_STATE_TRANSITION}).
  *
  * <p>An advisor keeps writing after escalating: the customer is still on the line while the
@@ -55,7 +55,7 @@ public class PostMessageCommandHandler {
                 .orElseThrow(() -> new ResourceNotFoundException("Conversation", command.conversationId()));
         MessageSender sender = ConversationAccessPolicy.senderFor(command.caller(), conversation)
                 .orElseThrow(() -> new ActionNotPermittedException(
-                        "Only the customer and the assigned advisor write in a conversation."));
+                        "Only the customer, assigned advisor or a supervisor handling an escalation may write."));
 
         PostedMessage posted = messages.post(conversation.id(), sender, content, clock.instant());
         events.messagePosted(posted);

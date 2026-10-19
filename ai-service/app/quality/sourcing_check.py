@@ -60,8 +60,8 @@ def validate_references(request: QualityRequest, result: JudgeResult) -> None:
             raise ValueError("L'extrait doit contenir du texte vérifiable.")
         if normalized_excerpt not in _normalize(request.messages[item.message_index].content):
             logging.getLogger(__name__).warning(
-                "Extrait refuse: message_index=%s extrait=%r message=%r",
-                item.message_index, excerpt, request.messages[item.message_index].content)
+                "Quality quote rejected: message_index=%s",
+                item.message_index)
             raise ValueError("L'extrait ne figure pas dans le message cité.")
     available = {f"{d.doc_id}/{d.chunk_id}" for d in request.source_documents}
     for claim in result.claims:
